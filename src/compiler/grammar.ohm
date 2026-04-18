@@ -1,0 +1,129 @@
+R1Quest {
+  Program
+    = Statement*
+
+  Statement
+    = Url
+    | Authorization
+    | Header
+    | Body
+
+  Url
+    = "url" string
+
+  Authorization
+    = authorizationKeyword authScheme authCredentials
+
+  authorizationKeyword
+    = "authorization"
+    | "auth"
+
+  authScheme
+    = httpToken
+
+  authCredentials
+    = (~lineTerminator any)+
+
+  httpToken
+    = httpTokenChar+
+
+  httpTokenChar
+    = alnum
+    | "!"
+    | "#"
+    | "$"
+    | "%"
+    | "&"
+    | "'"
+    | "*"
+    | "+"
+    | "-"
+    | "."
+    | "^"
+    | "_"
+    | "`"
+    | "|"
+    | "~"
+
+  Header
+    = "header" identifier "," headerValue
+
+  Body
+    = "body" Object
+
+  Object
+    = "{" Pair* "}"
+
+  Pair
+    = Key ":" Value
+
+  Key
+    = identifier
+    | string
+
+  Value
+    = Object
+    | Array
+    | string
+    | number
+    | boolean
+    | null
+
+  Array
+    = "[" listOf<Value, ","> "]"
+
+  headerValue
+    = string
+    | number
+    | boolean
+    | null
+    | bareHeaderValue
+
+  bareHeaderValue
+    = (~lineTerminator any)+
+
+  boolean
+    = "true"
+    | "false"
+
+  null
+    = "null"
+
+  number
+    = "-"? digit+ ("." digit+)?
+
+  string
+    = "\"" stringChar* "\""
+
+  stringChar
+    = escape
+    | ~("\"" | "\\") any
+
+  escape
+    = "\\" ("\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t")
+
+  identifier
+    = ~keyword letter identifierPart*
+
+  identifierPart
+    = alnum
+    | "_"
+    | "-"
+
+  keyword
+    = "header" ~identifierPart
+    | "authorization" ~identifierPart
+    | "auth" ~identifierPart
+    | "url" ~identifierPart
+    | "body" ~identifierPart
+
+  lineTerminator
+    = "\r\n"
+    | "\n"
+    | "\r"
+
+  space
+    += " "
+    | "\t"
+    | lineTerminator
+}

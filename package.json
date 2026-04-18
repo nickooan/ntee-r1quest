@@ -1,0 +1,15 @@
+{
+  "name": "ntee-r1quest",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "ohm-js": "^17.5.0"
+  }
+}
