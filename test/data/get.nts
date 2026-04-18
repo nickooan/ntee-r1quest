@@ -1,0 +1,5 @@
+url "https://ntee.io"
+type get
+
+header accept, application/json
+auth bearer test-token

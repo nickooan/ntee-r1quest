@@ -1,0 +1,9 @@
+url "https://ntee.io"
+type put
+
+header content-type, application/json
+auth bearer test-token
+
+body {
+  name: "r1quest-updated"
+}
