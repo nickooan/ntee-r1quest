@@ -10,6 +10,7 @@ export type ScopeValue =
 
 export interface ScopeObject {
   url?: string;
+  method?: string;
   headers: Record<string, string | number | boolean | null>;
   body?: { [key: string]: ScopeValue };
 }
@@ -38,6 +39,10 @@ export const semantics = grammar
 
     Url(_url, value) {
       this.args.scopeObject.url = value.toValue();
+    },
+
+    Type(_type, method) {
+      this.args.scopeObject.method = method.sourceString;
     },
 
     Authorization(_keyword, scheme, credentials) {

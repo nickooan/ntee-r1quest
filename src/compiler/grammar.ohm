@@ -4,12 +4,19 @@ R1Quest {
 
   Statement
     = Url
+    | Type
     | Authorization
     | Header
     | Body
 
   Url
     = "url" string
+
+  Type
+    = "type" httpMethod
+
+  httpMethod
+    = httpToken
 
   Authorization
     = authorizationKeyword authScheme authCredentials
@@ -115,6 +122,7 @@ R1Quest {
     | "authorization" ~identifierPart
     | "auth" ~identifierPart
     | "url" ~identifierPart
+    | "type" ~identifierPart
     | "body" ~identifierPart
 
   lineTerminator

@@ -5,6 +5,8 @@ describe("lexer grammar", () => {
   test("matches a valid request document", () => {
     const input = `url "http://www.123.com/"
 
+type patch
+
 header name, value
 header name1, value2
 authorization basic xxxxxxxx
@@ -22,6 +24,22 @@ body {
 }`;
 
     expect(grammar.match(input).succeeded()).toBe(true);
+  });
+
+  test("matches all standard HTTP request methods", () => {
+    for (const method of [
+      "get",
+      "head",
+      "post",
+      "put",
+      "delete",
+      "connect",
+      "options",
+      "trace",
+      "patch",
+    ]) {
+      expect(grammar.match(`type ${method}`).succeeded()).toBe(true);
+    }
   });
 
   test("rejects an invalid request document", () => {

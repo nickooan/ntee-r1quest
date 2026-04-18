@@ -5,6 +5,8 @@ describe("compiler semantics", () => {
   test("compiles a valid request document into a scope object", () => {
     const input = `url "http://www.123.com/"
 
+type post
+
 header name, value
 header name1, value2
 auth basic xxxxxxxx
@@ -22,6 +24,7 @@ body {
 
     expect(compile(input)).toEqual({
       url: "http://www.123.com/",
+      method: "post",
       headers: {
         name: "value",
         name1: "value2",
