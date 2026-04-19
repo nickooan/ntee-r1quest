@@ -172,6 +172,25 @@ header quoted, "asdgjklasjdklf"`;
     });
   });
 
+  test("compiles multiline quoted strings in body values", () => {
+    const input = `ref test/data/user.ntd
+
+body {
+  description: "my age is $i.age
+another line asdf, asdg
+and some how bla balbal
+"
+}`;
+
+    expect(compile(input)).toEqual({
+      headers: {},
+      body: {
+        description:
+          "my age is 2\nanother line asdf, asdg\nand some how bla balbal\n",
+      },
+    });
+  });
+
   test("compiles macro values from the intermediate object", () => {
     const input = `ref test/data/user.ntd
 

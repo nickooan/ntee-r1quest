@@ -111,6 +111,17 @@ ref user.ntd`;
     expect(scriptGrammar.match(input).succeeded()).toBe(true);
   });
 
+  test("matches multiline quoted strings in body values", () => {
+    const input = `body {
+  description: "my age is $i.age
+another line asdf, asdg
+and some how bla balbal
+"
+}`;
+
+    expect(scriptGrammar.match(input).succeeded()).toBe(true);
+  });
+
   test("matches macro values in headers auth and body", () => {
     const input = `header content-type, $i.content-type
 header contentType, $i.contentType

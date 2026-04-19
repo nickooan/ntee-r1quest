@@ -154,9 +154,9 @@ export const semantics = scriptGrammar
     },
 
     string(_open, _chars, _close) {
-      // sourceString includes quotes and escapes; JSON.parse returns the actual string value.
+      // sourceString includes quotes, escapes, and may include raw newlines.
       return interpolateMacros(
-        JSON.parse(this.sourceString),
+        parseQuotedString(this.sourceString),
         this.args.intermediateObject,
       )
     },
@@ -195,8 +195,8 @@ export const semantics = scriptGrammar
     },
 
     string(_open, _chars, _close) {
-      // sourceString includes quotes and escapes; JSON.parse returns the actual string value.
-      return JSON.parse(this.sourceString)
+      // sourceString includes quotes, escapes, and may include raw newlines.
+      return parseQuotedString(this.sourceString)
     },
   })
   .addOperation<HeaderValue>("toHeaderValue(intermediateObject)", {
@@ -222,9 +222,9 @@ export const semantics = scriptGrammar
     },
 
     string(_open, _chars, _close) {
-      // sourceString includes quotes and escapes; JSON.parse returns the actual string value.
+      // sourceString includes quotes, escapes, and may include raw newlines.
       return interpolateMacros(
-        JSON.parse(this.sourceString),
+        parseQuotedString(this.sourceString),
         this.args.intermediateObject,
       )
     },
@@ -280,8 +280,8 @@ export const definitionSemantics = definitionGrammar
     },
 
     string(_open, _chars, _close) {
-      // sourceString includes quotes and escapes; JSON.parse returns the actual string value.
-      return JSON.parse(this.sourceString)
+      // sourceString includes quotes, escapes, and may include raw newlines.
+      return parseQuotedString(this.sourceString)
     },
 
     bareString(_) {
@@ -310,8 +310,8 @@ export const definitionSemantics = definitionGrammar
     },
 
     string(_open, _chars, _close) {
-      // sourceString includes quotes and escapes; JSON.parse returns the actual string value.
-      return JSON.parse(this.sourceString)
+      // sourceString includes quotes, escapes, and may include raw newlines.
+      return parseQuotedString(this.sourceString)
     },
   })
 
@@ -352,6 +352,12 @@ function resolveMacro(
   }
 
   return value
+}
+
+function parseQuotedString(source: string): string {
+  return JSON.parse(
+    source.replace(/\r\n/g, "\\n").replace(/\n/g, "\\n").replace(/\r/g, "\\r"),
+  )
 }
 
 function interpolateMacros(
