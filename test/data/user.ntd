@@ -1,0 +1,16 @@
+spid: xxx-xxx-xxxx
+authToken: xxxxasdfasdf
+trace-token: asdgjklasjdklf //no double quote, default is string
+off: false //boolean
+off2: "false" // with double quote explicit string
+age: 2 //number
+
+arr1: ["name", "weight", "xx", 1, true] //array
+arr2: [name, weight, xx, "1", "true"] // all these contents inside will be string
+content: {
+  sub-content: "xyz"
+  sub-content-2: zyx //string
+  sub-array: ["x", "yz", "zz"]
+  sub-number: 2
+  sub-boolean: false
+}

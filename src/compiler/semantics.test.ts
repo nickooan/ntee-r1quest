@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { compile } from "./semantics.ts";
+import { buildItermediateObject, compile } from "./semantics.ts";
 
 describe("compiler semantics", () => {
   test("compiles a valid request document into a scope object", () => {
-    const input = `url "http://www.123.com/"
+    const input = `ref test/data/user.ntd
+
+url "http://www.123.com/"
 
 type post
 
@@ -39,6 +41,26 @@ body {
         version: 2.3,
         support: [1, 2, 3],
         author: ["a", "b", "c"],
+      },
+    });
+  });
+
+  test("builds an intermediate object from a definition ref", () => {
+    expect(buildItermediateObject("test/data/user.ntd", {})).toEqual({
+      spid: "xxx-xxx-xxxx",
+      authToken: "xxxxasdfasdf",
+      "trace-token": "asdgjklasjdklf",
+      off: false,
+      off2: "false",
+      age: 2,
+      arr1: ["name", "weight", "xx", 1, true],
+      arr2: ["name", "weight", "xx", "1", "true"],
+      content: {
+        "sub-content": "xyz",
+        "sub-content-2": "zyx",
+        "sub-array": ["x", "yz", "zz"],
+        "sub-number": 2,
+        "sub-boolean": false,
       },
     });
   });

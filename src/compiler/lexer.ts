@@ -10,5 +10,3 @@ export const definitionGrammarSource = await Bun.file(
 
 export const scriptGrammar = Ohm.grammar(scriptGrammarSource);
 export const definitionGrammar = Ohm.grammar(definitionGrammarSource);
-
-export default scriptGrammar;

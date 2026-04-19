@@ -3,11 +3,11 @@ import { definitionGrammar, scriptGrammar } from "./lexer.ts";
 
 describe("lexer grammar", () => {
   test("matches a valid request document", () => {
-    const input = `url "http://www.123.com/"
+    const input = `ref ../../user.ntd
+
+url "http://www.123.com/"
 
 type patch
-
-ref ../../user.ntd
 
 header name, value
 header name1, value2
@@ -47,6 +47,14 @@ body {
   test("matches ref statements with ntd file paths", () => {
     expect(scriptGrammar.match("ref user.ntd").succeeded()).toBe(true);
     expect(scriptGrammar.match("ref ../../user.ntd").succeeded()).toBe(true);
+  });
+
+  test("rejects ref statements after other script statements", () => {
+    const input = `url "http://www.123.com/"
+
+ref user.ntd`;
+
+    expect(scriptGrammar.match(input).failed()).toBe(true);
   });
 
   test("matches reserved words as object keys", () => {

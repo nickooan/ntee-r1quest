@@ -1,11 +1,10 @@
 R1Quest {
   Program
-    = Statement*
+    = Ref* Statement*
 
   Statement
     = Url
     | Type
-    | Ref
     | Authorization
     | Header
     | Body
