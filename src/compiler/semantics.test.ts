@@ -66,4 +66,49 @@ body {
 
     expect(() => compile(input)).toThrow(SyntaxError);
   });
+
+  test("compiles reserved words as object keys", () => {
+    const input = `body {
+  nameObj: {
+    header: "header"
+    authorization: "authorization"
+    auth: "auth"
+    url: "url"
+    type: "type"
+    ref: "ref"
+    body: {
+      name: "x"
+    }
+  }
+}`;
+
+    expect(compile(input)).toEqual({
+      headers: {},
+      body: {
+        nameObj: {
+          header: "header",
+          authorization: "authorization",
+          auth: "auth",
+          url: "url",
+          type: "type",
+          ref: "ref",
+          body: {
+            name: "x",
+          },
+        },
+      },
+    });
+  });
+
+  test("compiles reserved words as header keys", () => {
+    const input = `header ref, xxx
+header body, yyy`;
+
+    expect(compile(input)).toEqual({
+      headers: {
+        ref: "xxx",
+        body: "yyy",
+      },
+    });
+  });
 });

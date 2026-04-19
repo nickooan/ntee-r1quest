@@ -7,6 +7,8 @@ describe("lexer grammar", () => {
 
 type patch
 
+ref ../../user.ntd
+
 header name, value
 header name1, value2
 authorization basic xxxxxxxx
@@ -39,6 +41,43 @@ body {
       "patch",
     ]) {
       expect(grammar.match(`type ${method}`).succeeded()).toBe(true);
+    }
+  });
+
+  test("matches ref statements with ntd file paths", () => {
+    expect(grammar.match("ref user.ntd").succeeded()).toBe(true);
+    expect(grammar.match("ref ../../user.ntd").succeeded()).toBe(true);
+  });
+
+  test("matches reserved words as object keys", () => {
+    const input = `body {
+  nameObj: {
+    header: "header"
+    authorization: "authorization"
+    auth: "auth"
+    url: "url"
+    type: "type"
+    ref: "ref"
+    body: {
+      name: "x"
+    }
+  }
+}`;
+
+    expect(grammar.match(input).succeeded()).toBe(true);
+  });
+
+  test("matches reserved words as header keys", () => {
+    for (const key of [
+      "header",
+      "authorization",
+      "auth",
+      "url",
+      "type",
+      "ref",
+      "body",
+    ]) {
+      expect(grammar.match(`header ${key}, xxx`).succeeded()).toBe(true);
     }
   });
 

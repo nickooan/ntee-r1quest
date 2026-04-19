@@ -87,6 +87,7 @@ export const semantics = grammar
     },
 
     string(_open, _chars, _close) {
+      // sourceString includes quotes and escapes; JSON.parse returns the actual string value.
       return JSON.parse(this.sourceString);
     },
 
@@ -112,11 +113,12 @@ export const semantics = grammar
       return value.toKey();
     },
 
-    identifier(_first, _rest) {
+    objectKey(_first, _rest) {
       return this.sourceString;
     },
 
     string(_open, _chars, _close) {
+      // sourceString includes quotes and escapes; JSON.parse returns the actual string value.
       return JSON.parse(this.sourceString);
     },
   })
@@ -130,6 +132,7 @@ export const semantics = grammar
     },
 
     string(_open, _chars, _close) {
+      // sourceString includes quotes and escapes; JSON.parse returns the actual string value.
       return JSON.parse(this.sourceString);
     },
 

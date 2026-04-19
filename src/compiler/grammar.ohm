@@ -5,12 +5,29 @@ R1Quest {
   Statement
     = Url
     | Type
+    | Ref
     | Authorization
     | Header
     | Body
 
   Url
     = "url" string
+
+  Ref
+    = "ref" refPath
+
+  refPath
+    = refPathStem ".ntd"
+
+  refPathStem
+    = (~".ntd" refPathChar)+
+
+  refPathChar
+    = alnum
+    | "/"
+    | "."
+    | "-"
+    | "_"
 
   Type
     = "type" httpMethod
@@ -53,7 +70,7 @@ R1Quest {
     | "~"
 
   Header
-    = "header" identifier "," headerValue
+    = "header" objectKey "," headerValue
 
   Body
     = "body" Object
@@ -65,7 +82,7 @@ R1Quest {
     = Key ":" Value
 
   Key
-    = identifier
+    = objectKey
     | string
 
   Value
@@ -110,7 +127,10 @@ R1Quest {
     = "\\" ("\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t")
 
   identifier
-    = ~keyword letter identifierPart*
+    = ~keyword objectKey
+
+  objectKey
+    = letter identifierPart*
 
   identifierPart
     = alnum
@@ -123,6 +143,7 @@ R1Quest {
     | "auth" ~identifierPart
     | "url" ~identifierPart
     | "type" ~identifierPart
+    | "ref" ~identifierPart
     | "body" ~identifierPart
 
   lineTerminator
