@@ -203,4 +203,15 @@ body {
       },
     });
   });
+
+  test("throws when a macro is missing from the intermediate object", () => {
+    const input = `ref test/data/user.ntd
+
+body {
+  missing: $i.missing
+}`;
+
+    expect(() => compile(input)).toThrow(ReferenceError);
+    expect(() => compile(input)).toThrow("Undefined macro: $i.missing");
+  });
 });

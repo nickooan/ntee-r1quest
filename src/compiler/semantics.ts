@@ -327,7 +327,13 @@ function resolveMacro(
     throw new ReferenceError(`Undefined macro: $${operator}.${key}`)
   }
 
-  return intermediateObject[key]
+  const value = intermediateObject[key]
+
+  if (value === undefined) {
+    throw new ReferenceError(`Undefined macro: $${operator}.${key}`)
+  }
+
+  return value
 }
 
 function interpolateMacros(
