@@ -1,12 +1,12 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { execute } from "./request-runner.ts";
 import type { ScopeObject } from "../compiler/semantics.ts";
+import { execute } from "./request-exec.ts";
 
 const server = setupServer();
 
-describe("request runner", () => {
+describe("request exec", () => {
   beforeAll(() => {
     server.listen({
       onUnhandledRequest: "error",

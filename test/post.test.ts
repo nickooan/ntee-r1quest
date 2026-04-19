@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { execute } from "../src/actuator/request-runner.ts";
+import { execute } from "../src/runtime/request-exec.ts";
 import { compileFile } from "../src/compiler/semantics.ts";
 
 const server = setupServer();
