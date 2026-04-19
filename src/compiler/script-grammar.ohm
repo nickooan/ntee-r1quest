@@ -1,13 +1,14 @@
 R1Quest {
   Program
-    = Ref* Statement*
+    = Ref* RequestStatement* HeaderStatement* Body?
 
-  Statement
+  RequestStatement
     = Url
     | Type
-    | Authorization
+
+  HeaderStatement
+    = Authorization
     | Header
-    | Body
 
   Url
     = "url" string

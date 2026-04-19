@@ -31,7 +31,7 @@ type HeaderValue = string | number | boolean | null
 export const semantics = scriptGrammar
   .createSemantics()
   .addOperation("compile(cwd)", {
-    Program(refs, statements) {
+    Program(refs, requestStatements, headerStatements, body) {
       const headersObject: ScopeObject["headers"] = {}
       const intermediateObject: IntermediateObject = {}
       const scopeObject: ScopeObject = {
@@ -42,8 +42,18 @@ export const semantics = scriptGrammar
         ref.buildItermediateObject(intermediateObject, this.args.cwd)
       }
 
-      for (const statement of statements.children) {
+      for (const statement of requestStatements.children) {
         statement.compileStatement(scopeObject, headersObject, intermediateObject)
+      }
+
+      for (const statement of headerStatements.children) {
+        statement.compileStatement(scopeObject, headersObject, intermediateObject)
+      }
+
+      const bodyNode = body.children[0]
+
+      if (bodyNode) {
+        bodyNode.compileStatement(scopeObject, headersObject, intermediateObject)
       }
 
       scopeObject.headers = headersObject
@@ -51,7 +61,15 @@ export const semantics = scriptGrammar
     },
   })
   .addOperation("compileStatement(scopeObject, headersObject, intermediateObject)", {
-    Statement(statement) {
+    RequestStatement(statement) {
+      statement.compileStatement(
+        this.args.scopeObject,
+        this.args.headersObject,
+        this.args.intermediateObject,
+      )
+    },
+
+    HeaderStatement(statement) {
       statement.compileStatement(
         this.args.scopeObject,
         this.args.headersObject,

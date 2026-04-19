@@ -128,6 +128,16 @@ body {
     expect(scriptGrammar.match(input).succeeded()).toBe(true);
   });
 
+  test("rejects headers after body", () => {
+    const input = `body {
+  value: true
+}
+
+header name, value`;
+
+    expect(scriptGrammar.match(input).failed()).toBe(true);
+  });
+
   test("rejects an invalid request document", () => {
     const input = `url "http://www.123.com/"
 
