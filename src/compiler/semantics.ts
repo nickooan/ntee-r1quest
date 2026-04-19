@@ -91,6 +91,10 @@ export const semantics = scriptGrammar
       return JSON.parse(this.sourceString);
     },
 
+    bareString(_) {
+      return this.sourceString.trim();
+    },
+
     number(_sign, _digits, _dot, _fraction) {
       return Number(this.sourceString);
     },

@@ -92,6 +92,7 @@ R1Quest {
     | number
     | boolean
     | null
+    | bareString
 
   Array
     = "[" listOf<Value, ","> "]"
@@ -105,6 +106,18 @@ R1Quest {
 
   bareHeaderValue
     = (~lineTerminator any)+
+
+  bareString
+    = bareStringChar+
+
+  bareStringChar
+    = ~valueTerminator any
+
+  valueTerminator
+    = lineTerminator
+    | ","
+    | "]"
+    | "}"
 
   boolean
     = "true"

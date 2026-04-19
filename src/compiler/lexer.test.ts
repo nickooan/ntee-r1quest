@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { scriptGrammar } from "./lexer.ts";
+import { definitionGrammar, scriptGrammar } from "./lexer.ts";
 
 describe("lexer grammar", () => {
   test("matches a valid request document", () => {
@@ -81,6 +81,28 @@ body {
     }
   });
 
+  test("matches quoted and unquoted strings in header values", () => {
+    expect(scriptGrammar.match("header trace-token, asdgjklasjdklf").succeeded()).toBe(
+      true,
+    );
+    expect(scriptGrammar.match('header trace-token, "asdgjklasjdklf"').succeeded()).toBe(
+      true,
+    );
+  });
+
+  test("matches quoted and unquoted strings in body values", () => {
+    const input = `body {
+  trace-token: asdgjklasjdklf
+  quoted-token: "asdgjklasjdklf"
+  arr2: [name, weight, xx, "1", "true"]
+  content: {
+    sub-content-2: zyx
+  }
+}`;
+
+    expect(scriptGrammar.match(input).succeeded()).toBe(true);
+  });
+
   test("rejects an invalid request document", () => {
     const input = `url "http://www.123.com/"
 
@@ -91,5 +113,28 @@ body {
 }`;
 
     expect(scriptGrammar.match(input).failed()).toBe(true);
+  });
+});
+
+describe("definition lexer grammar", () => {
+  test("matches definition documents with quoted and unquoted strings", () => {
+    const input = `spid: xxx-xxx-xxxx
+authToken: xxxxasdfasdf
+trace-token: asdgjklasjdklf //no double quote, default is string
+off: false //boolean
+off2: "false" // with double quote explicit string
+age: 2 //number
+
+arr1: ["name", "weight", "xx", 1, true] //array
+arr2: [name, weight, xx, "1", "true"] // all these contents inside will be string
+content: {
+  sub-content: "xyz"
+  sub-content-2: zyx //string
+  sub-array: ["x", "yz", "zz"]
+  sub-number: 2
+  sub-boolean: false
+}`;
+
+    expect(definitionGrammar.match(input).succeeded()).toBe(true);
   });
 });

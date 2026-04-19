@@ -111,4 +111,39 @@ header body, yyy`;
       },
     });
   });
+
+  test("compiles quoted and unquoted strings in header values", () => {
+    const input = `header unquoted, asdgjklasjdklf
+header quoted, "asdgjklasjdklf"`;
+
+    expect(compile(input)).toEqual({
+      headers: {
+        unquoted: "asdgjklasjdklf",
+        quoted: "asdgjklasjdklf",
+      },
+    });
+  });
+
+  test("compiles quoted and unquoted strings in body values", () => {
+    const input = `body {
+  trace-token: asdgjklasjdklf
+  quoted-token: "asdgjklasjdklf"
+  arr2: [name, weight, xx, "1", "true"]
+  content: {
+    sub-content-2: zyx
+  }
+}`;
+
+    expect(compile(input)).toEqual({
+      headers: {},
+      body: {
+        "trace-token": "asdgjklasjdklf",
+        "quoted-token": "asdgjklasjdklf",
+        arr2: ["name", "weight", "xx", "1", "true"],
+        content: {
+          "sub-content-2": "zyx",
+        },
+      },
+    });
+  });
 });
