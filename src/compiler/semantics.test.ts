@@ -48,11 +48,14 @@ body {
   test("builds an intermediate object from a definition ref", () => {
     expect(buildItermediateObject("test/data/user.ntd", {})).toEqual({
       spid: "xxx-xxx-xxxx",
+      name: "macro-name",
+      token: "test-token",
       authToken: "xxxxasdfasdf",
       "trace-token": "asdgjklasjdklf",
       off: false,
       off2: "false",
       age: 2,
+      arr: ["macro", 2, false],
       arr1: ["name", "weight", "xx", 1, true],
       arr2: ["name", "weight", "xx", "1", "true"],
       content: {
@@ -165,6 +168,38 @@ header quoted, "asdgjklasjdklf"`;
         content: {
           "sub-content-2": "zyx",
         },
+      },
+    });
+  });
+
+  test("compiles macro values from the intermediate object", () => {
+    const input = `ref test/data/user.ntd
+
+header spid, $i.spid
+header token, $i.token
+auth bearer $i.token
+
+body {
+  name: "r1quest"
+  spid: $i.name
+  description: my age is $i.age
+  off: $i.off //boolean
+
+  arr: $i.arr
+}`;
+
+    expect(compile(input)).toEqual({
+      headers: {
+        spid: "xxx-xxx-xxxx",
+        token: "test-token",
+        authorization: "bearer test-token",
+      },
+      body: {
+        name: "r1quest",
+        spid: "macro-name",
+        description: "my age is 2",
+        off: false,
+        arr: ["macro", 2, false],
       },
     });
   });

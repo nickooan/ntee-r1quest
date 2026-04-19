@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { execute } from "../src/actuator/request-runner.ts";
-import { compile } from "../src/compiler/semantics.ts";
+import { compileFile } from "../src/compiler/semantics.ts";
 
 const server = setupServer();
 
@@ -33,8 +33,7 @@ describe("get request", () => {
       }),
     );
 
-    const input = await Bun.file("test/data/get.nts").text();
-    const scopeObject = compile(input);
+    const scopeObject = compileFile("test/data/get.nts");
     const response = await execute(scopeObject);
 
     expect(response.status).toBe(200);

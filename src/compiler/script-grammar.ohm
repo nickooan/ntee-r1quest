@@ -87,6 +87,7 @@ R1Quest {
   Value
     = Object
     | Array
+    | macro
     | string
     | number
     | boolean
@@ -97,14 +98,19 @@ R1Quest {
     = "[" listOf<Value, ","> "]"
 
   headerValue
-    = string
+    = macro
+    | string
     | number
     | boolean
     | null
     | bareHeaderValue
 
   bareHeaderValue
-    = (~lineTerminator any)+
+    = (~headerValueTerminator any)+
+
+  headerValueTerminator
+    = commentStart
+    | lineTerminator
 
   bareString
     = bareStringChar+
@@ -113,10 +119,20 @@ R1Quest {
     = ~valueTerminator any
 
   valueTerminator
-    = lineTerminator
+    = commentStart
+    | lineTerminator
     | ","
     | "]"
     | "}"
+
+  macro
+    = "$" macroOperator "." macroKey
+
+  macroOperator
+    = "i"
+
+  macroKey
+    = objectKey
 
   boolean
     = "true"
@@ -158,6 +174,12 @@ R1Quest {
     | "ref" ~identifierPart
     | "body" ~identifierPart
 
+  comment
+    = commentStart (~lineTerminator any)*
+
+  commentStart
+    = "//"
+
   lineTerminator
     = "\r\n"
     | "\n"
@@ -167,4 +189,5 @@ R1Quest {
     += " "
     | "\t"
     | lineTerminator
+    | comment
 }

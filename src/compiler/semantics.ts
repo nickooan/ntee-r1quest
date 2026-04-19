@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 import { definitionGrammar, scriptGrammar } from "./lexer.ts"
 
 export type ScopeValue =
@@ -22,9 +22,15 @@ export interface IntermediateObject {
   [key: string]: ScopeValue
 }
 
+export interface CompileOptions {
+  cwd?: string
+}
+
+type HeaderValue = string | number | boolean | null
+
 export const semantics = scriptGrammar
   .createSemantics()
-  .addOperation("compile()", {
+  .addOperation("compile(cwd)", {
     Program(refs, statements) {
       const headersObject: ScopeObject["headers"] = {}
       const intermediateObject: IntermediateObject = {}
@@ -33,24 +39,28 @@ export const semantics = scriptGrammar
       }
 
       for (const ref of refs.children) {
-        ref.buildItermediateObject(intermediateObject)
+        ref.buildItermediateObject(intermediateObject, this.args.cwd)
       }
 
       for (const statement of statements.children) {
-        statement.compileStatement(scopeObject, headersObject)
+        statement.compileStatement(scopeObject, headersObject, intermediateObject)
       }
 
       scopeObject.headers = headersObject
       return scopeObject
     },
   })
-  .addOperation("compileStatement(scopeObject, headersObject)", {
+  .addOperation("compileStatement(scopeObject, headersObject, intermediateObject)", {
     Statement(statement) {
-      statement.compileStatement(this.args.scopeObject, this.args.headersObject)
+      statement.compileStatement(
+        this.args.scopeObject,
+        this.args.headersObject,
+        this.args.intermediateObject,
+      )
     },
 
     Url(_url, value) {
-      this.args.scopeObject.url = value.toValue()
+      this.args.scopeObject.url = value.toValue(this.args.intermediateObject)
     },
 
     Type(_type, method) {
@@ -58,28 +68,38 @@ export const semantics = scriptGrammar
     },
 
     Authorization(_keyword, scheme, credentials) {
-      this.args.headersObject.authorization = `${scheme.sourceString} ${credentials.sourceString.trim()}`
+      this.args.headersObject.authorization =
+        `${scheme.sourceString} ${interpolateMacros(
+          credentials.sourceString.trim(),
+          this.args.intermediateObject,
+        )}`
     },
 
     Header(_header, key, _comma, value) {
-      this.args.headersObject[key.sourceString] = value.toHeaderValue()
+      this.args.headersObject[key.sourceString] = value.toHeaderValue(
+        this.args.intermediateObject,
+      )
     },
 
     Body(_body, value) {
-      this.args.scopeObject.body = value.toValue()
+      this.args.scopeObject.body = value.toValue(this.args.intermediateObject)
     },
   })
-  .addOperation("buildItermediateObject(intermediateObject)", {
+  .addOperation("buildItermediateObject(intermediateObject, cwd)", {
     Ref(_ref, path) {
-      buildItermediateObject(path.sourceString, this.args.intermediateObject)
+      buildItermediateObject(
+        path.sourceString,
+        this.args.intermediateObject,
+        this.args.cwd,
+      )
     },
   })
-  .addOperation<ScopeValue>("toValue()", {
+  .addOperation<ScopeValue>("toValue(intermediateObject)", {
     Object(_open, pairs, _close) {
       const object: { [key: string]: ScopeValue } = {}
 
       for (const pair of pairs.children) {
-        const [key, value] = pair.toPair()
+        const [key, value] = pair.toPair(this.args.intermediateObject)
         object[key] = value
       }
 
@@ -87,7 +107,10 @@ export const semantics = scriptGrammar
     },
 
     Pair(key, _colon, value) {
-      return [key.toKey(), value.toValue()] as [string, ScopeValue]
+      return [key.toKey(), value.toValue(this.args.intermediateObject)] as [
+        string,
+        ScopeValue,
+      ]
     },
 
     Key(value) {
@@ -95,20 +118,36 @@ export const semantics = scriptGrammar
     },
 
     Value(value) {
-      return value.toValue()
+      return value.toValue(this.args.intermediateObject)
     },
 
     Array(_open, values, _close) {
-      return values.asIteration().children.map((value) => value.toValue())
+      return values
+        .asIteration()
+        .children.map((value) => value.toValue(this.args.intermediateObject))
+    },
+
+    macro(_dollar, operator, _dot, key) {
+      return resolveMacro(
+        operator.sourceString,
+        key.sourceString,
+        this.args.intermediateObject,
+      )
     },
 
     string(_open, _chars, _close) {
       // sourceString includes quotes and escapes; JSON.parse returns the actual string value.
-      return JSON.parse(this.sourceString)
+      return interpolateMacros(
+        JSON.parse(this.sourceString),
+        this.args.intermediateObject,
+      )
     },
 
     bareString(_) {
-      return this.sourceString.trim()
+      return interpolateMacros(
+        this.sourceString.trim(),
+        this.args.intermediateObject,
+      )
     },
 
     number(_sign, _digits, _dot, _fraction) {
@@ -123,9 +162,9 @@ export const semantics = scriptGrammar
       return null
     },
   })
-  .addOperation<[string, ScopeValue]>("toPair()", {
+  .addOperation<[string, ScopeValue]>("toPair(intermediateObject)", {
     Pair(key, _colon, value) {
-      return [key.toKey(), value.toValue()]
+      return [key.toKey(), value.toValue(this.args.intermediateObject)]
     },
   })
   .addOperation<string>("toKey()", {
@@ -142,18 +181,34 @@ export const semantics = scriptGrammar
       return JSON.parse(this.sourceString)
     },
   })
-  .addOperation<string | number | boolean | null>("toHeaderValue()", {
+  .addOperation<HeaderValue>("toHeaderValue(intermediateObject)", {
     headerValue(value) {
-      return value.toHeaderValue()
+      return value.toHeaderValue(this.args.intermediateObject)
     },
 
     bareHeaderValue(_) {
-      return this.sourceString.trim()
+      return interpolateMacros(
+        this.sourceString.trim(),
+        this.args.intermediateObject,
+      )
+    },
+
+    macro(_dollar, operator, _dot, key) {
+      return toHeaderValue(
+        resolveMacro(
+          operator.sourceString,
+          key.sourceString,
+          this.args.intermediateObject,
+        ),
+      )
     },
 
     string(_open, _chars, _close) {
       // sourceString includes quotes and escapes; JSON.parse returns the actual string value.
-      return JSON.parse(this.sourceString)
+      return interpolateMacros(
+        JSON.parse(this.sourceString),
+        this.args.intermediateObject,
+      )
     },
 
     number(_sign, _digits, _dot, _fraction) {
@@ -245,8 +300,9 @@ export const definitionSemantics = definitionGrammar
 export function buildItermediateObject(
   refPath: string,
   intermediateObject: IntermediateObject,
+  cwd = process.cwd(),
 ): IntermediateObject {
-  const input = readFileSync(resolve(process.cwd(), refPath), "utf8")
+  const input = readFileSync(resolve(cwd, refPath), "utf8")
   const matchResult = definitionGrammar.match(input)
 
   if (matchResult.failed()) {
@@ -258,12 +314,68 @@ export function buildItermediateObject(
   ) as IntermediateObject
 }
 
-export function compile(input: string): ScopeObject {
+function resolveMacro(
+  operator: string,
+  key: string,
+  intermediateObject: IntermediateObject,
+): ScopeValue {
+  if (operator !== "i") {
+    throw new ReferenceError(`Unsupported macro operator: ${operator}`)
+  }
+
+  if (!(key in intermediateObject)) {
+    throw new ReferenceError(`Undefined macro: $${operator}.${key}`)
+  }
+
+  return intermediateObject[key]
+}
+
+function interpolateMacros(
+  value: string,
+  intermediateObject: IntermediateObject,
+): string {
+  return value.replace(/\$([A-Za-z][A-Za-z0-9_-]*)\.([A-Za-z][A-Za-z0-9_-]*)/g, (
+    source,
+    operator,
+    key,
+  ) => {
+    const resolvedValue = resolveMacro(operator, key, intermediateObject)
+
+    if (resolvedValue === null) {
+      return "null"
+    }
+
+    if (typeof resolvedValue === "object") {
+      return JSON.stringify(resolvedValue)
+    }
+
+    return String(resolvedValue)
+  })
+}
+
+function toHeaderValue(value: ScopeValue): HeaderValue {
+  if (typeof value === "object" && value !== null) {
+    throw new TypeError("Header macro values must resolve to primitive values.")
+  }
+
+  return value
+}
+
+export function compile(input: string, options: CompileOptions = {}): ScopeObject {
   const matchResult = scriptGrammar.match(input)
 
   if (matchResult.failed()) {
     throw new SyntaxError(matchResult.message)
   }
 
-  return semantics(matchResult).compile() as ScopeObject
+  return semantics(matchResult).compile(options.cwd ?? process.cwd()) as ScopeObject
+}
+
+export function compileFile(filePath: string): ScopeObject {
+  const absoluteFilePath = resolve(process.cwd(), filePath)
+  const input = readFileSync(absoluteFilePath, "utf8")
+
+  return compile(input, {
+    cwd: dirname(absoluteFilePath),
+  })
 }

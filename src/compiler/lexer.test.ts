@@ -111,6 +111,23 @@ ref user.ntd`;
     expect(scriptGrammar.match(input).succeeded()).toBe(true);
   });
 
+  test("matches macro values in headers auth and body", () => {
+    const input = `header content-type, $i.content-type
+header contentType, $i.contentType
+auth bearer $i.token
+
+body {
+  name: "r1quest"
+  spid: $i.name
+  description: my age is $i.age
+  off: $i.off //boolean
+
+  arr: $i.arr
+}`;
+
+    expect(scriptGrammar.match(input).succeeded()).toBe(true);
+  });
+
   test("rejects an invalid request document", () => {
     const input = `url "http://www.123.com/"
 

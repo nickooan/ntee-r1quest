@@ -1,9 +1,16 @@
+ref ./user.ntd
+
 url "https://ntee.io"
 type post
 
 header content-type, application/json
-auth bearer test-token
+auth bearer $i.token
 
 body {
   name: "r1quest"
+  spid: $i.name
+  description: my age is $i.age
+  off: $i.off //boolean
+
+  arr: $i.arr
 }

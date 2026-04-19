@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { execute } from "../src/actuator/request-runner.ts";
-import { compile } from "../src/compiler/semantics.ts";
+import { compileFile } from "../src/compiler/semantics.ts";
 
 const server = setupServer();
 
@@ -27,6 +27,10 @@ describe("post request", () => {
         expect(request.headers.get("authorization")).toBe("bearer test-token");
         expect(await request.json()).toEqual({
           name: "r1quest",
+          spid: "macro-name",
+          description: "my age is 2",
+          off: false,
+          arr: ["macro", 2, false],
         });
 
         return HttpResponse.json({
@@ -36,8 +40,7 @@ describe("post request", () => {
       }),
     );
 
-    const input = await Bun.file("test/data/post.nts").text();
-    const scopeObject = compile(input);
+    const scopeObject = compileFile("test/data/post.nts");
     const response = await execute(scopeObject);
 
     expect(response.status).toBe(200);
