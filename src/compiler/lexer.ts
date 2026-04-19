@@ -1,9 +1,9 @@
 import * as Ohm from "ohm-js";
 
-export const grammarSource = await Bun.file(
-  new URL("./grammar.ohm", import.meta.url),
+export const scriptGrammarSource = await Bun.file(
+  new URL("./script-grammar.ohm", import.meta.url),
 ).text();
 
-export const grammar = Ohm.grammar(grammarSource);
+export const scriptGrammar = Ohm.grammar(scriptGrammarSource);
 
-export default grammar;
+export default scriptGrammar;

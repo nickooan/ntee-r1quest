@@ -1,0 +1,84 @@
+R1QuestDefinition {
+  Program
+    = Entry*
+
+  Entry
+    = Key ":" Value
+
+  Key
+    = objectKey
+    | string
+
+  Value
+    = Object
+    | Array
+    | string
+    | number
+    | boolean
+    | null
+    | bareString
+
+  Object
+    = "{" Entry* "}"
+
+  Array
+    = "[" listOf<Value, ","> "]"
+
+  boolean
+    = "true"
+    | "false"
+
+  null
+    = "null"
+
+  number
+    = "-"? digit+ ("." digit+)?
+
+  string
+    = "\"" stringChar* "\""
+
+  stringChar
+    = escape
+    | ~("\"" | "\\") any
+
+  escape
+    = "\\" ("\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t")
+
+  bareString
+    = bareStringChar+
+
+  bareStringChar
+    = ~valueTerminator any
+
+  valueTerminator
+    = commentStart
+    | lineTerminator
+    | ","
+    | "]"
+    | "}"
+
+  objectKey
+    = letter identifierPart*
+
+  identifierPart
+    = alnum
+    | "_"
+    | "-"
+
+  comment
+    = commentStart (~lineTerminator any)*
+
+  commentStart
+    = "//"
+
+  lineTerminator
+    = "\r\n"
+    | "\n"
+    | "\r"
+
+  space
+    += " "
+    | "\t"
+    | lineTerminator
+    | comment
+}

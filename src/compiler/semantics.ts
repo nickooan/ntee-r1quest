@@ -1,4 +1,4 @@
-import { grammar } from "./lexer.ts";
+import { scriptGrammar } from "./lexer.ts";
 
 export type ScopeValue =
   | string
@@ -15,7 +15,7 @@ export interface ScopeObject {
   body?: { [key: string]: ScopeValue };
 }
 
-export const semantics = grammar
+export const semantics = scriptGrammar
   .createSemantics()
   .addOperation("compile()", {
     Program(statements) {
@@ -150,7 +150,7 @@ export const semantics = grammar
   });
 
 export function compile(input: string): ScopeObject {
-  const matchResult = grammar.match(input);
+  const matchResult = scriptGrammar.match(input);
 
   if (matchResult.failed()) {
     throw new SyntaxError(matchResult.message);

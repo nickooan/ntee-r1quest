@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { grammar } from "./lexer.ts";
+import { scriptGrammar } from "./lexer.ts";
 
 describe("lexer grammar", () => {
   test("matches a valid request document", () => {
@@ -25,7 +25,7 @@ body {
   author: ["a", "b", "c"]
 }`;
 
-    expect(grammar.match(input).succeeded()).toBe(true);
+    expect(scriptGrammar.match(input).succeeded()).toBe(true);
   });
 
   test("matches all standard HTTP request methods", () => {
@@ -40,13 +40,13 @@ body {
       "trace",
       "patch",
     ]) {
-      expect(grammar.match(`type ${method}`).succeeded()).toBe(true);
+      expect(scriptGrammar.match(`type ${method}`).succeeded()).toBe(true);
     }
   });
 
   test("matches ref statements with ntd file paths", () => {
-    expect(grammar.match("ref user.ntd").succeeded()).toBe(true);
-    expect(grammar.match("ref ../../user.ntd").succeeded()).toBe(true);
+    expect(scriptGrammar.match("ref user.ntd").succeeded()).toBe(true);
+    expect(scriptGrammar.match("ref ../../user.ntd").succeeded()).toBe(true);
   });
 
   test("matches reserved words as object keys", () => {
@@ -64,7 +64,7 @@ body {
   }
 }`;
 
-    expect(grammar.match(input).succeeded()).toBe(true);
+    expect(scriptGrammar.match(input).succeeded()).toBe(true);
   });
 
   test("matches reserved words as header keys", () => {
@@ -77,7 +77,7 @@ body {
       "ref",
       "body",
     ]) {
-      expect(grammar.match(`header ${key}, xxx`).succeeded()).toBe(true);
+      expect(scriptGrammar.match(`header ${key}, xxx`).succeeded()).toBe(true);
     }
   });
 
@@ -90,6 +90,6 @@ body {
   value: true
 }`;
 
-    expect(grammar.match(input).failed()).toBe(true);
+    expect(scriptGrammar.match(input).failed()).toBe(true);
   });
 });
