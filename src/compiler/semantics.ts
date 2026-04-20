@@ -94,7 +94,7 @@ export const semantics = scriptGrammar
     },
 
     Header(_header, key, _comma, value) {
-      this.args.headersObject[key.sourceString] = value.toHeaderValue(
+      this.args.headersObject[key.sourceString.toLowerCase()] = value.toHeaderValue(
         this.args.intermediateObject,
       )
     },
@@ -315,11 +315,11 @@ export const definitionSemantics = definitionGrammar
     },
   })
 
-export function buildItermediateObject(
+export const buildItermediateObject = (
   refPath: string,
   intermediateObject: IntermediateObject,
   cwd = process.cwd(),
-): IntermediateObject {
+): IntermediateObject => {
   const input = readFileSync(resolve(cwd, refPath), "utf8")
   const matchResult = definitionGrammar.match(input)
 
@@ -332,11 +332,11 @@ export function buildItermediateObject(
   ) as IntermediateObject
 }
 
-function resolveMacro(
+const resolveMacro = (
   operator: string,
   key: string,
   intermediateObject: IntermediateObject,
-): ScopeValue {
+): ScopeValue => {
   if (operator !== "i") {
     throw new ReferenceError(`Unsupported macro operator: ${operator}`)
   }
@@ -354,16 +354,16 @@ function resolveMacro(
   return value
 }
 
-function parseQuotedString(source: string): string {
+const parseQuotedString = (source: string): string => {
   return JSON.parse(
     source.replace(/\r\n/g, "\\n").replace(/\n/g, "\\n").replace(/\r/g, "\\r"),
   )
 }
 
-function interpolateMacros(
+const interpolateMacros = (
   value: string,
   intermediateObject: IntermediateObject,
-): string {
+): string => {
   return value.replace(/\$([A-Za-z][A-Za-z0-9_-]*)\.([A-Za-z][A-Za-z0-9_-]*)/g, (
     source,
     operator,
@@ -383,7 +383,7 @@ function interpolateMacros(
   })
 }
 
-function toHeaderValue(value: ScopeValue): HeaderValue {
+const toHeaderValue = (value: ScopeValue): HeaderValue => {
   if (typeof value === "object" && value !== null) {
     throw new TypeError("Header macro values must resolve to primitive values.")
   }
@@ -391,7 +391,10 @@ function toHeaderValue(value: ScopeValue): HeaderValue {
   return value
 }
 
-export function compile(input: string, options: CompileOptions = {}): ScopeObject {
+export const compile = (
+  input: string,
+  options: CompileOptions = {},
+): ScopeObject => {
   const matchResult = scriptGrammar.match(input)
 
   if (matchResult.failed()) {
@@ -401,7 +404,7 @@ export function compile(input: string, options: CompileOptions = {}): ScopeObjec
   return semantics(matchResult).compile(options.cwd ?? process.cwd()) as ScopeObject
 }
 
-export function compileFile(filePath: string): ScopeObject {
+export const compileFile = (filePath: string): ScopeObject => {
   const absoluteFilePath = resolve(process.cwd(), filePath)
   const input = readFileSync(absoluteFilePath, "utf8")
 

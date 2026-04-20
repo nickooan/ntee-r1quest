@@ -149,6 +149,18 @@ header quoted, "asdgjklasjdklf"`;
     });
   });
 
+  test("compiles header keys as lowercase", () => {
+    const input = `header Content-Type, application/json
+header Trace-Token, abc`;
+
+    expect(compile(input)).toEqual({
+      headers: {
+        "content-type": "application/json",
+        "trace-token": "abc",
+      },
+    });
+  });
+
   test("compiles quoted and unquoted strings in body values", () => {
     const input = `body {
   trace-token: asdgjklasjdklf

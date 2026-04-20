@@ -1,4 +1,5 @@
 url "https://ntee.io"
 type delete
 
+header content-type, application/json
 auth bearer test-token
