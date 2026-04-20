@@ -1,0 +1,14 @@
+header Ref, xxx
+header Body, yyy
+
+body {
+  header: "header"
+  authorization: "authorization"
+  auth: "auth"
+  url: "url"
+  type: "type"
+  ref: "ref"
+  body: {
+    name: "x"
+  }
+}

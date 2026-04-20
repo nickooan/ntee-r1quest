@@ -1,0 +1,3 @@
+header Content-Type, application/json
+header Trace-Token, "abc"
+header X-Request-Id, xyz

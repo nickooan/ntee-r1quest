@@ -1,0 +1,19 @@
+ref ./user.ntd
+
+url "http://www.123.com/"
+type post
+
+header name, value
+header name1, value2
+auth basic xxxxxxxx
+
+body {
+  value: {
+    name: "x"
+    age: 2
+    female: false
+  }
+  version: 2.3
+  support: [1, 2, 3]
+  author: ["a", "b", "c"]
+}
