@@ -46,6 +46,10 @@ export const handleFormRequest = async (
     throw new Error("Cannot execute request without a url.");
   }
 
+  if (!scopeObject.method) {
+    throw new Error("Cannot execute request without a method.");
+  }
+
   const formData = new FormData();
   const requestBody = scopeObject.body;
 
@@ -61,16 +65,30 @@ export const handleFormRequest = async (
     formData.append(key, toFormValue(value));
   }
 
-  const { body, contentType } = await encodeFormData(formData);
+  const { "content-type": _contentType, ...headers } = scopeObject.headers;
+  const multipartRequest = new Request(scopeObject.url, {
+    method: scopeObject.method.toUpperCase(),
+    body: formData,
+  });
+  const contentType = multipartRequest.headers.get("content-type");
+
+  if (!contentType || !multipartRequest.body) {
+    throw new Error("Cannot encode multipart form data.");
+  }
 
   return axios.request({
     url: scopeObject.url,
     method: scopeObject.method,
     headers: {
-      ...scopeObject.headers,
+      ...headers,
+      /**
+       * Replace "multipart/form-data" with the generated value, for example
+       * "multipart/form-data; boundary=----WebKitFormBoundary...", so the
+       * header boundary matches multipartRequest.body.
+       */
       "content-type": contentType,
     },
-    data: body,
+    data: multipartRequest.body,
     adapter: "fetch",
   });
 };
@@ -105,23 +123,4 @@ const toFormValue = (value: unknown): string => {
   }
 
   return String(value);
-};
-
-const encodeFormData = async (
-  formData: FormData,
-): Promise<{ body: Blob; contentType: string }> => {
-  const request = new Request("https://ntee.local", {
-    method: "POST",
-    body: formData,
-  });
-  const contentType = request.headers.get("content-type");
-
-  if (!contentType) {
-    throw new Error("Cannot encode multipart form data.");
-  }
-
-  return {
-    body: await request.blob(),
-    contentType,
-  };
 };

@@ -322,6 +322,22 @@ describe("request", () => {
     );
   });
 
+  test("throws when multipart method is missing", async () => {
+    const scopeObject: ScopeObject = {
+      url: "https://ntee.io",
+      headers: {
+        "content-type": "multipart/form-data",
+      },
+      body: {
+        name: "r1quest",
+      },
+    };
+
+    await expect(execute(scopeObject)).rejects.toThrow(
+      "Cannot execute request without a method.",
+    );
+  });
+
   test("exposes request handlers directly", () => {
     expect(handleJSONRequest).toBeFunction();
     expect(handleFormRequest).toBeFunction();
