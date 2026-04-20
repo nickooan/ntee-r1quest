@@ -92,6 +92,38 @@ describe("request", () => {
     });
   });
 
+  test("executes a json request with an array body", async () => {
+    const scopeObject: ScopeObject = {
+      url: "https://ntee.io",
+      method: "post",
+      headers: {
+        authorization: "bearer test-token",
+        "content-type": "application/json",
+      },
+      body: [{ name: "a" }, { name: "b" }],
+    };
+
+    server.use(
+      http.post("https://ntee.io", async ({ request }) => {
+        expect(request.headers.get("authorization")).toBe("bearer test-token");
+        expect(await request.json()).toEqual([{ name: "a" }, { name: "b" }]);
+
+        return HttpResponse.json({
+          method: "post",
+          ok: true,
+        });
+      }),
+    );
+
+    const response = await execute(scopeObject);
+
+    expect(response.status).toBe(200);
+    expect(response.data).toEqual({
+      method: "post",
+      ok: true,
+    });
+  });
+
   test("executes a multipart form request", async () => {
     const scopeObject: ScopeObject = {
       url: "https://ntee.io",

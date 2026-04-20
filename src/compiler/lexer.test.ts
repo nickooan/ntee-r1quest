@@ -142,6 +142,21 @@ new line
     expect(scriptGrammar.match(input).succeeded()).toBe(true);
   });
 
+  test("matches array body values", () => {
+    expect(scriptGrammar.match("body [{ name: a }, { name: b }]").succeeded()).toBe(
+      true,
+    );
+    expect(scriptGrammar.match("body [1, 2, 3]").succeeded()).toBe(true);
+    expect(scriptGrammar.match("body [[1, 3], [1, 3]]").succeeded()).toBe(true);
+    expect(
+      scriptGrammar.match("body [{ x: y }, { z: { y: m } }, { o: z }]").succeeded(),
+    ).toBe(true);
+  });
+
+  test("matches macro body values", () => {
+    expect(scriptGrammar.match("body $i.array-body").succeeded()).toBe(true);
+  });
+
   test("matches macro values in headers auth and body", () => {
     const input = `header content-type, $i.content-type
 header contentType, $i.contentType

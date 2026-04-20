@@ -242,6 +242,39 @@ body "my name is $i.name"`;
     });
   });
 
+  test("compiles array body values", () => {
+    expect(compile("body [{ name: a }, { name: b }]")).toEqual({
+      headers: {},
+      body: [{ name: "a" }, { name: "b" }],
+    });
+    expect(compile("body [1, 2, 3]")).toEqual({
+      headers: {},
+      body: [1, 2, 3],
+    });
+    expect(compile("body [[1, 3], [1, 3]]")).toEqual({
+      headers: {},
+      body: [
+        [1, 3],
+        [1, 3],
+      ],
+    });
+    expect(compile("body [{ x: y }, { z: { y: m } }, { o: z }]")).toEqual({
+      headers: {},
+      body: [{ x: "y" }, { z: { y: "m" } }, { o: "z" }],
+    });
+  });
+
+  test("compiles macro body values", () => {
+    const input = `ref test/data/array.ntd
+
+body $i.array-body`;
+
+    expect(compile(input)).toEqual({
+      headers: {},
+      body: [{ name: "a" }, { name: "b" }],
+    });
+  });
+
   test("compiles macro values from the intermediate object", () => {
     const input = `ref test/data/user.ntd
 

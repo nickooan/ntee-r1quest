@@ -77,6 +77,8 @@ R1Quest {
 
   BodyValue
     = Object
+    | Array
+    | macro
     | string
 
   Object
