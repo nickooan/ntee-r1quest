@@ -73,7 +73,11 @@ R1Quest {
     = "header" objectKey "," headerValue
 
   Body
-    = "body" Object
+    = "body" BodyValue
+
+  BodyValue
+    = Object
+    | string
 
   Object
     = "{" Pair* "}"

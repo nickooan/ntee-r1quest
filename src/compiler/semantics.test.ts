@@ -50,6 +50,7 @@ body {
       spid: "xxx-xxx-xxxx",
       name: "macro-name",
       token: "test-token",
+      body_from_example: "hello from macro body",
       authToken: "xxxxasdfasdf",
       "trace-token": "asdgjklasjdklf",
       off: false,
@@ -200,6 +201,44 @@ and some how bla balbal
         description:
           "my age is 2\nanother line asdf, asdg\nand some how bla balbal\n",
       },
+    });
+  });
+
+  test("compiles quoted text body values", () => {
+    expect(compile('body "plain text"')).toEqual({
+      headers: {},
+      body: "plain text",
+    });
+  });
+
+  test("compiles multiline quoted text body values", () => {
+    const input = `body "hello, asdfa
+new line
+new line
+     new line
+"`;
+
+    expect(compile(input)).toEqual({
+      headers: {},
+      body: "hello, asdfa\nnew line\nnew line\n     new line\n",
+    });
+  });
+
+  test("compiles macro values in quoted text body values", () => {
+    const macroOnlyInput = `ref test/data/user.ntd
+
+body "$i.body_from_example"`;
+    const mixedInput = `ref test/data/user.ntd
+
+body "my name is $i.name"`;
+
+    expect(compile(macroOnlyInput)).toEqual({
+      headers: {},
+      body: "hello from macro body",
+    });
+    expect(compile(mixedInput)).toEqual({
+      headers: {},
+      body: "my name is macro-name",
     });
   });
 

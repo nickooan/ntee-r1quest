@@ -1,6 +1,7 @@
 spid: xxx-xxx-xxxx
 name: macro-name
 token: test-token
+body_from_example: hello from macro body
 authToken: xxxxasdfasdf
 trace-token: asdgjklasjdklf //no double quote, default is string
 off: false //boolean

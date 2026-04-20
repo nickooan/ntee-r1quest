@@ -2,7 +2,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import type { ScopeObject } from "../compiler/semantics.ts";
-import { execute, handleFormRequest, handleJSONRequest } from "./request.ts";
+import {
+  execute,
+  handleFormRequest,
+  handleJSONRequest,
+  handleTextRequest,
+} from "./request.ts";
 
 const server = setupServer();
 
@@ -116,6 +121,39 @@ describe("request", () => {
         expect(formData.get("age")).toBe("2");
         expect(formData.get("enabled")).toBe("true");
         expect(formData.get("tags")).toBe(JSON.stringify(["api", "form"]));
+
+        return HttpResponse.json({
+          method: "post",
+          ok: true,
+        });
+      }),
+    );
+
+    const response = await execute(scopeObject);
+
+    expect(response.status).toBe(200);
+    expect(response.data).toEqual({
+      method: "post",
+      ok: true,
+    });
+  });
+
+  test("executes a text plain request", async () => {
+    const scopeObject: ScopeObject = {
+      url: "https://ntee.io",
+      method: "post",
+      headers: {
+        authorization: "bearer test-token",
+        "content-type": "text/plain",
+      },
+      body: "plain text body",
+    };
+
+    server.use(
+      http.post("https://ntee.io", async ({ request }) => {
+        expect(request.headers.get("authorization")).toBe("bearer test-token");
+        expect(request.headers.get("content-type")).toBe("text/plain");
+        expect(await request.text()).toBe("plain text body");
 
         return HttpResponse.json({
           method: "post",
@@ -255,6 +293,23 @@ describe("request", () => {
       url: "https://ntee.io",
       method: "post",
       headers: {
+        "content-type": "application/xml",
+      },
+      body: {
+        name: "r1quest",
+      },
+    };
+
+    await expect(execute(scopeObject)).rejects.toThrow(
+      "Unsupported content type: application/xml.",
+    );
+  });
+
+  test("throws when text body is not a string", async () => {
+    const scopeObject: ScopeObject = {
+      url: "https://ntee.io",
+      method: "post",
+      headers: {
         "content-type": "text/plain",
       },
       body: {
@@ -263,12 +318,13 @@ describe("request", () => {
     };
 
     await expect(execute(scopeObject)).rejects.toThrow(
-      "Unsupported content type: text/plain.",
+      "Text request body must be a string.",
     );
   });
 
-  test("exposes json and form handlers directly", () => {
+  test("exposes request handlers directly", () => {
     expect(handleJSONRequest).toBeFunction();
     expect(handleFormRequest).toBeFunction();
+    expect(handleTextRequest).toBeFunction();
   });
 });

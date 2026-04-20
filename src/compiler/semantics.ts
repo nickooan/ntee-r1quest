@@ -15,7 +15,7 @@ export interface ScopeObject {
   url?: string
   method?: string
   headers: Record<string, string | number | boolean | null>
-  body?: { [key: string]: ScopeValue }
+  body?: ScopeValue
 }
 
 export interface IntermediateObject {
@@ -129,6 +129,10 @@ export const semantics = scriptGrammar
         string,
         ScopeValue,
       ]
+    },
+
+    BodyValue(value) {
+      return value.toValue(this.args.intermediateObject)
     },
 
     Key(value) {

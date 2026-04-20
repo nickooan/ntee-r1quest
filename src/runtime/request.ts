@@ -4,7 +4,9 @@ import type { ScopeObject } from "../compiler/semantics.ts";
 export const execute = async (
   scopeObject: ScopeObject,
 ): Promise<AxiosResponse> => {
-  const contentType = String(scopeObject.headers["content-type"] ?? "").toLowerCase();
+  const contentType = String(
+    scopeObject.headers["content-type"] ?? "",
+  ).toLowerCase();
 
   if (contentType.includes("multipart/form-data")) {
     return handleFormRequest(scopeObject);
@@ -12,6 +14,10 @@ export const execute = async (
 
   if (contentType.includes("application/json")) {
     return handleJSONRequest(scopeObject);
+  }
+
+  if (contentType.includes("text/plain")) {
+    return handleTextRequest(scopeObject);
   }
 
   throw new Error(`Unsupported content type: ${contentType || "missing"}.`);
@@ -41,8 +47,17 @@ export const handleFormRequest = async (
   }
 
   const formData = new FormData();
+  const requestBody = scopeObject.body;
 
-  for (const [key, value] of Object.entries(scopeObject.body ?? {})) {
+  if (
+    typeof requestBody !== "object" ||
+    requestBody === null ||
+    Array.isArray(requestBody)
+  ) {
+    throw new Error("Form request body must be an object.");
+  }
+
+  for (const [key, value] of Object.entries(requestBody)) {
     formData.append(key, toFormValue(value));
   }
 
@@ -56,6 +71,26 @@ export const handleFormRequest = async (
       "content-type": contentType,
     },
     data: body,
+    adapter: "fetch",
+  });
+};
+
+export const handleTextRequest = async (
+  scopeObject: ScopeObject,
+): Promise<AxiosResponse> => {
+  if (!scopeObject.url) {
+    throw new Error("Cannot execute request without a url.");
+  }
+
+  if (typeof scopeObject.body !== "string") {
+    throw new Error("Text request body must be a string.");
+  }
+
+  return axios.request({
+    url: scopeObject.url,
+    method: scopeObject.method,
+    headers: scopeObject.headers,
+    data: scopeObject.body,
     adapter: "fetch",
   });
 };

@@ -122,6 +122,26 @@ and some how bla balbal
     expect(scriptGrammar.match(input).succeeded()).toBe(true);
   });
 
+  test("matches quoted text body values", () => {
+    expect(scriptGrammar.match('body "plain text"').succeeded()).toBe(true);
+    expect(scriptGrammar.match('body "$i.body_from_example"').succeeded()).toBe(
+      true,
+    );
+    expect(scriptGrammar.match('body "my name is $i.name"').succeeded()).toBe(
+      true,
+    );
+  });
+
+  test("matches multiline quoted text body values", () => {
+    const input = `body "hello, asdfa
+new line
+new line
+     new line
+"`;
+
+    expect(scriptGrammar.match(input).succeeded()).toBe(true);
+  });
+
   test("matches macro values in headers auth and body", () => {
     const input = `header content-type, $i.content-type
 header contentType, $i.contentType
