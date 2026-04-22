@@ -12,6 +12,8 @@ export const execute = async (
     return handleFormRequest(scopeObject);
   }
 
+  assertNoFileBody(scopeObject);
+
   if (contentType.includes("application/json")) {
     return handleJSONRequest(scopeObject);
   }
@@ -29,6 +31,8 @@ export const handleJSONRequest = async (
   if (!scopeObject.url) {
     throw new Error("Cannot execute request without a url.");
   }
+
+  assertNoFileBody(scopeObject);
 
   return axios.request({
     url: scopeObject.url,
@@ -62,7 +66,7 @@ export const handleFormRequest = async (
   }
 
   for (const [key, value] of Object.entries(requestBody)) {
-    formData.append(key, toFormValue(value));
+    appendFormValue(formData, key, value);
   }
 
   const { "content-type": _contentType, ...headers } = scopeObject.headers;
@@ -100,6 +104,8 @@ export const handleTextRequest = async (
     throw new Error("Cannot execute request without a url.");
   }
 
+  assertNoFileBody(scopeObject);
+
   if (typeof scopeObject.body !== "string") {
     throw new Error("Text request body must be a string.");
   }
@@ -111,6 +117,46 @@ export const handleTextRequest = async (
     data: scopeObject.body,
     adapter: "fetch",
   });
+};
+
+const assertNoFileBody = (scopeObject: ScopeObject): void => {
+  if (containsFileValue(scopeObject.body)) {
+    throw new Error(
+      "File body values are only supported with multipart/form-data requests.",
+    );
+  }
+};
+
+const containsFileValue = (value: unknown): boolean => {
+  if (value instanceof Blob) {
+    return true;
+  }
+
+  if (Array.isArray(value)) {
+    return value.some(containsFileValue);
+  }
+
+  if (typeof value === "object" && value !== null) {
+    return Object.values(value).some(containsFileValue);
+  }
+
+  return false;
+};
+
+const appendFormValue = (
+  formData: FormData,
+  key: string,
+  value: unknown,
+): void => {
+  if (Array.isArray(value) && value.some(containsFileValue)) {
+    for (const item of value) {
+      formData.append(key, toFormValue(item));
+    }
+
+    return;
+  }
+
+  formData.append(key, toFormValue(value));
 };
 
 const toFormValue = (value: unknown): string | Blob => {

@@ -37,6 +37,7 @@ body {
   age: @i(age)
   arr: @i(arr)
   upload: @f(upload.txt)
+  uploads: [@f(upload.txt), @f(upload2.txt)]
 }`;
 
     server.use(
@@ -55,9 +56,13 @@ body {
         expect(formData.get("arr")).toBe(JSON.stringify(["macro", 2, false]));
 
         const upload = formData.get("upload") as Blob;
+        const uploads = formData.getAll("uploads") as Blob[];
 
         expect(upload).toBeInstanceOf(Blob);
         expect(await upload.text()).toBe("hello file\n");
+        expect(uploads).toHaveLength(2);
+        expect(await uploads[0]!.text()).toBe("hello file\n");
+        expect(await uploads[1]!.text()).toBe("hello file 2\n");
 
         return HttpResponse.json({
           method: "post",

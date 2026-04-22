@@ -155,11 +155,21 @@ new line
 
   test("matches macro body values", () => {
     expect(scriptGrammar.match("body @i(array-body)").succeeded()).toBe(true);
-    expect(scriptGrammar.match("body @f(filename)").succeeded()).toBe(true);
-    expect(scriptGrammar.match("body @f(./filename)").succeeded()).toBe(true);
+    expect(scriptGrammar.match("body { file: @f(filename) }").succeeded()).toBe(
+      true,
+    );
+    expect(scriptGrammar.match("body { file: @f(./filename) }").succeeded()).toBe(
+      true,
+    );
     expect(
-      scriptGrammar.match("body @f(../dirname/dirname2/file)").succeeded(),
+      scriptGrammar
+        .match("body { file: @f(../dirname/dirname2/file) }")
+        .succeeded(),
     ).toBe(true);
+    expect(
+      scriptGrammar.match("body { file: [@f(filename), @f(filename2)] }").succeeded(),
+    ).toBe(true);
+    expect(scriptGrammar.match("body @f(filename)").failed()).toBe(true);
   });
 
   test("rejects file macros outside body values", () => {

@@ -153,9 +153,15 @@ export const semantics = scriptGrammar
     },
 
     Pair(key, _colon, value) {
+      const compiledValue = value.toValue(this.args.intermediateObject, this.args.cwd)
+
+      if (value.sourceString.startsWith("@f(")) {
+        return [key.toKey(), [compiledValue]] as [string, ScopeValue]
+      }
+
       return [
         key.toKey(),
-        value.toValue(this.args.intermediateObject, this.args.cwd),
+        compiledValue,
       ] as [string, ScopeValue]
     },
 
@@ -220,10 +226,13 @@ export const semantics = scriptGrammar
   })
   .addOperation<[string, ScopeValue]>("toPair(intermediateObject, cwd)", {
     Pair(key, _colon, value) {
-      return [
-        key.toKey(),
-        value.toValue(this.args.intermediateObject, this.args.cwd),
-      ]
+      const compiledValue = value.toValue(this.args.intermediateObject, this.args.cwd)
+
+      if (value.sourceString.startsWith("@f(")) {
+        return [key.toKey(), [compiledValue]]
+      }
+
+      return [key.toKey(), compiledValue]
     },
   })
   .addOperation<string>("toKey()", {

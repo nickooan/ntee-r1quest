@@ -354,6 +354,38 @@ describe("request", () => {
     );
   });
 
+  test("throws when json body contains a file", async () => {
+    const scopeObject: ScopeObject = {
+      url: "https://ntee.io",
+      method: "post",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: {
+        upload: new Blob(["hello file\n"]),
+      },
+    };
+
+    await expect(execute(scopeObject)).rejects.toThrow(
+      "File body values are only supported with multipart/form-data requests.",
+    );
+  });
+
+  test("throws when text body contains a file", async () => {
+    const scopeObject: ScopeObject = {
+      url: "https://ntee.io",
+      method: "post",
+      headers: {
+        "content-type": "text/plain",
+      },
+      body: new Blob(["hello file\n"]),
+    };
+
+    await expect(execute(scopeObject)).rejects.toThrow(
+      "File body values are only supported with multipart/form-data requests.",
+    );
+  });
+
   test("throws when multipart method is missing", async () => {
     const scopeObject: ScopeObject = {
       url: "https://ntee.io",

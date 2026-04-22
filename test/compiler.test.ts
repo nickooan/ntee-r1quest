@@ -107,11 +107,19 @@ describe("compiler", () => {
 
   test("compiles file macro body values", async () => {
     const scopeObject = compileFile("test/data/compiler-file-body.nts")
-    const body = scopeObject.body as Record<string, Blob>
+    const body = scopeObject.body as Record<string, Blob[]>
     const upload = body.upload
+    const uploads = body.uploads
 
-    expect(upload).toBeInstanceOf(Blob)
-    expect(await upload?.text()).toBe("hello file\n")
+    if (!upload || !uploads) {
+      throw new Error("Expected compiled file values.")
+    }
+
+    expect(upload).toBeArrayOfSize(1)
+    expect(uploads).toBeArrayOfSize(2)
+    expect(await upload[0]!.text()).toBe("hello file\n")
+    expect(await uploads[0]!.text()).toBe("hello file\n")
+    expect(await uploads[1]!.text()).toBe("hello file 2\n")
   })
 
   test("throws when the request document has a compile error", () => {

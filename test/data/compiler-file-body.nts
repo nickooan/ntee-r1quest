@@ -1,3 +1,4 @@
 body {
   upload: @f(upload.txt)
+  uploads: [@f(upload.txt), @f(upload2.txt)]
 }
