@@ -1,5 +1,5 @@
 ref ./user.ntd
 
 body {
-  missing: $i.missing
+  missing: @i(missing)
 }

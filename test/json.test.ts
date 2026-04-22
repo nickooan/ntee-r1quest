@@ -28,14 +28,14 @@ url "https://ntee.io"
 type post
 
 header content-type, application/json
-auth bearer $i.token
+auth bearer @i(token)
 
 body {
   name: "r1quest"
-  spid: $i.name
-  description: my age is $i.age
-  off: $i.off
-  arr: $i.arr
+  spid: @i(name)
+  description: my age is @i(age)
+  off: @i(off)
+  arr: @i(arr)
 }`;
 
     server.use(
@@ -76,7 +76,7 @@ type post
 
 header content-type, application/json
 
-body $i.array-body`;
+body @i(array-body)`;
 
     server.use(
       http.post("https://ntee.io", async ({ request }) => {
@@ -109,7 +109,7 @@ type post
 
 header content-type, application/json
 
-body $i.json-string`;
+body @i(json-string)`;
 
     server.use(
       http.post("https://ntee.io", async ({ request }) => {

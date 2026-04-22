@@ -29,7 +29,7 @@ type post
 
 header content-type, text/plain
 
-body "$i.single-line"`;
+body "@i(single-line)"`;
 
     server.use(
       http.post("https://ntee.io", async ({ request }) => {
@@ -63,7 +63,7 @@ type post
 
 header content-type, text/plain
 
-body "$i.multi-line"`;
+body "@i(multi-line)"`;
 
     server.use(
       http.post("https://ntee.io", async ({ request }) => {

@@ -102,6 +102,14 @@ describe("compiler", () => {
     });
   });
 
+  test("compiles file macro body values", async () => {
+    const scopeObject = compileFile("test/data/compiler-file-body.nts");
+    const body = scopeObject.body as Record<string, Blob>;
+
+    expect(body.upload).toBeInstanceOf(Blob);
+    expect(await body.upload.text()).toBe("hello file\n");
+  });
+
   test("throws when the request document has a compile error", () => {
     expect(() => compileFile("test/data/invalid-header.nts")).toThrow(
       SyntaxError,
@@ -117,7 +125,7 @@ describe("compiler", () => {
       ReferenceError,
     );
     expect(() => compileFile("test/data/missing-macro.nts")).toThrow(
-      "Undefined macro: $i.missing",
+      "Undefined macro: @i(missing)",
     );
   });
 });

@@ -113,9 +113,13 @@ export const handleTextRequest = async (
   });
 };
 
-const toFormValue = (value: unknown): string => {
+const toFormValue = (value: unknown): string | Blob => {
   if (value === null || value === undefined) {
     return "";
+  }
+
+  if (value instanceof Blob) {
+    return value;
   }
 
   if (typeof value === "object") {

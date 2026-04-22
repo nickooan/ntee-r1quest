@@ -28,14 +28,15 @@ url "https://ntee.io"
 type post
 
 header content-type, multipart/form-data
-auth bearer $i.token
+auth bearer @i(token)
 
 body {
   name: "r1quest"
-  spid: $i.spid
-  off: $i.off
-  age: $i.age
-  arr: $i.arr
+  spid: @i(spid)
+  off: @i(off)
+  age: @i(age)
+  arr: @i(arr)
+  upload: @f(upload.txt)
 }`;
 
     server.use(
@@ -52,6 +53,11 @@ body {
         expect(formData.get("off")).toBe("false");
         expect(formData.get("age")).toBe("2");
         expect(formData.get("arr")).toBe(JSON.stringify(["macro", 2, false]));
+
+        const upload = formData.get("upload") as Blob;
+
+        expect(upload).toBeInstanceOf(Blob);
+        expect(await upload.text()).toBe("hello file\n");
 
         return HttpResponse.json({
           method: "post",

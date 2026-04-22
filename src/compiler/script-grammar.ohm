@@ -46,7 +46,7 @@ R1Quest {
     = httpToken
 
   authCredentials
-    = (~lineTerminator any)+
+    = ~fileMacro (~lineTerminator any)+
 
   httpToken
     = httpTokenChar+
@@ -105,7 +105,7 @@ R1Quest {
     = "[" listOf<Value, ","> "]"
 
   headerValue
-    = macro
+    = intermediateMacro
     | string
     | number
     | boolean
@@ -113,7 +113,7 @@ R1Quest {
     | bareHeaderValue
 
   bareHeaderValue
-    = (~headerValueTerminator any)+
+    = ~fileMacro (~headerValueTerminator any)+
 
   headerValueTerminator
     = commentStart
@@ -133,13 +133,31 @@ R1Quest {
     | "}"
 
   macro
-    = "$" macroOperator "." macroKey
+    = intermediateMacro
+    | fileMacro
+
+  intermediateMacro
+    = "@i(" macroKey ")"
+
+  fileMacro
+    = "@f(" filePath ")"
 
   macroOperator
     = "i"
+    | "f"
 
   macroKey
     = objectKey
+
+  filePath
+    = filePathChar+
+
+  filePathChar
+    = alnum
+    | "/"
+    | "."
+    | "-"
+    | "_"
 
   boolean
     = "true"

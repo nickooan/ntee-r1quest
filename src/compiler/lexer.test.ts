@@ -113,7 +113,7 @@ ref user.ntd`;
 
   test("matches multiline quoted strings in body values", () => {
     const input = `body {
-  description: "my age is $i.age
+  description: "my age is @i(age)
 another line asdf, asdg
 and some how bla balbal
 "
@@ -124,10 +124,10 @@ and some how bla balbal
 
   test("matches quoted text body values", () => {
     expect(scriptGrammar.match('body "plain text"').succeeded()).toBe(true);
-    expect(scriptGrammar.match('body "$i.body_from_example"').succeeded()).toBe(
+    expect(scriptGrammar.match('body "@i(body_from_example)"').succeeded()).toBe(
       true,
     );
-    expect(scriptGrammar.match('body "my name is $i.name"').succeeded()).toBe(
+    expect(scriptGrammar.match('body "my name is @i(name)"').succeeded()).toBe(
       true,
     );
   });
@@ -154,21 +154,33 @@ new line
   });
 
   test("matches macro body values", () => {
-    expect(scriptGrammar.match("body $i.array-body").succeeded()).toBe(true);
+    expect(scriptGrammar.match("body @i(array-body)").succeeded()).toBe(true);
+    expect(scriptGrammar.match("body @f(filename)").succeeded()).toBe(true);
+    expect(scriptGrammar.match("body @f(./filename)").succeeded()).toBe(true);
+    expect(
+      scriptGrammar.match("body @f(../dirname/dirname2/file)").succeeded(),
+    ).toBe(true);
+  });
+
+  test("rejects file macros outside body values", () => {
+    expect(scriptGrammar.match("header upload, @f(filename)").failed()).toBe(
+      true,
+    );
+    expect(scriptGrammar.match("auth bearer @f(filename)").failed()).toBe(true);
   });
 
   test("matches macro values in headers auth and body", () => {
-    const input = `header content-type, $i.content-type
-header contentType, $i.contentType
-auth bearer $i.token
+    const input = `header content-type, @i(content-type)
+header contentType, @i(contentType)
+auth bearer @i(token)
 
 body {
   name: "r1quest"
-  spid: $i.name
-  description: my age is $i.age
-  off: $i.off //boolean
+  spid: @i(name)
+  description: my age is @i(age)
+  off: @i(off) //boolean
 
-  arr: $i.arr
+  arr: @i(arr)
 }`;
 
     expect(scriptGrammar.match(input).succeeded()).toBe(true);

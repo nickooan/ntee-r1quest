@@ -7,6 +7,7 @@ export type ScopeValue =
   | number
   | boolean
   | null
+  | Blob
   | ScopeValue[]
   | { [key: string]: ScopeValue }
 
@@ -43,29 +44,45 @@ export const semantics = scriptGrammar
       }
 
       for (const statement of requestStatements.children) {
-        statement.compileStatement(scopeObject, headersObject, intermediateObject)
+        statement.compileStatement(
+          scopeObject,
+          headersObject,
+          intermediateObject,
+          this.args.cwd,
+        )
       }
 
       for (const statement of headerStatements.children) {
-        statement.compileStatement(scopeObject, headersObject, intermediateObject)
+        statement.compileStatement(
+          scopeObject,
+          headersObject,
+          intermediateObject,
+          this.args.cwd,
+        )
       }
 
       const bodyNode = body.children[0]
 
       if (bodyNode) {
-        bodyNode.compileStatement(scopeObject, headersObject, intermediateObject)
+        bodyNode.compileStatement(
+          scopeObject,
+          headersObject,
+          intermediateObject,
+          this.args.cwd,
+        )
       }
 
       scopeObject.headers = headersObject
       return scopeObject
     },
   })
-  .addOperation("compileStatement(scopeObject, headersObject, intermediateObject)", {
+  .addOperation("compileStatement(scopeObject, headersObject, intermediateObject, cwd)", {
     RequestStatement(statement) {
       statement.compileStatement(
         this.args.scopeObject,
         this.args.headersObject,
         this.args.intermediateObject,
+        this.args.cwd,
       )
     },
 
@@ -74,11 +91,15 @@ export const semantics = scriptGrammar
         this.args.scopeObject,
         this.args.headersObject,
         this.args.intermediateObject,
+        this.args.cwd,
       )
     },
 
     Url(_url, value) {
-      this.args.scopeObject.url = value.toValue(this.args.intermediateObject)
+      this.args.scopeObject.url = value.toValue(
+        this.args.intermediateObject,
+        this.args.cwd,
+      )
     },
 
     Type(_type, method) {
@@ -96,11 +117,15 @@ export const semantics = scriptGrammar
     Header(_header, key, _comma, value) {
       this.args.headersObject[key.sourceString.toLowerCase()] = value.toHeaderValue(
         this.args.intermediateObject,
+        this.args.cwd,
       )
     },
 
     Body(_body, value) {
-      this.args.scopeObject.body = value.toValue(this.args.intermediateObject)
+      this.args.scopeObject.body = value.toValue(
+        this.args.intermediateObject,
+        this.args.cwd,
+      )
     },
   })
   .addOperation("buildItermediateObject(intermediateObject, cwd)", {
@@ -112,12 +137,15 @@ export const semantics = scriptGrammar
       )
     },
   })
-  .addOperation<ScopeValue>("toValue(intermediateObject)", {
+  .addOperation<ScopeValue>("toValue(intermediateObject, cwd)", {
     Object(_open, pairs, _close) {
       const object: { [key: string]: ScopeValue } = {}
 
       for (const pair of pairs.children) {
-        const [key, value] = pair.toPair(this.args.intermediateObject)
+        const [key, value] = pair.toPair(
+          this.args.intermediateObject,
+          this.args.cwd,
+        )
         object[key] = value
       }
 
@@ -125,14 +153,14 @@ export const semantics = scriptGrammar
     },
 
     Pair(key, _colon, value) {
-      return [key.toKey(), value.toValue(this.args.intermediateObject)] as [
-        string,
-        ScopeValue,
-      ]
+      return [
+        key.toKey(),
+        value.toValue(this.args.intermediateObject, this.args.cwd),
+      ] as [string, ScopeValue]
     },
 
     BodyValue(value) {
-      return value.toValue(this.args.intermediateObject)
+      return value.toValue(this.args.intermediateObject, this.args.cwd)
     },
 
     Key(value) {
@@ -140,21 +168,27 @@ export const semantics = scriptGrammar
     },
 
     Value(value) {
-      return value.toValue(this.args.intermediateObject)
+      return value.toValue(this.args.intermediateObject, this.args.cwd)
     },
 
     Array(_open, values, _close) {
       return values
         .asIteration()
-        .children.map((value) => value.toValue(this.args.intermediateObject))
+        .children.map((value) =>
+          value.toValue(this.args.intermediateObject, this.args.cwd),
+        )
     },
 
-    macro(_dollar, operator, _dot, key) {
-      return resolveMacro(
-        operator.sourceString,
-        key.sourceString,
-        this.args.intermediateObject,
-      )
+    macro(value) {
+      return value.toValue(this.args.intermediateObject, this.args.cwd)
+    },
+
+    intermediateMacro(_open, key, _close) {
+      return resolveMacro("i", key.sourceString, this.args.intermediateObject)
+    },
+
+    fileMacro(_open, path, _close) {
+      return resolveFileMacro(path.sourceString, this.args.cwd)
     },
 
     string(_open, _chars, _close) {
@@ -184,9 +218,12 @@ export const semantics = scriptGrammar
       return null
     },
   })
-  .addOperation<[string, ScopeValue]>("toPair(intermediateObject)", {
+  .addOperation<[string, ScopeValue]>("toPair(intermediateObject, cwd)", {
     Pair(key, _colon, value) {
-      return [key.toKey(), value.toValue(this.args.intermediateObject)]
+      return [
+        key.toKey(),
+        value.toValue(this.args.intermediateObject, this.args.cwd),
+      ]
     },
   })
   .addOperation<string>("toKey()", {
@@ -203,9 +240,9 @@ export const semantics = scriptGrammar
       return parseQuotedString(this.sourceString)
     },
   })
-  .addOperation<HeaderValue>("toHeaderValue(intermediateObject)", {
+  .addOperation<HeaderValue>("toHeaderValue(intermediateObject, cwd)", {
     headerValue(value) {
-      return value.toHeaderValue(this.args.intermediateObject)
+      return value.toHeaderValue(this.args.intermediateObject, this.args.cwd)
     },
 
     bareHeaderValue(_) {
@@ -215,14 +252,20 @@ export const semantics = scriptGrammar
       )
     },
 
-    macro(_dollar, operator, _dot, key) {
+    macro(value) {
       return toHeaderValue(
-        resolveMacro(
-          operator.sourceString,
-          key.sourceString,
-          this.args.intermediateObject,
-        ),
+        value.toValue(this.args.intermediateObject, this.args.cwd),
       )
+    },
+
+    intermediateMacro(_open, key, _close) {
+      return toHeaderValue(
+        resolveMacro("i", key.sourceString, this.args.intermediateObject),
+      )
+    },
+
+    fileMacro(_open, _path, _close) {
+      throw new SyntaxError("@f(...) is only supported in body values.")
     },
 
     string(_open, _chars, _close) {
@@ -346,16 +389,20 @@ const resolveMacro = (
   }
 
   if (!(key in intermediateObject)) {
-    throw new ReferenceError(`Undefined macro: $${operator}.${key}`)
+    throw new ReferenceError(`Undefined macro: @${operator}(${key})`)
   }
 
   const value = intermediateObject[key]
 
   if (value === undefined) {
-    throw new ReferenceError(`Undefined macro: $${operator}.${key}`)
+    throw new ReferenceError(`Undefined macro: @${operator}(${key})`)
   }
 
   return value
+}
+
+const resolveFileMacro = (filePath: string, cwd: string): Blob => {
+  return Bun.file(resolve(cwd, filePath))
 }
 
 const parseQuotedString = (source: string): string => {
@@ -368,7 +415,7 @@ const interpolateMacros = (
   value: string,
   intermediateObject: IntermediateObject,
 ): string => {
-  return value.replace(/\$([A-Za-z][A-Za-z0-9_-]*)\.([A-Za-z][A-Za-z0-9_-]*)/g, (
+  return value.replace(/@([A-Za-z])\(([^)]+)\)/g, (
     source,
     operator,
     key,
