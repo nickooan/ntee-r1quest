@@ -303,6 +303,20 @@ another line
 "
 ```
 
+For longer multiline content, keep the body wrapped by one opening quote and one
+closing quote:
+
+```nts
+header content-type, text/plain
+
+body "
+hello, asdfa
+new line
+new line
+     new line
+"
+```
+
 ### Multipart Form
 
 Use `multipart/form-data` with an object body.
