@@ -34,11 +34,11 @@ describe("command execute", () => {
     );
 
     const originalWorkingDirectory = process.cwd();
-    const response = await execute(
-      join(originalWorkingDirectory, "test/data"),
+    const response = await execute([
       "get",
-      [],
-    );
+      "-r",
+      join(originalWorkingDirectory, "test/data"),
+    ]);
 
     expect(response.status).toBe(200);
     expect(response.data).toEqual({
@@ -61,11 +61,11 @@ describe("command execute", () => {
     );
 
     const originalWorkingDirectory = process.cwd();
-    const response = await execute(
-      "/tmp/ignored-root",
+    const response = await execute([
       "get",
-      ["-r", join(originalWorkingDirectory, "test/data")],
-    );
+      "-r",
+      join(originalWorkingDirectory, "test/data"),
+    ]);
 
     expect(response.status).toBe(200);
     expect(response.data).toEqual({
@@ -90,14 +90,12 @@ describe("command execute", () => {
     );
 
     const originalWorkingDirectory = process.cwd();
-    const response = await execute(
+    const response = await execute([
+      "-r",
       join(originalWorkingDirectory, "test/data"),
-      "missing-file",
-      [
-        "-d",
-        'url "https://ntee.io"\ntype get\n\nheader accept, application/json\nheader content-type, application/json\nauth bearer test-token\n',
-      ],
-    );
+      "-d",
+      'url "https://ntee.io"\ntype get\n\nheader accept, application/json\nheader content-type, application/json\nauth bearer test-token\n',
+    ]);
 
     expect(response.status).toBe(200);
     expect(response.data).toEqual({
@@ -122,7 +120,7 @@ describe("command execute", () => {
     );
 
     const originalWorkingDirectory = process.cwd();
-    const response = await execute(undefined, undefined, [
+    const response = await execute([
       "-d",
       'url "https://ntee.io"\ntype get\n\nheader accept, application/json\nheader content-type, application/json\nauth bearer test-token\n',
     ]);

@@ -9,6 +9,7 @@ import { execute as executeRequest } from "./request.ts";
 
 type ParsedArgs = {
   data?: string;
+  executeFile?: string;
   root?: string;
 };
 
@@ -35,34 +36,50 @@ const parseArguments = (args: string[]): ParsedArgs => {
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-    const value = args[index + 1];
 
-    if (!argument || !value) {
+    if (!argument) {
       continue;
     }
 
     if (argument === "-r") {
+      const value = args[index + 1];
+
+      if (!value) {
+        continue;
+      }
+
       parsedArgs.root = value;
       index += 1;
       continue;
     }
 
     if (argument === "-d") {
+      const value = args[index + 1];
+
+      if (!value) {
+        continue;
+      }
+
       parsedArgs.data = value;
       index += 1;
+      continue;
+    }
+
+    if (argument.startsWith("-")) {
+      continue;
+    }
+
+    if (!parsedArgs.executeFile) {
+      parsedArgs.executeFile = argument;
     }
   }
 
   return parsedArgs;
 };
 
-const resolveExecutionOptions = (
-  root: string | undefined,
-  execteFile: string | undefined,
-  parsedArgs: ParsedArgs,
-): ExecuteOptions => {
+const resolveExecutionOptions = (parsedArgs: ParsedArgs): ExecuteOptions => {
   const baseWorkingDirectory = process.cwd();
-  const inputRoot = parsedArgs.root ?? root ?? baseWorkingDirectory;
+  const inputRoot = parsedArgs.root ?? baseWorkingDirectory;
   const resolvedRoot = isAbsolute(inputRoot)
     ? normalize(expandHomeDirectory(inputRoot))
     : resolve(baseWorkingDirectory, expandHomeDirectory(inputRoot));
@@ -75,13 +92,13 @@ const resolveExecutionOptions = (
     };
   }
 
-  if (!execteFile) {
+  if (!parsedArgs.executeFile) {
     throw new Error("Cannot execute request without a source file or -d data.");
   }
 
-  const relativeExecuteFile = execteFile.endsWith(".nts")
-    ? execteFile
-    : `${execteFile}.nts`;
+  const relativeExecuteFile = parsedArgs.executeFile.endsWith(".nts")
+    ? parsedArgs.executeFile
+    : `${parsedArgs.executeFile}.nts`;
   const requestFilePath = relativeExecuteFile.startsWith("/")
     ? relativeExecuteFile.slice(1)
     : relativeExecuteFile;
@@ -110,13 +127,9 @@ const runRequest = async (options: ExecuteOptions) => {
   }
 };
 
-export const execute = async (
-  root?: string,
-  execteFile?: string,
-  args: string[] = [],
-) => {
+export const execute = async (args: string[] = []) => {
   const parsedArgs = parseArguments(args);
-  const options = resolveExecutionOptions(root, execteFile, parsedArgs);
+  const options = resolveExecutionOptions(parsedArgs);
 
   return runRequest(options);
 };
