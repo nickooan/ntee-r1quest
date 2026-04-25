@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { execute } from "../src/runtime/request.ts";
-import { compileFile } from "../src/compiler/semantics.ts";
+import { compileFile, CompileSourceType } from "../src/compiler/semantics.ts";
 
 const server = setupServer();
 
@@ -33,7 +33,7 @@ describe("delete request", () => {
       }),
     );
 
-    const scopeObject = compileFile("test/data/delete.nts");
+    const scopeObject = compileFile("test/data/delete.nts", CompileSourceType.File);
     const response = await execute(scopeObject);
 
     expect(response.status).toBe(200);

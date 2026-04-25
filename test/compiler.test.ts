@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   buildItermediateObject,
   compileFile,
+  CompileSourceType,
 } from "../src/compiler/semantics.ts"
 
 describe("compiler", () => {
@@ -30,7 +31,7 @@ describe("compiler", () => {
   })
 
   test("compiles an object body request", () => {
-    expect(compileFile("test/data/compiler-object-body.nts")).toEqual({
+    expect(compileFile("test/data/compiler-object-body.nts", CompileSourceType.File)).toEqual({
       url: "http://www.123.com/",
       method: "post",
       headers: {
@@ -52,7 +53,7 @@ describe("compiler", () => {
   })
 
   test("compiles reserved words as body and header keys", () => {
-    expect(compileFile("test/data/compiler-reserved-keys.nts")).toEqual({
+    expect(compileFile("test/data/compiler-reserved-keys.nts", CompileSourceType.File)).toEqual({
       headers: {
         ref: "xxx",
         body: "yyy",
@@ -72,7 +73,7 @@ describe("compiler", () => {
   })
 
   test("compiles headers as lowercase with quoted and unquoted values", () => {
-    expect(compileFile("test/data/compiler-header-values.nts")).toEqual({
+    expect(compileFile("test/data/compiler-header-values.nts", CompileSourceType.File)).toEqual({
       headers: {
         "content-type": "application/json",
         "trace-token": "abc",
@@ -82,7 +83,7 @@ describe("compiler", () => {
   })
 
   test("compiles multiline quoted strings in body values", () => {
-    expect(compileFile("test/data/compiler-multiline-body-value.nts")).toEqual({
+    expect(compileFile("test/data/compiler-multiline-body-value.nts", CompileSourceType.File)).toEqual({
       headers: {},
       body: {
         description:
@@ -92,21 +93,21 @@ describe("compiler", () => {
   })
 
   test("compiles array body values", () => {
-    expect(compileFile("test/data/compiler-array-body.nts")).toEqual({
+    expect(compileFile("test/data/compiler-array-body.nts", CompileSourceType.File)).toEqual({
       headers: {},
       body: [{ name: "a" }, { name: "b" }],
     })
   })
 
   test("compiles macro body values", () => {
-    expect(compileFile("test/data/compiler-macro-body.nts")).toEqual({
+    expect(compileFile("test/data/compiler-macro-body.nts", CompileSourceType.File)).toEqual({
       headers: {},
       body: [{ name: "a" }, { name: "b" }],
     })
   })
 
   test("compiles file macro body values", async () => {
-    const scopeObject = compileFile("test/data/compiler-file-body.nts")
+    const scopeObject = compileFile("test/data/compiler-file-body.nts", CompileSourceType.File)
     const body = scopeObject.body as Record<string, Blob[]>
     const upload = body.upload
     const uploads = body.uploads
@@ -123,20 +124,20 @@ describe("compiler", () => {
   })
 
   test("throws when the request document has a compile error", () => {
-    expect(() => compileFile("test/data/invalid-header.nts")).toThrow(
+    expect(() => compileFile("test/data/invalid-header.nts", CompileSourceType.File)).toThrow(
       SyntaxError,
     )
   })
 
   test("throws when auth is missing credentials", () => {
-    expect(() => compileFile("test/data/invalid-auth.nts")).toThrow(SyntaxError)
+    expect(() => compileFile("test/data/invalid-auth.nts", CompileSourceType.File)).toThrow(SyntaxError)
   })
 
   test("throws when a macro is missing from the intermediate object", () => {
-    expect(() => compileFile("test/data/missing-macro.nts")).toThrow(
+    expect(() => compileFile("test/data/missing-macro.nts", CompileSourceType.File)).toThrow(
       ReferenceError,
     )
-    expect(() => compileFile("test/data/missing-macro.nts")).toThrow(
+    expect(() => compileFile("test/data/missing-macro.nts", CompileSourceType.File)).toThrow(
       "Undefined macro: @i(missing)",
     )
   })

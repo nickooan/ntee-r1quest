@@ -464,8 +464,22 @@ export const compile = (
   return semantics(matchResult).compile(options.cwd ?? process.cwd()) as ScopeObject
 }
 
-export const compileFile = (filePath: string): ScopeObject => {
-  const absoluteFilePath = resolve(process.cwd(), filePath)
+export enum CompileSourceType {
+  File = "file",
+  Raw = "raw",
+}
+
+export const compileFile = (
+  source: string,
+  type: CompileSourceType,
+): ScopeObject => {
+  if (type === CompileSourceType.Raw) {
+    return compile(source, {
+      cwd: process.cwd(),
+    })
+  }
+
+  const absoluteFilePath = resolve(process.cwd(), source)
   const input = readFileSync(absoluteFilePath, "utf8")
 
   return compile(input, {
