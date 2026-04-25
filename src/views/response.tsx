@@ -1,6 +1,7 @@
 import type { AxiosResponseHeaders, RawAxiosResponseHeaders } from "axios";
 import type { AxiosResponse } from "axios";
 import React from "react";
+import { useEffect, useState } from "react";
 import { render, Text } from "ink";
 
 type HeaderValue =
@@ -12,6 +13,10 @@ type HeaderValue =
   | undefined;
 
 type ResponseHeaders = RawAxiosResponseHeaders | AxiosResponseHeaders;
+const pendingFrames = [".", "..", "..."];
+const responseSection = "--------------- Response ------------------";
+const headersSection = "--------------- Headers -------------------";
+const bodySection = "----------------- Body --------------------";
 
 const formatHeaderValue = (value: HeaderValue): string => {
   if (Array.isArray(value)) {
@@ -23,6 +28,12 @@ const formatHeaderValue = (value: HeaderValue): string => {
   }
 
   return String(value);
+};
+
+export const formatPending = (frameIndex: number): string => {
+  const frame = pendingFrames[frameIndex % pendingFrames.length];
+
+  return `pending${frame}`;
 };
 
 export const formatResponseHeaders = (headers: ResponseHeaders): string => {
@@ -67,7 +78,30 @@ export const formatResponse = (response: AxiosResponse): string => {
   const headers = formatResponseHeaders(response.headers);
   const body = formatResponseBody(response.data, contentType);
 
-  return [statusLine, headers, body].filter(Boolean).join("\n\n");
+  return [
+    responseSection,
+    "",
+    statusLine,
+    "",
+    headersSection,
+    "",
+    headers,
+    "",
+    bodySection,
+    "",
+    body,
+  ]
+    .filter((section, index, sections) => {
+      if (section !== "") {
+        return true;
+      }
+
+      const previousSection = sections[index - 1];
+      const nextSection = sections[index + 1];
+
+      return previousSection !== "" && nextSection !== "";
+    })
+    .join("\n");
 };
 
 type ResponseViewProps = {
@@ -78,6 +112,26 @@ export const ResponseView = ({ response }: ResponseViewProps) => {
   return <Text>{formatResponse(response)}</Text>;
 };
 
+export const PendingView = () => {
+  const [frameIndex, setFrameIndex] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFrameIndex((currentFrameIndex) => currentFrameIndex + 1);
+    }, 250);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
+
+  return <Text>{formatPending(frameIndex)}</Text>;
+};
+
 export const displayResponse = (response: AxiosResponse) => {
   return render(<ResponseView response={response} />);
+};
+
+export const displayPending = () => {
+  return render(<PendingView />);
 };

@@ -1,10 +1,20 @@
 import { execute } from "./src/runtime/command.ts";
-import { displayResponse } from "./src/views/response.tsx";
+import { displayPending, displayResponse } from "./src/views/response.tsx";
 
 const main = async () => {
-  const response = await execute(Bun.argv.slice(2));
+  const pendingView = displayPending();
 
-  displayResponse(response);
+  try {
+    const response = await execute(Bun.argv.slice(2));
+
+    pendingView.clear();
+    pendingView.unmount();
+    displayResponse(response);
+  } catch (error) {
+    pendingView.clear();
+    pendingView.unmount();
+    throw error;
+  }
 };
 
 if (import.meta.main) {

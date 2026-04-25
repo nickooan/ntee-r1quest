@@ -4,6 +4,7 @@ import {
   formatResponse,
   formatResponseBody,
   formatResponseHeaders,
+  formatPending,
 } from "../../src/views/response.tsx"
 
 describe("response view", () => {
@@ -52,6 +53,13 @@ describe("response view", () => {
     )
   })
 
+  test("formats pending frames with animated dots", () => {
+    expect(formatPending(0)).toBe("pending.")
+    expect(formatPending(1)).toBe("pending..")
+    expect(formatPending(2)).toBe("pending...")
+    expect(formatPending(3)).toBe("pending.")
+  })
+
   test("formats a full response with status headers and body", () => {
     const response: AxiosResponse = {
       config: {
@@ -73,10 +81,16 @@ describe("response view", () => {
       request: {},
     }
 
-    expect(formatResponse(response)).toBe(`200 OK
+    expect(formatResponse(response)).toBe(`--------------- Response ------------------
+
+200 OK
+
+--------------- Headers -------------------
 
 content-type: application/json
 x-request-id: abc-123
+
+----------------- Body --------------------
 
 {
   "content": [
@@ -102,10 +116,16 @@ x-request-id: abc-123
       request: {},
     }
 
-    expect(formatResponse(response)).toBe(`200 OK
+    expect(formatResponse(response)).toBe(`--------------- Response ------------------
+
+200 OK
+
+--------------- Headers -------------------
 
 content-type: text/plain
 x-request-id: text-123
+
+----------------- Body --------------------
 
 line 1
 line 2`)
