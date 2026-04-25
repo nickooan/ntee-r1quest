@@ -359,6 +359,70 @@ const file = formData.get("file");
 const files = formData.getAll("files");
 ```
 
+## CLI
+
+Basic file execution:
+
+```bash
+r1quest sample.nts
+```
+
+If the file is under another directory, use `-r` to override the root lookup
+directory. The request file is resolved under that root.
+
+```bash
+r1quest property -r ~/request/core-api
+```
+
+That looks for:
+
+```text
+~/request/core-api/property.nts
+```
+
+You can also pass the full relative file path under the root:
+
+```bash
+r1quest core-api/property -r ~/request
+```
+
+That looks for:
+
+```text
+~/request/core-api/property.nts
+```
+
+Use `-d` to execute raw `.nts` source directly instead of reading a file:
+
+```bash
+r1quest -d 'url "https://ntee.io"
+type get
+
+header accept, application/json
+header content-type, application/json
+auth bearer test-token
+'
+```
+
+When `-d` is provided:
+
+- `execteFile` is optional and file lookup is skipped
+- `root` is optional and defaults to the current directory
+- `-r` still works and overrides the compile root used for relative refs and file macros
+
+Example with both `-r` and `-d`:
+
+```bash
+r1quest -r ~/request/test/data -d 'ref ./user.ntd
+url "https://ntee.io"
+type get
+
+header accept, application/json
+header content-type, application/json
+auth bearer @i(token)
+'
+```
+
 ## Runtime Notes
 
 `execute(scopeObject)` sends requests based on `content-type`:
@@ -370,9 +434,9 @@ const files = formData.getAll("files");
 File values are only allowed with `multipart/form-data`.
 
 ```ts
-import { compileFile } from "./src/compiler/semantics.ts";
+import { compileFile, CompileSourceType } from "./src/compiler/semantics.ts";
 import { execute } from "./src/runtime/request.ts";
 
-const scopeObject = compileFile("test/data/post.nts");
+const scopeObject = compileFile("test/data/post.nts", CompileSourceType.File);
 const response = await execute(scopeObject);
 ```

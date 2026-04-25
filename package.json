@@ -1,5 +1,6 @@
 {
   "name": "ntee-r1quest",
+  "license": "GPL-3.0-only",
   "module": "index.ts",
   "type": "module",
   "private": true,
