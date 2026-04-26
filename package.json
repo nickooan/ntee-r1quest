@@ -5,7 +5,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "bun build ./index.ts --compile --outfile r1q"
+    "build": "bun build ./index.ts --compile --outfile r1q",
+    "build:sign": "bun build ./index.ts --compile --outfile r1q && codesign --force --deep --sign - --entitlements ./entitlements.plist ./r1q"
   },
   "devDependencies": {
     "@types/bun": "latest",

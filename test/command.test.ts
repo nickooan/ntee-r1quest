@@ -132,4 +132,39 @@ describe("command execute", () => {
     });
     expect(process.cwd()).toBe(originalWorkingDirectory);
   });
+
+  test("uses .r1qconfig.json root from the current directory", async () => {
+    server.use(
+      http.get("https://ntee.io", ({ request }) => {
+        expect(request.headers.get("authorization")).toBe("bearer test-token");
+
+        return HttpResponse.json({
+          method: "get",
+          ok: true,
+        });
+      }),
+    );
+
+    const originalWorkingDirectory = process.cwd();
+    const configWorkingDirectory = join(
+      originalWorkingDirectory,
+      "test/config-cwd",
+    );
+
+    process.chdir(configWorkingDirectory);
+
+    try {
+      const response = await execute(["get"]);
+
+      expect(response.status).toBe(200);
+      expect(response.data).toEqual({
+        method: "get",
+        ok: true,
+      });
+    } finally {
+      process.chdir(originalWorkingDirectory);
+    }
+
+    expect(process.cwd()).toBe(originalWorkingDirectory);
+  });
 });

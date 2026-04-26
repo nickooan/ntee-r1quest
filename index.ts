@@ -1,8 +1,8 @@
 import { execute } from "./src/runtime/command.ts";
 import {
-  displayError,
   displayPending,
-  displayResponse,
+  formatError,
+  formatResponse,
 } from "./src/views/response.tsx";
 
 const main = async () => {
@@ -13,11 +13,11 @@ const main = async () => {
 
     pendingView.clear();
     pendingView.unmount();
-    displayResponse(response);
+    console.log(formatResponse(response));
   } catch (error) {
     pendingView.clear();
     pendingView.unmount();
-    displayError(error);
+    console.error(formatError(error));
     process.exitCode = 1;
   }
 };

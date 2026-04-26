@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, normalize, resolve } from "node:path";
 import {
   compile,
@@ -10,6 +11,10 @@ import { execute as executeRequest } from "./request.ts";
 type ParsedArgs = {
   data?: string;
   executeFile?: string;
+  root?: string;
+};
+
+type ConfigFile = {
   root?: string;
 };
 
@@ -29,6 +34,27 @@ const expandHomeDirectory = (directory: string): string => {
   }
 
   return directory;
+};
+
+export const readConfigRoot = (): string | null => {
+  const configPaths = [
+    resolve(process.cwd(), ".r1qconfig.json"),
+    join(homedir(), ".r1qconfig.json"),
+  ];
+
+  for (const configPath of configPaths) {
+    if (!existsSync(configPath)) {
+      continue;
+    }
+
+    const config = JSON.parse(readFileSync(configPath, "utf8")) as ConfigFile;
+
+    if (typeof config.root === "string" && config.root.length > 0) {
+      return config.root;
+    }
+  }
+
+  return null;
 };
 
 const parseArguments = (args: string[]): ParsedArgs => {
@@ -79,7 +105,8 @@ const parseArguments = (args: string[]): ParsedArgs => {
 
 const resolveExecutionOptions = (parsedArgs: ParsedArgs): ExecuteOptions => {
   const baseWorkingDirectory = process.cwd();
-  const inputRoot = parsedArgs.root ?? baseWorkingDirectory;
+  const configRoot = readConfigRoot();
+  const inputRoot = parsedArgs.root ?? configRoot ?? baseWorkingDirectory;
   const resolvedRoot = isAbsolute(inputRoot)
     ? normalize(expandHomeDirectory(inputRoot))
     : resolve(baseWorkingDirectory, expandHomeDirectory(inputRoot));

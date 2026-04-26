@@ -361,17 +361,54 @@ const files = formData.getAll("files");
 
 ## CLI
 
-Basic file execution:
+Run locally with Bun:
 
 ```bash
-r1quest sample.nts
+bun run index.ts sample.nts
 ```
 
-If the file is under another directory, use `-r` to override the root lookup
-directory. The request file is resolved under that root.
+Build the local executable:
 
 ```bash
-r1quest property -r ~/request/core-api
+bun run build
+```
+
+That creates:
+
+```text
+./r1q
+```
+
+Run the built executable:
+
+```bash
+./r1q sample.nts
+```
+
+Supported CLI forms:
+
+### Execute a `.nts` file
+
+```bash
+bun run index.ts sample.nts
+./r1q sample.nts
+```
+
+If the `.nts` extension is omitted, `.nts` is added automatically:
+
+```bash
+bun run index.ts sample
+./r1q sample
+```
+
+### Execute a file under another root with `-r`
+
+Use `-r` to override the root lookup directory. The request file is resolved
+under that root.
+
+```bash
+bun run index.ts property -r ~/request/core-api
+./r1q property -r ~/request/core-api
 ```
 
 That looks for:
@@ -380,10 +417,11 @@ That looks for:
 ~/request/core-api/property.nts
 ```
 
-You can also pass the full relative file path under the root:
+You can also pass the full relative path under the root:
 
 ```bash
-r1quest core-api/property -r ~/request
+bun run index.ts core-api/property -r ~/request
+./r1q core-api/property -r ~/request
 ```
 
 That looks for:
@@ -391,11 +429,66 @@ That looks for:
 ```text
 ~/request/core-api/property.nts
 ```
+
+### Configure a default root with `.r1qconfig.json`
+
+If you often run requests from the same root, create a config file with a
+`root` attribute.
+
+Current directory config:
+
+```json
+{
+  "root": "~/request/core-api"
+}
+```
+
+Save it as:
+
+```text
+./.r1qconfig.json
+```
+
+Then you can run:
+
+```bash
+bun run index.ts property
+./r1q property
+```
+
+That looks for:
+
+```text
+~/request/core-api/property.nts
+```
+
+If `./.r1qconfig.json` does not exist, the CLI falls back to:
+
+```text
+~/.r1qconfig.json
+```
+
+Root resolution precedence is:
+
+1. `-r`
+2. `./.r1qconfig.json`
+3. `~/.r1qconfig.json`
+4. current working directory
+
+### Execute raw `.nts` source with `-d`
 
 Use `-d` to execute raw `.nts` source directly instead of reading a file:
 
 ```bash
-r1quest -d 'url "https://ntee.io"
+bun run index.ts -d 'url "https://ntee.io"
+type get
+
+header accept, application/json
+header content-type, application/json
+auth bearer test-token
+'
+
+./r1q -d 'url "https://ntee.io"
 type get
 
 header accept, application/json
@@ -406,14 +499,26 @@ auth bearer test-token
 
 When `-d` is provided:
 
-- `execteFile` is optional and file lookup is skipped
-- `root` is optional and defaults to the current directory
+- the request file is optional and file lookup is skipped
+- the root defaults to the current directory
 - `-r` still works and overrides the compile root used for relative refs and file macros
 
-Example with both `-r` and `-d`:
+### Use `-r` and `-d` together
+
+This is useful when raw source uses `ref ./file.ntd` or `@f(...)` and you want
+those relative paths to resolve from a specific directory.
 
 ```bash
-r1quest -r ~/request/test/data -d 'ref ./user.ntd
+bun run index.ts -r ~/request/test/data -d 'ref ./user.ntd
+url "https://ntee.io"
+type get
+
+header accept, application/json
+header content-type, application/json
+auth bearer @i(token)
+'
+
+./r1q -r ~/request/test/data -d 'ref ./user.ntd
 url "https://ntee.io"
 type get
 
@@ -422,6 +527,17 @@ header content-type, application/json
 auth bearer @i(token)
 '
 ```
+
+### Response display
+
+The CLI renders:
+
+- a pending indicator while the request is running
+- a `Response` section with status
+- a `Headers` section
+- a `Body` section
+
+If the request fails, the CLI renders an `Error` section in the terminal.
 
 ## Runtime Notes
 

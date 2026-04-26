@@ -1,5 +1,5 @@
-import type { AxiosResponseHeaders, RawAxiosResponseHeaders } from "axios";
 import type { AxiosResponse } from "axios";
+import type { AxiosResponseHeaders, RawAxiosResponseHeaders } from "axios";
 import React from "react";
 import { useEffect, useState } from "react";
 import { render, Text } from "ink";
@@ -111,22 +111,6 @@ export const formatError = (error: unknown): string => {
   return [errorSection, "", message].join("\n");
 };
 
-type ResponseViewProps = {
-  response: AxiosResponse;
-};
-
-type ErrorViewProps = {
-  error: unknown;
-};
-
-export const ResponseView = ({ response }: ResponseViewProps) => {
-  return <Text>{formatResponse(response)}</Text>;
-};
-
-export const ErrorView = ({ error }: ErrorViewProps) => {
-  return <Text>{formatError(error)}</Text>;
-};
-
 export const PendingView = () => {
   const [frameIndex, setFrameIndex] = useState(0);
 
@@ -143,14 +127,6 @@ export const PendingView = () => {
   return <Text>{formatPending(frameIndex)}</Text>;
 };
 
-export const displayResponse = (response: AxiosResponse) => {
-  return render(<ResponseView response={response} />);
-};
-
 export const displayPending = () => {
   return render(<PendingView />);
-};
-
-export const displayError = (error: unknown) => {
-  return render(<ErrorView error={error} />);
 };
