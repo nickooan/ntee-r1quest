@@ -4,6 +4,35 @@
 files. Definition data lives in `.ntd` files and can be referenced from request
 scripts with macros.
 
+## Index
+
+- [Install](#install)
+- [File Types](#file-types)
+  - [`.nts`](#nts)
+  - [`.ntd`](#ntd)
+- [Request Syntax](#request-syntax)
+  - [References](#references)
+  - [URL](#url)
+  - [Method](#method)
+  - [Authorization](#authorization)
+  - [Headers](#headers)
+- [Macros](#macros)
+  - [`@i(key)`](#ikey)
+  - [`@f(path)`](#fpath)
+- [Body Examples](#body-examples)
+  - [JSON Object](#json-object)
+  - [JSON Array](#json-array)
+  - [Plain Text](#plain-text)
+  - [Multipart Form](#multipart-form)
+- [CLI](#cli)
+  - [Execute a `.nts` file](#execute-a-nts-file)
+  - [Execute a file under another root with `-r`](#execute-a-file-under-another-root-with--r)
+  - [Configure a default root with `.r1qconfig.json`](#configure-a-default-root-with-r1qconfigjson)
+  - [Execute raw `.nts` source with `-d`](#execute-raw-nts-source-with--d)
+  - [Use `-r` and `-d` together](#use--r-and--d-together)
+  - [Response display](#response-display)
+- [Runtime Notes](#runtime-notes)
+
 ## Install
 
 ```bash
