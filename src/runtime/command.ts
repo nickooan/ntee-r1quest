@@ -39,7 +39,7 @@ const expandHomeDirectory = (directory: string): string => {
 export const readConfigRoot = (): string | null => {
   const configPaths = [
     resolve(process.cwd(), ".r1qconfig.json"),
-    join(homedir(), ".r1qconfig.json"),
+    join(homedir(), ".ntee-r1quest", ".r1qconfig.json"),
   ];
 
   for (const configPath of configPaths) {

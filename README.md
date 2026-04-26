@@ -7,6 +7,7 @@ scripts with macros.
 ## Index
 
 - [Install](#install)
+  - [Global command install](#global-command-install)
 - [File Types](#file-types)
   - [`.nts`](#nts)
   - [`.ntd`](#ntd)
@@ -37,6 +38,53 @@ scripts with macros.
 
 ```bash
 bun install
+```
+
+### Global command install
+
+To install `r1q` as a local command on your machine:
+
+```bash
+bun run build:install
+```
+
+That installs:
+
+```text
+~/.ntee-r1quest/r1q
+~/.ntee-r1quest/.r1qconfig.json
+```
+
+You must manually add this directory to your shell profile `PATH`.
+
+For `zsh`, add this to `~/.zshrc`:
+
+```bash
+export PATH="$HOME/.ntee-r1quest:$PATH"
+```
+
+For `bash`, add this to `~/.bash_profile` or `~/.bashrc`:
+
+```bash
+export PATH="$HOME/.ntee-r1quest:$PATH"
+```
+
+Then reload your shell:
+
+```bash
+source ~/.zshrc
+```
+
+or:
+
+```bash
+source ~/.bash_profile
+```
+
+After that, you can run:
+
+```bash
+r1q sample.nts
 ```
 
 ## File Types
@@ -494,14 +542,14 @@ That looks for:
 If `./.r1qconfig.json` does not exist, the CLI falls back to:
 
 ```text
-~/.r1qconfig.json
+~/.ntee-r1quest/.r1qconfig.json
 ```
 
 Root resolution precedence is:
 
 1. `-r`
 2. `./.r1qconfig.json`
-3. `~/.r1qconfig.json`
+3. `~/.ntee-r1quest/.r1qconfig.json`
 4. current working directory
 
 ### Execute raw `.nts` source with `-d`
