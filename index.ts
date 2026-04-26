@@ -1,5 +1,9 @@
 import { execute } from "./src/runtime/command.ts";
-import { displayPending, displayResponse } from "./src/views/response.tsx";
+import {
+  displayError,
+  displayPending,
+  displayResponse,
+} from "./src/views/response.tsx";
 
 const main = async () => {
   const pendingView = displayPending();
@@ -13,15 +17,11 @@ const main = async () => {
   } catch (error) {
     pendingView.clear();
     pendingView.unmount();
-    throw error;
+    displayError(error);
+    process.exitCode = 1;
   }
 };
 
 if (import.meta.main) {
-  try {
-    await main();
-  } catch (error) {
-    console.error(error);
-    process.exitCode = 1;
-  }
+  await main();
 }

@@ -17,6 +17,7 @@ const pendingFrames = [".", "..", "..."];
 const responseSection = "--------------- Response ------------------";
 const headersSection = "--------------- Headers -------------------";
 const bodySection = "----------------- Body --------------------";
+const errorSection = "---------------- Error --------------------";
 
 const formatHeaderValue = (value: HeaderValue): string => {
   if (Array.isArray(value)) {
@@ -104,12 +105,26 @@ export const formatResponse = (response: AxiosResponse): string => {
     .join("\n");
 };
 
+export const formatError = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+
+  return [errorSection, "", message].join("\n");
+};
+
 type ResponseViewProps = {
   response: AxiosResponse;
 };
 
+type ErrorViewProps = {
+  error: unknown;
+};
+
 export const ResponseView = ({ response }: ResponseViewProps) => {
   return <Text>{formatResponse(response)}</Text>;
+};
+
+export const ErrorView = ({ error }: ErrorViewProps) => {
+  return <Text>{formatError(error)}</Text>;
 };
 
 export const PendingView = () => {
@@ -134,4 +149,8 @@ export const displayResponse = (response: AxiosResponse) => {
 
 export const displayPending = () => {
   return render(<PendingView />);
+};
+
+export const displayError = (error: unknown) => {
+  return render(<ErrorView error={error} />);
 };

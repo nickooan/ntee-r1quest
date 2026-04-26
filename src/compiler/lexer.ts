@@ -1,12 +1,6 @@
 import * as Ohm from "ohm-js";
-
-export const scriptGrammarSource = await Bun.file(
-  new URL("./script-grammar.ohm", import.meta.url),
-).text();
-
-export const definitionGrammarSource = await Bun.file(
-  new URL("./definition-grammar.ohm", import.meta.url),
-).text();
+import scriptGrammarSource from "./script-grammar.ohm" with { type: "text" };
+import definitionGrammarSource from "./definition-grammar.ohm" with { type: "text" };
 
 export const scriptGrammar = Ohm.grammar(scriptGrammarSource);
 export const definitionGrammar = Ohm.grammar(definitionGrammarSource);

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { AxiosResponse, InternalAxiosRequestConfig } from "axios"
 import {
+  formatError,
   formatResponse,
   formatResponseBody,
   formatResponseHeaders,
@@ -58,6 +59,14 @@ describe("response view", () => {
     expect(formatPending(1)).toBe("pending..")
     expect(formatPending(2)).toBe("pending...")
     expect(formatPending(3)).toBe("pending.")
+  })
+
+  test("formats terminal error output", () => {
+    expect(formatError(new Error("Unable to connect."))).toBe(
+      `---------------- Error --------------------
+
+Unable to connect.`,
+    )
   })
 
   test("formats a full response with status headers and body", () => {
