@@ -124,6 +124,20 @@ off: false
 arr: ["macro", 2, false]
 ```
 
+`.ntd` values can also read from environment variables with `@env(KEY)`.
+
+```ntd
+token: @env(API_TOKEN)
+base-url: @env(API_BASE_URL)
+```
+
+When a definition file is built, `@env(KEY)` resolves from `process.env.KEY`.
+If the environment variable is missing, compilation throws:
+
+```text
+Undefined env macro: @env(KEY)
+```
+
 Values support strings, numbers, booleans, null, arrays, and objects. Unquoted
 bare values default to strings unless they are `true`, `false`, `null`, or a
 number.
