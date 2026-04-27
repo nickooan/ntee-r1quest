@@ -30,6 +30,23 @@ describe("compiler", () => {
     })
   })
 
+  test("builds an intermediate object from env macros in a definition ref", () => {
+    const previousValue = process.env.TEST_ENV_TOKEN
+    process.env.TEST_ENV_TOKEN = "env-token-value"
+
+    try {
+      expect(buildItermediateObject("test/data/env.ntd", {})).toEqual({
+        token: "env-token-value",
+      })
+    } finally {
+      if (previousValue === undefined) {
+        delete process.env.TEST_ENV_TOKEN
+      } else {
+        process.env.TEST_ENV_TOKEN = previousValue
+      }
+    }
+  })
+
   test("compiles an object body request", () => {
     expect(compileFile("test/data/compiler-object-body.nts", CompileSourceType.File)).toEqual({
       url: "http://www.123.com/",

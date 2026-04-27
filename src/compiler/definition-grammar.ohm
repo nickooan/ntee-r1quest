@@ -12,6 +12,7 @@ R1QuestDefinition {
   Value
     = Object
     | Array
+    | EnvMacro
     | string
     | number
     | boolean
@@ -23,6 +24,9 @@ R1QuestDefinition {
 
   Array
     = "[" listOf<Value, ","> "]"
+
+  EnvMacro
+    = "@env(" macroKey ")"
 
   boolean
     = "true"
@@ -59,6 +63,9 @@ R1QuestDefinition {
 
   objectKey
     = letter identifierPart*
+
+  macroKey
+    = objectKey
 
   identifierPart
     = alnum
