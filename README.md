@@ -7,6 +7,7 @@ scripts with macros.
 ## Index
 
 - [Install](#install)
+  - [Setup Bun](#setup-bun)
   - [Global command install](#global-command-install)
 - [File Types](#file-types)
   - [`.nts`](#nts)
@@ -35,6 +36,25 @@ scripts with macros.
 - [Runtime Notes](#runtime-notes)
 
 ## Install
+
+### Setup Bun
+
+Before installing dependencies, make sure the Bun runtime is available in your
+shell:
+
+```bash
+bun --version
+```
+
+If Bun is not installed, install it with Homebrew:
+
+```bash
+brew install bun
+```
+
+Or use the official Bun installation guide:
+
+https://bun.sh/docs/installation
 
 ```bash
 bun install
