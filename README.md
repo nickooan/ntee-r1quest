@@ -472,13 +472,13 @@ const files = formData.getAll("files");
 
 ## CLI
 
-Run locally with Bun:
+After installing the global command, run requests with `r1q`:
 
 ```bash
-bun run index.ts sample.nts
+r1q sample.nts
 ```
 
-Build the local executable:
+For development, build the local executable with Bun:
 
 ```bash
 bun run build
@@ -490,26 +490,18 @@ That creates:
 ./r1q
 ```
 
-Run the built executable:
-
-```bash
-./r1q sample.nts
-```
-
 Supported CLI forms:
 
 ### Execute a `.nts` file
 
 ```bash
-bun run index.ts sample.nts
-./r1q sample.nts
+r1q sample.nts
 ```
 
 If the `.nts` extension is omitted, `.nts` is added automatically:
 
 ```bash
-bun run index.ts sample
-./r1q sample
+r1q sample
 ```
 
 ### Execute a file under another root with `-r`
@@ -518,8 +510,7 @@ Use `-r` to override the root lookup directory. The request file is resolved
 under that root.
 
 ```bash
-bun run index.ts property -r ~/request/core-api
-./r1q property -r ~/request/core-api
+r1q property -r ~/request/core-api
 ```
 
 That looks for:
@@ -531,8 +522,7 @@ That looks for:
 You can also pass the full relative path under the root:
 
 ```bash
-bun run index.ts core-api/property -r ~/request
-./r1q core-api/property -r ~/request
+r1q core-api/property -r ~/request
 ```
 
 That looks for:
@@ -563,8 +553,7 @@ Save it as:
 Then you can run:
 
 ```bash
-bun run index.ts property
-./r1q property
+r1q property
 ```
 
 That looks for:
@@ -591,15 +580,7 @@ Root resolution precedence is:
 Use `-d` to execute raw `.nts` source directly instead of reading a file:
 
 ```bash
-bun run index.ts -d 'url "https://ntee.io"
-type get
-
-header accept, application/json
-header content-type, application/json
-auth bearer test-token
-'
-
-./r1q -d 'url "https://ntee.io"
+r1q -d 'url "https://ntee.io"
 type get
 
 header accept, application/json
@@ -620,16 +601,7 @@ This is useful when raw source uses `ref ./file.ntd` or `@f(...)` and you want
 those relative paths to resolve from a specific directory.
 
 ```bash
-bun run index.ts -r ~/request/test/data -d 'ref ./user.ntd
-url "https://ntee.io"
-type get
-
-header accept, application/json
-header content-type, application/json
-auth bearer @i(token)
-'
-
-./r1q -r ~/request/test/data -d 'ref ./user.ntd
+r1q -r ~/request/test/data -d 'ref ./user.ntd
 url "https://ntee.io"
 type get
 
