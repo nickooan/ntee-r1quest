@@ -155,7 +155,7 @@ export const semantics = scriptGrammar
     Pair(key, _colon, value) {
       const compiledValue = value.toValue(this.args.intermediateObject, this.args.cwd)
 
-      if (value.sourceString.startsWith("@f(")) {
+      if (value.getMacroActionName() === "f") {
         return [key.toKey(), [compiledValue]] as [string, ScopeValue]
       }
 
@@ -232,11 +232,56 @@ export const semantics = scriptGrammar
     Pair(key, _colon, value) {
       const compiledValue = value.toValue(this.args.intermediateObject, this.args.cwd)
 
-      if (value.sourceString.startsWith("@f(")) {
+      if (value.getMacroActionName() === "f") {
         return [key.toKey(), [compiledValue]]
       }
 
       return [key.toKey(), compiledValue]
+    },
+  })
+  .addOperation<string | undefined>("getMacroActionName()", {
+    Value(value) {
+      return value.getMacroActionName()
+    },
+
+    macro(value) {
+      return value.getMacroActionName()
+    },
+
+    intermediateMacro(_operator, actionName, _open, _key, _close) {
+      return actionName.sourceString
+    },
+
+    fileMacro(_operator, actionName, _open, _path, _close) {
+      return actionName.sourceString
+    },
+
+    Object(_open, _pairs, _close) {
+      return undefined
+    },
+
+    Array(_open, _values, _close) {
+      return undefined
+    },
+
+    string(_open, _chars, _close) {
+      return undefined
+    },
+
+    bareString(_) {
+      return undefined
+    },
+
+    number(_sign, _digits, _dot, _fraction) {
+      return undefined
+    },
+
+    boolean(_) {
+      return undefined
+    },
+
+    null(_) {
+      return undefined
     },
   })
   .addOperation<string>("toKey()", {
