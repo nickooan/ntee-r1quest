@@ -137,14 +137,23 @@ R1Quest {
     | fileMacro
 
   intermediateMacro
-    = "@i(" macroKey ")"
+    = optAt intermediateMacroActionName "(" macroKey ")"
 
   fileMacro
-    = "@f(" filePath ")"
+    = optAt fileMacroActionName "(" filePath ")"
 
-  macroOperator
+  optAt
+    = "@"
+
+  macroActionName
+    = intermediateMacroActionName
+    | fileMacroActionName
+
+  intermediateMacroActionName
     = "i"
-    | "f"
+
+  fileMacroActionName
+    = "f"
 
   macroKey
     = objectKey

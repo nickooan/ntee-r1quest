@@ -189,11 +189,15 @@ export const semantics = scriptGrammar
       return value.toValue(this.args.intermediateObject, this.args.cwd)
     },
 
-    intermediateMacro(_open, key, _close) {
-      return resolveMacro("i", key.sourceString, this.args.intermediateObject)
+    intermediateMacro(_operator, actionName, _open, key, _close) {
+      return resolveMacro(
+        actionName.sourceString,
+        key.sourceString,
+        this.args.intermediateObject,
+      )
     },
 
-    fileMacro(_open, path, _close) {
+    fileMacro(_operator, _actionName, _open, path, _close) {
       return resolveFileMacro(path.sourceString, this.args.cwd)
     },
 
@@ -267,13 +271,17 @@ export const semantics = scriptGrammar
       )
     },
 
-    intermediateMacro(_open, key, _close) {
+    intermediateMacro(_operator, actionName, _open, key, _close) {
       return toHeaderValue(
-        resolveMacro("i", key.sourceString, this.args.intermediateObject),
+        resolveMacro(
+          actionName.sourceString,
+          key.sourceString,
+          this.args.intermediateObject,
+        ),
       )
     },
 
-    fileMacro(_open, _path, _close) {
+    fileMacro(_operator, _actionName, _open, _path, _close) {
       throw new SyntaxError("@f(...) is only supported in body values.")
     },
 
@@ -335,7 +343,7 @@ export const definitionSemantics = definitionGrammar
       return values.asIteration().children.map((value) => value.toValue())
     },
 
-    EnvMacro(_open, key, _close) {
+    EnvMacro(_operator, _actionName, _open, key, _close) {
       const envValue = process.env[key.sourceString]
 
       if (envValue === undefined) {
@@ -434,7 +442,7 @@ const interpolateMacros = (
   value: string,
   intermediateObject: IntermediateObject,
 ): string => {
-  return value.replace(/@([A-Za-z])\(([^)]+)\)/g, (
+  return value.replace(/@([A-Za-z][A-Za-z0-9_-]*)\(([^)]+)\)/g, (
     source,
     operator,
     key,
