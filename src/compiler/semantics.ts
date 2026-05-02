@@ -388,14 +388,8 @@ export const definitionSemantics = definitionGrammar
       return values.asIteration().children.map((value) => value.toValue())
     },
 
-    EnvMacro(_operator, _actionName, _open, key, _close) {
-      const envValue = process.env[key.sourceString]
-
-      if (envValue === undefined) {
-        throw new ReferenceError(`Undefined env macro: @env(${key.sourceString})`)
-      }
-
-      return envValue
+    EnvMacro(_operator, actionName, _open, key, _close) {
+      return resolveEnvMacro(actionName.sourceString, key.sourceString)
     },
 
     string(_open, _chars, _close) {
@@ -471,6 +465,20 @@ const resolveMacro = (
   }
 
   return value
+}
+
+const resolveEnvMacro = (operator: string, key: string): string => {
+  if (operator !== "env") {
+    throw new ReferenceError(`Unsupported env macro operator: ${operator}`)
+  }
+
+  const envValue = process.env[key]
+
+  if (envValue === undefined) {
+    throw new ReferenceError(`Undefined env macro: @${operator}(${key})`)
+  }
+
+  return envValue
 }
 
 const resolveFileMacro = (filePath: string, cwd: string): Blob => {
