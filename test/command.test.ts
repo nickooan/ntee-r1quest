@@ -48,6 +48,29 @@ describe("command execute", () => {
     expect(process.cwd()).toBe(originalWorkingDirectory);
   });
 
+  test("uses a nested request file directory as root when -r is not provided", async () => {
+    server.use(
+      http.get("https://ntee.io", ({ request }) => {
+        expect(request.headers.get("authorization")).toBe("bearer test-token");
+
+        return HttpResponse.json({
+          method: "get",
+          ok: true,
+        });
+      }),
+    );
+
+    const originalWorkingDirectory = process.cwd();
+    const response = await execute(["test/data/get"]);
+
+    expect(response.status).toBe(200);
+    expect(response.data).toEqual({
+      method: "get",
+      ok: true,
+    });
+    expect(process.cwd()).toBe(originalWorkingDirectory);
+  });
+
   test("uses -r to override the root argument", async () => {
     server.use(
       http.get("https://ntee.io", ({ request }) => {
@@ -155,6 +178,41 @@ describe("command execute", () => {
 
     try {
       const response = await execute(["get"]);
+
+      expect(response.status).toBe(200);
+      expect(response.data).toEqual({
+        method: "get",
+        ok: true,
+      });
+    } finally {
+      process.chdir(originalWorkingDirectory);
+    }
+
+    expect(process.cwd()).toBe(originalWorkingDirectory);
+  });
+
+  test("uses a nested request file directory under the config root", async () => {
+    server.use(
+      http.get("https://ntee.io", ({ request }) => {
+        expect(request.headers.get("authorization")).toBe("bearer test-token");
+
+        return HttpResponse.json({
+          method: "get",
+          ok: true,
+        });
+      }),
+    );
+
+    const originalWorkingDirectory = process.cwd();
+    const configWorkingDirectory = join(
+      originalWorkingDirectory,
+      "test/config-cwd",
+    );
+
+    process.chdir(configWorkingDirectory);
+
+    try {
+      const response = await execute(["nested/get"]);
 
       expect(response.status).toBe(200);
       expect(response.data).toEqual({

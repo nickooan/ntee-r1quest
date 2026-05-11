@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, join, normalize, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import {
   compile,
   compileFile,
@@ -107,6 +107,7 @@ const resolveExecutionOptions = (parsedArgs: ParsedArgs): ExecuteOptions => {
   const baseWorkingDirectory = process.cwd();
   const configRoot = readConfigRoot();
   const inputRoot = parsedArgs.root ?? configRoot ?? baseWorkingDirectory;
+  const hasExplicitRoot = parsedArgs.root !== undefined;
   const resolvedRoot = isAbsolute(inputRoot)
     ? normalize(expandHomeDirectory(inputRoot))
     : resolve(baseWorkingDirectory, expandHomeDirectory(inputRoot));
@@ -126,6 +127,19 @@ const resolveExecutionOptions = (parsedArgs: ParsedArgs): ExecuteOptions => {
   const relativeExecuteFile = parsedArgs.executeFile.endsWith(".nts")
     ? parsedArgs.executeFile
     : `${parsedArgs.executeFile}.nts`;
+
+  if (!hasExplicitRoot) {
+    const resolvedExecuteFile = isAbsolute(relativeExecuteFile)
+      ? normalize(expandHomeDirectory(relativeExecuteFile))
+      : resolve(resolvedRoot, expandHomeDirectory(relativeExecuteFile));
+
+    return {
+      root: dirname(resolvedExecuteFile),
+      source: basename(resolvedExecuteFile),
+      sourceType: CompileSourceType.File,
+    };
+  }
+
   const requestFilePath = relativeExecuteFile.startsWith("/")
     ? relativeExecuteFile.slice(1)
     : relativeExecuteFile;
