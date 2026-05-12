@@ -20,6 +20,7 @@ scripts with macros.
   - [Headers](#headers)
 - [Macros](#macros)
   - [`@i(key)`](#ikey)
+  - [`@env(KEY)`](#envkey)
   - [`@f(path)`](#fpath)
 - [Body Examples](#body-examples)
   - [JSON Object](#json-object)
@@ -56,13 +57,14 @@ Or use the official Bun installation guide:
 
 https://bun.sh/docs/installation
 
-```bash
-bun install
-```
-
 ### Global command install
 
 To install `r1q` as a local command on your machine:
+
+```bash
+# run this before installing, make sure all dependencies are installed.
+bun install
+```
 
 ```bash
 bun run build:install
@@ -314,6 +316,23 @@ Compiles to:
 body: {
   description: "my age is 2"
 }
+```
+
+### `@env(KEY)`
+
+Reads a value from an environment variable. This macro is only available in
+`.ntd` definition files.
+
+```ntd
+token: @env(API_TOKEN)
+base-url: @env(API_BASE_URL)
+```
+
+When the `.ntd` file is built, `@env(KEY)` resolves from `process.env.KEY`.
+If the environment variable is missing, compilation throws:
+
+```text
+Undefined env macro: @env(KEY)
 ```
 
 ### `@f(path)`
