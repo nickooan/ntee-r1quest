@@ -127,26 +127,23 @@ const resolveExecutionOptions = (parsedArgs: ParsedArgs): ExecuteOptions => {
   const relativeExecuteFile = parsedArgs.executeFile.endsWith(".nts")
     ? parsedArgs.executeFile
     : `${parsedArgs.executeFile}.nts`;
+  let root = resolvedRoot;
+  let source = relativeExecuteFile.startsWith("/")
+    ? relativeExecuteFile.slice(1)
+    : relativeExecuteFile;
 
   if (!hasExplicitRoot) {
     const resolvedExecuteFile = isAbsolute(relativeExecuteFile)
       ? normalize(expandHomeDirectory(relativeExecuteFile))
       : resolve(resolvedRoot, expandHomeDirectory(relativeExecuteFile));
 
-    return {
-      root: dirname(resolvedExecuteFile),
-      source: basename(resolvedExecuteFile),
-      sourceType: CompileSourceType.File,
-    };
+    root = dirname(resolvedExecuteFile);
+    source = basename(resolvedExecuteFile);
   }
 
-  const requestFilePath = relativeExecuteFile.startsWith("/")
-    ? relativeExecuteFile.slice(1)
-    : relativeExecuteFile;
-
   return {
-    root: resolvedRoot,
-    source: requestFilePath,
+    root,
+    source,
     sourceType: CompileSourceType.File,
   };
 };

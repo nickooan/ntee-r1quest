@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { AxiosError } from "axios"
 import type { AxiosResponse, InternalAxiosRequestConfig } from "axios"
 import {
   formatError,
@@ -63,16 +64,58 @@ describe("response view", () => {
 
   test("formats terminal error output", () => {
     expect(formatError(new Error("Unable to connect."))).toBe(
-      `---------------- Error --------------------
+      `--------------- Error ---------------
 
 Unable to connect.`,
     )
+  })
+
+  test("formats axios error output with response details only", () => {
+    const config = {
+      headers: {},
+      method: "get",
+      url: "https://ntee.io/missing-resource?debug=true",
+    } as InternalAxiosRequestConfig
+    const response: AxiosResponse = {
+      config,
+      status: 404,
+      statusText: "Not Found",
+      headers: {
+        "content-type": "application/json",
+        "x-request-id": "error-123",
+      },
+      data: {
+        message: "Not found",
+      },
+      request: {},
+    }
+    const error = new AxiosError("Request failed", undefined, config, {}, response)
+
+    expect(formatError(error)).toBe(`--------------- Response of get /missing-resource ---------------
+
+404 Not Found
+
+--------------- Headers ---------------
+
+content-type: application/json
+x-request-id: error-123
+
+--------------- Body ---------------
+
+{
+  "message": "Not found"
+}
+
+--------------- End of get /missing-resource ---------------
+`)
   })
 
   test("formats a full response with status headers and body", () => {
     const response: AxiosResponse = {
       config: {
         headers: {},
+        method: "get",
+        url: "https://ntee.io/xxx/xx/xxx",
       } as InternalAxiosRequestConfig,
       status: 200,
       statusText: "OK",
@@ -90,16 +133,16 @@ Unable to connect.`,
       request: {},
     }
 
-    expect(formatResponse(response)).toBe(`--------------- Response ------------------
+    expect(formatResponse(response)).toBe(`--------------- Response of get /xxx/xx/xxx ---------------
 
 200 OK
 
---------------- Headers -------------------
+--------------- Headers ---------------
 
 content-type: application/json
 x-request-id: abc-123
 
------------------ Body --------------------
+--------------- Body ---------------
 
 {
   "content": [
@@ -107,13 +150,18 @@ x-request-id: abc-123
       "name": "abc"
     }
   ]
-}`)
+}
+
+--------------- End of get /xxx/xx/xxx ---------------
+`)
   })
 
   test("formats a full text response with headers and multiline body", () => {
     const response: AxiosResponse = {
       config: {
         headers: {},
+        method: "post",
+        url: "/text-response?line=2",
       } as InternalAxiosRequestConfig,
       status: 200,
       statusText: "OK",
@@ -125,18 +173,21 @@ x-request-id: abc-123
       request: {},
     }
 
-    expect(formatResponse(response)).toBe(`--------------- Response ------------------
+    expect(formatResponse(response)).toBe(`--------------- Response of post /text-response ---------------
 
 200 OK
 
---------------- Headers -------------------
+--------------- Headers ---------------
 
 content-type: text/plain
 x-request-id: text-123
 
------------------ Body --------------------
+--------------- Body ---------------
 
 line 1
-line 2`)
+line 2
+
+--------------- End of post /text-response ---------------
+`)
   })
 })
