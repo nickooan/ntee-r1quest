@@ -1,6 +1,11 @@
 import type { AxiosResponse } from "axios"
 import React, { useEffect, useState } from "react"
 import { Box, Text, render, useInput, useWindowSize } from "ink"
+import {
+  clampValue,
+  handleBaseModeInput,
+  type BaseModeState,
+} from "./key-helpers/index.ts"
 import { formatError, formatPending, formatResponse } from "./response.tsx"
 
 export type TerminalAppProps = {
@@ -24,10 +29,6 @@ const defaultWidth = 80
 const commandLineHeight = 1
 const headerHeight = 3
 const commandBackgroundColor = "#1f1f1f"
-
-const clamp = (value: number, min: number, max: number): number => {
-  return Math.min(Math.max(value, min), max)
-}
 
 const normalizeLines = (content: string): string[] => {
   return content.split("\n")
@@ -74,8 +75,8 @@ export const buildTerminalViewport = (
   )
   const maxScrollX = Math.max(0, maxLineWidth - width)
   const maxScrollY = Math.max(0, lines.length - height)
-  const safeScrollX = clamp(scrollX, 0, maxScrollX)
-  const safeScrollY = clamp(scrollY, 0, maxScrollY)
+  const safeScrollX = clampValue(scrollX, 0, maxScrollX)
+  const safeScrollY = clampValue(scrollY, 0, maxScrollY)
   const visibleLines = lines
     .slice(safeScrollY, safeScrollY + height)
     .map((line) => sliceLine(line, safeScrollX, width))
@@ -102,9 +103,11 @@ export const TerminalApp = ({
 }: TerminalAppProps) => {
   const { columns, rows } = useWindowSize()
   const [frameIndex, setFrameIndex] = useState(0)
-  const [scrollX, setScrollX] = useState(0)
-  const [scrollY, setScrollY] = useState(0)
-  const [command, setCommand] = useState("")
+  const [baseModeState, setBaseModeState] = useState<BaseModeState>({
+    scrollX: 0,
+    scrollY: 0,
+    command: "",
+  })
   const height = fixedHeight ?? rows ?? defaultHeight
   const width = fixedWidth ?? columns ?? defaultWidth
   const viewHeight = Math.max(1, height - headerHeight - commandLineHeight)
@@ -115,8 +118,14 @@ export const TerminalApp = ({
     isPending,
     frameIndex,
   })
-  const viewport = buildTerminalViewport(content, viewWidth, viewHeight, scrollX, scrollY)
-  const safeScrollY = clamp(scrollY, 0, viewport.maxScrollY)
+  const viewport = buildTerminalViewport(
+    content,
+    viewWidth,
+    viewHeight,
+    baseModeState.scrollX,
+    baseModeState.scrollY,
+  )
+  const safeScrollY = clampValue(baseModeState.scrollY, 0, viewport.maxScrollY)
 
   useEffect(() => {
     if (!isPending) {
@@ -133,69 +142,16 @@ export const TerminalApp = ({
   }, [isPending])
 
   useInput((input, key) => {
-    if (key.upArrow) {
-      setScrollY((currentScrollY) => clamp(currentScrollY - 1, 0, viewport.maxScrollY))
-      return
-    }
+    const result = handleBaseModeInput(input, key, baseModeState, {
+      maxScrollX: viewport.maxScrollX,
+      maxScrollY: viewport.maxScrollY,
+      viewHeight,
+    })
 
-    if (key.downArrow) {
-      setScrollY((currentScrollY) => clamp(currentScrollY + 1, 0, viewport.maxScrollY))
-      return
-    }
+    setBaseModeState(result.state)
 
-    if (key.leftArrow) {
-      setScrollX((currentScrollX) => clamp(currentScrollX - 1, 0, viewport.maxScrollX))
-      return
-    }
-
-    if (key.rightArrow) {
-      setScrollX((currentScrollX) => clamp(currentScrollX + 1, 0, viewport.maxScrollX))
-      return
-    }
-
-    if (key.pageUp) {
-      setScrollY((currentScrollY) =>
-        clamp(currentScrollY - viewHeight, 0, viewport.maxScrollY),
-      )
-      return
-    }
-
-    if (key.pageDown) {
-      setScrollY((currentScrollY) =>
-        clamp(currentScrollY + viewHeight, 0, viewport.maxScrollY),
-      )
-      return
-    }
-
-    if (key.home) {
-      setScrollX(0)
-      setScrollY(0)
-      return
-    }
-
-    if (key.end) {
-      setScrollX(viewport.maxScrollX)
-      setScrollY(viewport.maxScrollY)
-      return
-    }
-
-    if (key.backspace || key.delete) {
-      setCommand((currentCommand) => currentCommand.slice(0, -1))
-      return
-    }
-
-    if (key.return) {
-      onCommand?.(command)
-      setCommand("")
-      return
-    }
-
-    if (key.ctrl || key.meta || key.escape || key.tab) {
-      return
-    }
-
-    if (input) {
-      setCommand((currentCommand) => `${currentCommand}${input}`)
+    if (result.command !== undefined) {
+      onCommand?.(result.command)
     }
   })
 
@@ -217,7 +173,7 @@ export const TerminalApp = ({
         backgroundColor={commandBackgroundColor}
       >
         <Text backgroundColor={commandBackgroundColor}>{prompt}</Text>
-        <Text backgroundColor={commandBackgroundColor}>{command}</Text>
+        <Text backgroundColor={commandBackgroundColor}>{baseModeState.command}</Text>
         <Text inverse backgroundColor={commandBackgroundColor}>
           {" "}
         </Text>

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { buildTerminalViewport } from "../../src/views/terminal-app.tsx"
+import { buildTerminalViewport } from "../src/views/terminal-app.tsx"
 
 describe("terminal app view", () => {
   test("builds a fixed viewport from scroll offsets", () => {
