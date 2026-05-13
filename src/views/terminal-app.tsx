@@ -1,6 +1,6 @@
 import type { AxiosResponse } from "axios"
-import React, { useEffect, useMemo, useState } from "react"
-import { Box, Text, render, useInput } from "ink"
+import React, { useEffect, useState } from "react"
+import { Box, Text, render, useInput, useWindowSize } from "ink"
 import { formatError, formatPending, formatResponse } from "./response.tsx"
 
 export type TerminalAppProps = {
@@ -10,7 +10,7 @@ export type TerminalAppProps = {
   height?: number
   width?: number
   prompt?: string
-  onCommand?: (command: string) => void
+  onCommand?: (command: string) => void | Promise<void>
 }
 
 type Viewport = {
@@ -22,11 +22,8 @@ type Viewport = {
 const defaultHeight = 20
 const defaultWidth = 80
 const commandLineHeight = 1
-const horizontalScrollbarHeight = 1
-const verticalScrollbarWidth = 1
-const scrollbarThumb = "#"
-const scrollbarTrack = "-"
-const verticalScrollbarTrack = "|"
+const headerHeight = 3
+const commandBackgroundColor = "#1f1f1f"
 
 const clamp = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max)
@@ -38,24 +35,6 @@ const normalizeLines = (content: string): string[] => {
 
 const sliceLine = (line: string, scrollX: number, width: number): string => {
   return line.slice(scrollX, scrollX + width).padEnd(width, " ")
-}
-
-const isThumbPosition = (
-  index: number,
-  visibleSize: number,
-  contentSize: number,
-  scrollOffset: number,
-): boolean => {
-  if (contentSize <= visibleSize) {
-    return true
-  }
-
-  const thumbSize = Math.max(1, Math.floor((visibleSize / contentSize) * visibleSize))
-  const maxThumbStart = visibleSize - thumbSize
-  const maxScroll = contentSize - visibleSize
-  const thumbStart = Math.round((scrollOffset / maxScroll) * maxThumbStart)
-
-  return index >= thumbStart && index < thumbStart + thumbSize
 }
 
 const formatTerminalContent = ({
@@ -112,47 +91,31 @@ export const buildTerminalViewport = (
   }
 }
 
-const buildHorizontalScrollbar = (
-  width: number,
-  contentWidth: number,
-  scrollX: number,
-): string => {
-  return Array.from({ length: width }, (_, index) =>
-    isThumbPosition(index, width, contentWidth, scrollX)
-      ? scrollbarThumb
-      : scrollbarTrack,
-  ).join("")
-}
-
 export const TerminalApp = ({
   response,
   error,
   isPending = false,
-  height = defaultHeight,
-  width = defaultWidth,
+  height: fixedHeight,
+  width: fixedWidth,
   prompt = ":",
   onCommand,
 }: TerminalAppProps) => {
+  const { columns, rows } = useWindowSize()
   const [frameIndex, setFrameIndex] = useState(0)
   const [scrollX, setScrollX] = useState(0)
   const [scrollY, setScrollY] = useState(0)
   const [command, setCommand] = useState("")
-  const viewHeight = Math.max(1, height - commandLineHeight - horizontalScrollbarHeight)
-  const viewWidth = Math.max(1, width - verticalScrollbarWidth)
+  const height = fixedHeight ?? rows ?? defaultHeight
+  const width = fixedWidth ?? columns ?? defaultWidth
+  const viewHeight = Math.max(1, height - headerHeight - commandLineHeight)
+  const viewWidth = Math.max(1, width)
   const content = formatTerminalContent({
     response,
     error,
     isPending,
     frameIndex,
   })
-  const contentLines = useMemo(() => normalizeLines(content), [content])
-  const contentWidth = useMemo(
-    () =>
-      contentLines.reduce((currentMax, line) => Math.max(currentMax, line.length), 0),
-    [contentLines],
-  )
   const viewport = buildTerminalViewport(content, viewWidth, viewHeight, scrollX, scrollY)
-  const safeScrollX = clamp(scrollX, 0, viewport.maxScrollX)
   const safeScrollY = clamp(scrollY, 0, viewport.maxScrollY)
 
   useEffect(() => {
@@ -238,26 +201,26 @@ export const TerminalApp = ({
 
   return (
     <Box flexDirection="column" width={width} height={height}>
+      <Box width={width} height={headerHeight} paddingY={1}>
+        <Text bold>{">_ Ntee R1quest"}</Text>
+      </Box>
       <Box flexDirection="column" width={width} height={viewHeight}>
         {viewport.lines.map((line, index) => (
           <Box key={`${safeScrollY}-${index}`} width={width}>
             <Text wrap="truncate-end">{line}</Text>
-            <Text>
-              {isThumbPosition(index, viewHeight, contentLines.length, safeScrollY)
-                ? scrollbarThumb
-                : verticalScrollbarTrack}
-            </Text>
           </Box>
         ))}
       </Box>
-      <Text>
-        {buildHorizontalScrollbar(viewWidth, contentWidth, safeScrollX)}
-        {verticalScrollbarTrack}
-      </Text>
-      <Box width={width}>
-        <Text>{prompt}</Text>
-        <Text>{command}</Text>
-        <Text inverse> </Text>
+      <Box
+        width={width}
+        height={commandLineHeight}
+        backgroundColor={commandBackgroundColor}
+      >
+        <Text backgroundColor={commandBackgroundColor}>{prompt}</Text>
+        <Text backgroundColor={commandBackgroundColor}>{command}</Text>
+        <Text inverse backgroundColor={commandBackgroundColor}>
+          {" "}
+        </Text>
       </Box>
     </Box>
   )

@@ -1,173 +1,120 @@
-import { homedir } from "node:os";
-import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
-import {
-  compile,
-  compileFile,
-  CompileSourceType,
-} from "../compiler/semantics.ts";
-import { execute as executeRequest } from "./request.ts";
+import { homedir } from "node:os"
+import { existsSync, readFileSync } from "node:fs"
+import { isAbsolute, join, normalize, resolve } from "node:path"
+import type { AxiosResponse } from "axios"
+import { compileFile, CompileSourceType } from "../compiler/semantics.ts"
+import { execute as executeRequest } from "./request.ts"
 
 type ParsedArgs = {
-  data?: string;
-  executeFile?: string;
-  root?: string;
-};
+  root?: string
+}
 
 type ConfigFile = {
-  root?: string;
-};
+  root?: string
+}
 
 type ExecuteOptions = {
-  root: string;
-  source: string;
-  sourceType: CompileSourceType;
-};
+  root: string
+  source: string
+}
 
 const expandHomeDirectory = (directory: string): string => {
   if (directory === "~") {
-    return homedir();
+    return homedir()
   }
 
   if (directory.startsWith("~/")) {
-    return join(homedir(), directory.slice(2));
+    return join(homedir(), directory.slice(2))
   }
 
-  return directory;
-};
+  return directory
+}
 
 export const readConfigRoot = (): string | null => {
   const configPaths = [
     resolve(process.cwd(), ".r1qconfig.json"),
     join(homedir(), ".ntee-r1quest", ".r1qconfig.json"),
-  ];
+  ]
 
   for (const configPath of configPaths) {
     if (!existsSync(configPath)) {
-      continue;
+      continue
     }
 
-    const config = JSON.parse(readFileSync(configPath, "utf8")) as ConfigFile;
+    const config = JSON.parse(readFileSync(configPath, "utf8")) as ConfigFile
 
     if (typeof config.root === "string" && config.root.length > 0) {
-      return config.root;
+      return config.root
     }
   }
 
-  return null;
-};
+  return null
+}
 
-const parseArguments = (args: string[]): ParsedArgs => {
-  const parsedArgs: ParsedArgs = {};
+export const parseArguments = (args: string[]): ParsedArgs => {
+  const parsedArgs: ParsedArgs = {}
 
   for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index];
+    const argument = args[index]
 
-    if (!argument) {
-      continue;
+    if (argument !== "-r") {
+      continue
     }
 
-    if (argument === "-r") {
-      const value = args[index + 1];
+    const value = args[index + 1]
 
-      if (!value) {
-        continue;
-      }
-
-      parsedArgs.root = value;
-      index += 1;
-      continue;
+    if (!value) {
+      continue
     }
 
-    if (argument === "-d") {
-      const value = args[index + 1];
-
-      if (!value) {
-        continue;
-      }
-
-      parsedArgs.data = value;
-      index += 1;
-      continue;
-    }
-
-    if (argument.startsWith("-")) {
-      continue;
-    }
-
-    if (!parsedArgs.executeFile) {
-      parsedArgs.executeFile = argument;
-    }
+    parsedArgs.root = value
+    index += 1
   }
 
-  return parsedArgs;
-};
+  return parsedArgs
+}
 
-const resolveExecutionOptions = (parsedArgs: ParsedArgs): ExecuteOptions => {
-  const baseWorkingDirectory = process.cwd();
-  const configRoot = readConfigRoot();
-  const inputRoot = parsedArgs.root ?? configRoot ?? baseWorkingDirectory;
-  const hasExplicitRoot = parsedArgs.root !== undefined;
-  const resolvedRoot = isAbsolute(inputRoot)
+export const resolveRoot = (args: string[] = []): string => {
+  const parsedArgs = parseArguments(args)
+  const baseWorkingDirectory = process.cwd()
+  const configRoot = readConfigRoot()
+  const inputRoot = parsedArgs.root ?? configRoot ?? baseWorkingDirectory
+
+  return isAbsolute(inputRoot)
     ? normalize(expandHomeDirectory(inputRoot))
-    : resolve(baseWorkingDirectory, expandHomeDirectory(inputRoot));
+    : resolve(baseWorkingDirectory, expandHomeDirectory(inputRoot))
+}
 
-  if (parsedArgs.data) {
-    return {
-      root: resolvedRoot,
-      source: parsedArgs.data,
-      sourceType: CompileSourceType.Raw,
-    };
+const normalizeSource = (source: string): string => {
+  const trimmedSource = source.trim()
+
+  if (!trimmedSource) {
+    throw new Error("Cannot execute request without a source file.")
   }
 
-  if (!parsedArgs.executeFile) {
-    throw new Error("Cannot execute request without a source file or -d data.");
-  }
+  return trimmedSource.endsWith(".nts") ? trimmedSource : `${trimmedSource}.nts`
+}
 
-  const relativeExecuteFile = parsedArgs.executeFile.endsWith(".nts")
-    ? parsedArgs.executeFile
-    : `${parsedArgs.executeFile}.nts`;
-  let root = resolvedRoot;
-  let source = relativeExecuteFile.startsWith("/")
-    ? relativeExecuteFile.slice(1)
-    : relativeExecuteFile;
+const runRequest = async (options: ExecuteOptions): Promise<AxiosResponse> => {
+  const previousWorkingDirectory = process.cwd()
 
-  if (!hasExplicitRoot) {
-    const resolvedExecuteFile = isAbsolute(relativeExecuteFile)
-      ? normalize(expandHomeDirectory(relativeExecuteFile))
-      : resolve(resolvedRoot, expandHomeDirectory(relativeExecuteFile));
-
-    root = dirname(resolvedExecuteFile);
-    source = basename(resolvedExecuteFile);
-  }
-
-  return {
-    root,
-    source,
-    sourceType: CompileSourceType.File,
-  };
-};
-
-const runRequest = async (options: ExecuteOptions) => {
-  const previousWorkingDirectory = process.cwd();
-
-  process.chdir(options.root);
+  process.chdir(options.root)
 
   try {
-    const scopeObject =
-      options.sourceType === CompileSourceType.Raw
-        ? compile(options.source, { cwd: options.root })
-        : compileFile(options.source, options.sourceType);
+    const scopeObject = compileFile(options.source, CompileSourceType.File)
 
-    return await executeRequest(scopeObject);
+    return await executeRequest(scopeObject)
   } finally {
-    process.chdir(previousWorkingDirectory);
+    process.chdir(previousWorkingDirectory)
   }
-};
+}
 
-export const execute = async (args: string[] = []) => {
-  const parsedArgs = parseArguments(args);
-  const options = resolveExecutionOptions(parsedArgs);
-
-  return runRequest(options);
-};
+export const execute = async (
+  source: string,
+  root: string = resolveRoot(),
+): Promise<AxiosResponse> => {
+  return runRequest({
+    root,
+    source: normalizeSource(source),
+  })
+}

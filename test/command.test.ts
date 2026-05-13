@@ -1,228 +1,102 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { join } from "node:path";
-import { http, HttpResponse } from "msw";
-import { setupServer } from "msw/node";
-import { execute } from "../src/runtime/command.ts";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
+import { join } from "node:path"
+import { http, HttpResponse } from "msw"
+import { setupServer } from "msw/node"
+import { execute, parseArguments, resolveRoot } from "../src/runtime/command.ts"
 
-const server = setupServer();
+const server = setupServer()
 
-describe("command execute", () => {
+describe("command runtime", () => {
   beforeAll(() => {
     server.listen({
       onUnhandledRequest: "error",
-    });
-  });
+    })
+  })
 
   afterEach(() => {
-    server.resetHandlers();
-  });
+    server.resetHandlers()
+  })
 
   afterAll(() => {
-    server.close();
-  });
+    server.close()
+  })
 
-  test("executes a request file relative to root and restores cwd", async () => {
-    server.use(
-      http.get("https://ntee.io", ({ request }) => {
-        expect(request.headers.get("authorization")).toBe("bearer test-token");
+  test("parses the root argument and ignores request file arguments", () => {
+    expect(parseArguments(["get", "-r", "./requests"])).toEqual({
+      root: "./requests",
+    })
+  })
 
-        return HttpResponse.json({
-          method: "get",
-          ok: true,
-        });
-      }),
-    );
+  test("resolves -r relative to the current working directory", () => {
+    const originalWorkingDirectory = process.cwd()
 
-    const originalWorkingDirectory = process.cwd();
-    const response = await execute([
-      "get",
-      "-r",
+    expect(resolveRoot(["-r", "test/data"])).toBe(
       join(originalWorkingDirectory, "test/data"),
-    ]);
+    )
+  })
 
-    expect(response.status).toBe(200);
-    expect(response.data).toEqual({
-      method: "get",
-      ok: true,
-    });
-    expect(process.cwd()).toBe(originalWorkingDirectory);
-  });
-
-  test("uses a nested request file directory as root when -r is not provided", async () => {
+  test("executes a command input request file relative to root and restores cwd", async () => {
     server.use(
       http.get("https://ntee.io", ({ request }) => {
-        expect(request.headers.get("authorization")).toBe("bearer test-token");
+        expect(request.headers.get("authorization")).toBe("bearer test-token")
 
         return HttpResponse.json({
           method: "get",
           ok: true,
-        });
+        })
       }),
-    );
+    )
 
-    const originalWorkingDirectory = process.cwd();
-    const response = await execute(["test/data/get"]);
+    const originalWorkingDirectory = process.cwd()
+    const response = await execute("get", join(originalWorkingDirectory, "test/data"))
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(200)
     expect(response.data).toEqual({
       method: "get",
       ok: true,
-    });
-    expect(process.cwd()).toBe(originalWorkingDirectory);
-  });
+    })
+    expect(process.cwd()).toBe(originalWorkingDirectory)
+  })
 
-  test("uses -r to override the root argument", async () => {
+  test("executes nested command input under the resolved root", async () => {
     server.use(
       http.get("https://ntee.io", ({ request }) => {
-        expect(request.headers.get("authorization")).toBe("bearer test-token");
+        expect(request.headers.get("authorization")).toBe("bearer test-token")
 
         return HttpResponse.json({
           method: "get",
           ok: true,
-        });
+        })
       }),
-    );
+    )
 
-    const originalWorkingDirectory = process.cwd();
-    const response = await execute([
-      "get",
-      "-r",
+    const originalWorkingDirectory = process.cwd()
+    const response = await execute(
+      "nested/get",
       join(originalWorkingDirectory, "test/data"),
-    ]);
+    )
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(200)
     expect(response.data).toEqual({
       method: "get",
       ok: true,
-    });
-    expect(process.cwd()).toBe(originalWorkingDirectory);
-  });
+    })
+    expect(process.cwd()).toBe(originalWorkingDirectory)
+  })
 
-  test("uses -d raw nts source instead of a request file", async () => {
-    server.use(
-      http.get("https://ntee.io", ({ request }) => {
-        expect(request.headers.get("authorization")).toBe("bearer test-token");
-        expect(request.headers.get("accept")).toBe("application/json");
-        expect(request.headers.get("content-type")).toBe("application/json");
-
-        return HttpResponse.json({
-          method: "get",
-          ok: true,
-        });
-      }),
-    );
-
-    const originalWorkingDirectory = process.cwd();
-    const response = await execute([
-      "-r",
-      join(originalWorkingDirectory, "test/data"),
-      "-d",
-      'url "https://ntee.io"\ntype get\n\nheader accept, application/json\nheader content-type, application/json\nauth bearer test-token\n',
-    ]);
-
-    expect(response.status).toBe(200);
-    expect(response.data).toEqual({
-      method: "get",
-      ok: true,
-    });
-    expect(process.cwd()).toBe(originalWorkingDirectory);
-  });
-
-  test("uses current directory when root and execute file are not provided", async () => {
-    server.use(
-      http.get("https://ntee.io", ({ request }) => {
-        expect(request.headers.get("authorization")).toBe("bearer test-token");
-        expect(request.headers.get("accept")).toBe("application/json");
-        expect(request.headers.get("content-type")).toBe("application/json");
-
-        return HttpResponse.json({
-          method: "get",
-          ok: true,
-        });
-      }),
-    );
-
-    const originalWorkingDirectory = process.cwd();
-    const response = await execute([
-      "-d",
-      'url "https://ntee.io"\ntype get\n\nheader accept, application/json\nheader content-type, application/json\nauth bearer test-token\n',
-    ]);
-
-    expect(response.status).toBe(200);
-    expect(response.data).toEqual({
-      method: "get",
-      ok: true,
-    });
-    expect(process.cwd()).toBe(originalWorkingDirectory);
-  });
-
-  test("uses .r1qconfig.json root from the current directory", async () => {
-    server.use(
-      http.get("https://ntee.io", ({ request }) => {
-        expect(request.headers.get("authorization")).toBe("bearer test-token");
-
-        return HttpResponse.json({
-          method: "get",
-          ok: true,
-        });
-      }),
-    );
-
-    const originalWorkingDirectory = process.cwd();
+  test("uses .r1qconfig.json root from the current directory", () => {
+    const originalWorkingDirectory = process.cwd()
     const configWorkingDirectory = join(
       originalWorkingDirectory,
       "test/config-cwd",
-    );
+    )
 
-    process.chdir(configWorkingDirectory);
-
-    try {
-      const response = await execute(["get"]);
-
-      expect(response.status).toBe(200);
-      expect(response.data).toEqual({
-        method: "get",
-        ok: true,
-      });
-    } finally {
-      process.chdir(originalWorkingDirectory);
-    }
-
-    expect(process.cwd()).toBe(originalWorkingDirectory);
-  });
-
-  test("uses a nested request file directory under the config root", async () => {
-    server.use(
-      http.get("https://ntee.io", ({ request }) => {
-        expect(request.headers.get("authorization")).toBe("bearer test-token");
-
-        return HttpResponse.json({
-          method: "get",
-          ok: true,
-        });
-      }),
-    );
-
-    const originalWorkingDirectory = process.cwd();
-    const configWorkingDirectory = join(
-      originalWorkingDirectory,
-      "test/config-cwd",
-    );
-
-    process.chdir(configWorkingDirectory);
+    process.chdir(configWorkingDirectory)
 
     try {
-      const response = await execute(["nested/get"]);
-
-      expect(response.status).toBe(200);
-      expect(response.data).toEqual({
-        method: "get",
-        ok: true,
-      });
+      expect(resolveRoot()).toBe(join(originalWorkingDirectory, "test/data"))
     } finally {
-      process.chdir(originalWorkingDirectory);
+      process.chdir(originalWorkingDirectory)
     }
-
-    expect(process.cwd()).toBe(originalWorkingDirectory);
-  });
-});
+  })
+})

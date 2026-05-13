@@ -1,27 +1,39 @@
-import { execute } from "./src/runtime/command.ts";
-import {
-  displayPending,
-  formatError,
-  formatResponse,
-} from "./src/views/response.tsx";
+import type { AxiosResponse } from "axios"
+import React, { useMemo, useState } from "react"
+import { render } from "ink"
+import { execute, resolveRoot } from "./src/runtime/command.ts"
+import { TerminalApp } from "./src/views/terminal-app.tsx"
 
-const main = async () => {
-  const pendingView = displayPending();
+const CommandApp = ({ args }: { args: string[] }) => {
+  const root = useMemo(() => resolveRoot(args), [args])
+  const [response, setResponse] = useState<AxiosResponse | undefined>()
+  const [error, setError] = useState<unknown>()
+  const [isPending, setIsPending] = useState(false)
 
-  try {
-    const response = await execute(Bun.argv.slice(2));
+  const runCommand = async (command: string) => {
+    setIsPending(true)
+    setResponse(undefined)
+    setError(undefined)
 
-    pendingView.clear();
-    pendingView.unmount();
-    console.log(formatResponse(response));
-  } catch (error) {
-    pendingView.clear();
-    pendingView.unmount();
-    console.error(formatError(error));
-    process.exitCode = 1;
+    try {
+      const nextResponse = await execute(command, root)
+
+      setResponse(nextResponse)
+    } catch (nextError) {
+      setError(nextError)
+    } finally {
+      setIsPending(false)
+    }
   }
-};
+
+  return React.createElement(TerminalApp, {
+    response,
+    error,
+    isPending,
+    onCommand: runCommand,
+  })
+}
 
 if (import.meta.main) {
-  await main();
+  render(React.createElement(CommandApp, { args: Bun.argv.slice(2) }))
 }
