@@ -4,6 +4,34 @@
 files. Definition data lives in `.ntd` files and can be referenced from request
 scripts with macros.
 
+## Terminal Preview
+
+```text
+>_ Ntee R1quest
+ver: 0.1.0
+
+>_ Spend 123 ms,
+
+--------------- Response of get /users ---------------
+
+200 OK
+
+--------------- Headers ---------------
+
+content-type: application/json
+
+--------------- Body ---------------
+
+{
+  "id": 1,
+  "name": "r1quest"
+}
+
+--------------- End of get /users ---------------
+
+@default:sample
+```
+
 ## Index
 
 - [Install](#install)
