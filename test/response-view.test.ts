@@ -7,7 +7,7 @@ import {
   formatResponseBody,
   formatResponseHeaders,
   formatPending,
-} from "../../src/views/response.tsx"
+} from "../src/views/response.tsx"
 
 describe("response view", () => {
   test("formats response headers as key value lines", () => {

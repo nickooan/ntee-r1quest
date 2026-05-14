@@ -28,11 +28,9 @@ scripts with macros.
   - [Plain Text](#plain-text)
   - [Multipart Form](#multipart-form)
 - [CLI](#cli)
-  - [Execute a `.nts` file](#execute-a-nts-file)
-  - [Execute a file under another root with `-r`](#execute-a-file-under-another-root-with--r)
+  - [Open the terminal UI](#open-the-terminal-ui)
+  - [Set another root with `-r`](#set-another-root-with--r)
   - [Configure a default root with `.r1qconfig.json`](#configure-a-default-root-with-r1qconfigjson)
-  - [Execute raw `.nts` source with `-d`](#execute-raw-nts-source-with--d)
-  - [Use `-r` and `-d` together](#use--r-and--d-together)
   - [Response display](#response-display)
 - [Runtime Notes](#runtime-notes)
 
@@ -491,10 +489,10 @@ const files = formData.getAll("files");
 
 ## CLI
 
-After installing the global command, run requests with `r1q`:
+After installing the global command, open the terminal UI with `r1q`:
 
 ```bash
-r1q sample.nts
+r1q
 ```
 
 For development, build the local executable with Bun:
@@ -511,37 +509,46 @@ That creates:
 
 Supported CLI forms:
 
-### Execute a `.nts` file
+### Open the terminal UI
 
 ```bash
-r1q sample.nts
+r1q
 ```
 
-If the `.nts` extension is omitted, `.nts` is added automatically:
+The app opens a command line at the bottom of the terminal. Type a request file
+path and press enter to execute it:
+
+```text
+:sample
+```
+
+If the `.nts` extension is omitted, `.nts` is added automatically. The app stays
+open after each request. Use `control-c` to quit.
+
+### Set another root with `-r`
+
+Use `-r` to override the root lookup directory.
 
 ```bash
-r1q sample
+r1q -r ~/request/core-api
 ```
 
-### Execute a file under another root with `-r`
+Then type the request path inside the app:
 
-Use `-r` to override the root lookup directory. The request file is resolved
-under that root.
-
-```bash
-r1q property -r ~/request/core-api
+```text
+:property
 ```
 
-That looks for:
+That executes:
 
 ```text
 ~/request/core-api/property.nts
 ```
 
-You can also pass the full relative path under the root:
+You can also type a nested path under the root:
 
-```bash
-r1q core-api/property -r ~/request
+```text
+:core-api/property
 ```
 
 That looks for:
@@ -572,10 +579,16 @@ Save it as:
 Then you can run:
 
 ```bash
-r1q property
+r1q
 ```
 
-That looks for:
+Then type:
+
+```text
+:property
+```
+
+That executes:
 
 ```text
 ~/request/core-api/property.nts
@@ -594,52 +607,19 @@ Root resolution precedence is:
 3. `~/.ntee-r1quest/.r1qconfig.json`
 4. current working directory
 
-### Execute raw `.nts` source with `-d`
-
-Use `-d` to execute raw `.nts` source directly instead of reading a file:
-
-```bash
-r1q -d 'url "https://ntee.io"
-type get
-
-header accept, application/json
-header content-type, application/json
-auth bearer test-token
-'
-```
-
-When `-d` is provided:
-
-- the request file is optional and file lookup is skipped
-- the root defaults to the current directory
-- `-r` still works and overrides the compile root used for relative refs and file macros
-
-### Use `-r` and `-d` together
-
-This is useful when raw source uses `ref ./file.ntd` or `@f(...)` and you want
-those relative paths to resolve from a specific directory.
-
-```bash
-r1q -r ~/request/test/data -d 'ref ./user.ntd
-url "https://ntee.io"
-type get
-
-header accept, application/json
-header content-type, application/json
-auth bearer @i(token)
-'
-```
-
 ### Response display
 
 The CLI renders:
 
+- a fixed terminal view with a command line at the bottom
 - a pending indicator while the request is running
 - a `Response` section with status
 - a `Headers` section
 - a `Body` section
 
-If the request fails, the CLI renders an `Error` section in the terminal.
+Use arrow keys to scroll the response view horizontally and vertically. If the
+request fails with an HTTP response, the response status, headers, and body are
+rendered. Other failures render an `Error` section.
 
 ## Runtime Notes
 
