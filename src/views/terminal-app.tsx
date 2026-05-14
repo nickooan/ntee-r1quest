@@ -402,20 +402,6 @@ export const TerminalApp = ({
       return
     }
 
-    if (shouldShowSuggestions && key.upArrow) {
-      setSelectedSuggestionIndex((currentIndex) =>
-        clampValue(currentIndex - 1, 0, suggestions.length - 1),
-      )
-      return
-    }
-
-    if (shouldShowSuggestions && key.downArrow) {
-      setSelectedSuggestionIndex((currentIndex) =>
-        clampValue(currentIndex + 1, 0, suggestions.length - 1),
-      )
-      return
-    }
-
     if (shouldShowSuggestions && key.return) {
       const selectedSuggestion = suggestions[safeSelectedSuggestionIndex]
 
@@ -439,11 +425,21 @@ export const TerminalApp = ({
       }
     }
 
-    const result = handleBaseModeInput(input, key, baseModeState, {
-      maxScrollX: viewport.maxScrollX,
-      maxScrollY: viewport.maxScrollY,
-      viewHeight,
-    })
+    const result = handleBaseModeInput(
+      input,
+      key,
+      baseModeState,
+      {
+        maxScrollX: viewport.maxScrollX,
+        maxScrollY: viewport.maxScrollY,
+        viewHeight,
+      },
+      {
+        shouldShowSuggestions,
+        selectedSuggestionIndex: safeSelectedSuggestionIndex,
+        suggestionCount: suggestions.length,
+      },
+    )
     const nextMode =
       result.command === undefined ? null : resolveModeCommand(result.command)
 
@@ -461,6 +457,11 @@ export const TerminalApp = ({
     }
 
     setBaseModeState(result.state)
+
+    if (result.selectedSuggestionIndex !== undefined) {
+      setSelectedSuggestionIndex(result.selectedSuggestionIndex)
+      return
+    }
 
     if (result.state.command !== baseModeState.command) {
       setSelectedSuggestionIndex(0)

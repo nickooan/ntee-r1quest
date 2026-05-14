@@ -77,6 +77,27 @@ describe("base mode key helpers", () => {
     })
   })
 
+  test("uses up and down to select suggestions when suggestions are visible", () => {
+    const suggestionState = {
+      shouldShowSuggestions: true,
+      selectedSuggestionIndex: 1,
+      suggestionCount: 3,
+    }
+
+    expect(
+      handleBaseModeInput("", key({ upArrow: true }), state, limits, suggestionState),
+    ).toEqual({
+      state,
+      selectedSuggestionIndex: 0,
+    })
+    expect(
+      handleBaseModeInput("", key({ downArrow: true }), state, limits, suggestionState),
+    ).toEqual({
+      state,
+      selectedSuggestionIndex: 2,
+    })
+  })
+
   test("handles page and boundary scroll keys", () => {
     expect(handleBaseModeInput("", key({ pageUp: true }), state, limits).state).toEqual({
       ...state,
