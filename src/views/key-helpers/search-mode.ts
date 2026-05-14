@@ -18,6 +18,7 @@ export type SearchModeState = {
 export type SearchModeLimits = {
   maxScrollX: number
   maxScrollY: number
+  viewWidth: number
   viewHeight: number
 }
 
@@ -103,8 +104,24 @@ export const focusSearchMatch = (
   return {
     ...state,
     focusedMatchIndex: safeFocusedMatchIndex,
+    scrollX: scrollXToSearchMatch(state.scrollX, limits, focusedMatch),
     scrollY: clampValue(focusedMatch.lineIndex, 0, limits.maxScrollY),
   }
+}
+
+const scrollXToSearchMatch = (
+  scrollX: number,
+  limits: SearchModeLimits,
+  match: SearchMatch,
+): number => {
+  const safeScrollX = clampValue(scrollX, 0, limits.maxScrollX)
+  const visibleEndColumnIndex = safeScrollX + limits.viewWidth
+
+  if (match.start < safeScrollX || match.end > visibleEndColumnIndex) {
+    return clampValue(match.start, 0, limits.maxScrollX)
+  }
+
+  return safeScrollX
 }
 
 export const handleSearchModeInput = (

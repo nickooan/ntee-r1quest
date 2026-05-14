@@ -44,6 +44,11 @@ const limits: BaseModeLimits = {
   viewHeight: 4,
 }
 
+const searchLimits = {
+  ...limits,
+  viewWidth: 4,
+}
+
 const key = (keyValues: Partial<Key>): Key => {
   return {
     ...defaultKey,
@@ -174,7 +179,7 @@ describe("search mode key helpers", () => {
       "",
       key({ downArrow: true }),
       searchState,
-      limits,
+      searchLimits,
       matches,
     )
 
@@ -185,12 +190,56 @@ describe("search mode key helpers", () => {
       "",
       key({ upArrow: true }),
       nextResult.state,
-      limits,
+      searchLimits,
       matches,
     )
 
     expect(previousResult.state.focusedMatchIndex).toBe(0)
     expect(previousResult.state.scrollY).toBe(0)
+  })
+
+  test("scrolls search mode right when the next focused match is outside the viewport", () => {
+    const searchState: SearchModeState = {
+      scrollX: 0,
+      scrollY: 0,
+      input: "",
+      query: "abc",
+      focusedMatchIndex: 0,
+    }
+    const matches = findSearchMatches("abc abc", "abc")
+
+    const result = handleSearchModeInput(
+      "",
+      key({ downArrow: true }),
+      searchState,
+      searchLimits,
+      matches,
+    )
+
+    expect(result.state.focusedMatchIndex).toBe(1)
+    expect(result.state.scrollX).toBe(4)
+  })
+
+  test("scrolls search mode left when the previous focused match is outside the viewport", () => {
+    const searchState: SearchModeState = {
+      scrollX: 4,
+      scrollY: 0,
+      input: "",
+      query: "abc",
+      focusedMatchIndex: 1,
+    }
+    const matches = findSearchMatches("abc abc", "abc")
+
+    const result = handleSearchModeInput(
+      "",
+      key({ upArrow: true }),
+      searchState,
+      searchLimits,
+      matches,
+    )
+
+    expect(result.state.focusedMatchIndex).toBe(0)
+    expect(result.state.scrollX).toBe(0)
   })
 
   test("updates search input without changing active query until submit", () => {
@@ -206,7 +255,7 @@ describe("search mode key helpers", () => {
       "n",
       defaultKey,
       searchState,
-      limits,
+      searchLimits,
       [],
     )
 
@@ -220,7 +269,7 @@ describe("search mode key helpers", () => {
         ...typedResult.state,
         input: "new",
       },
-      limits,
+      searchLimits,
       [],
     )
 

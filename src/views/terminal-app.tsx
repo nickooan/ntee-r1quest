@@ -370,6 +370,7 @@ export const TerminalApp = ({
       const limits = {
         maxScrollX: viewport.maxScrollX,
         maxScrollY: viewport.maxScrollY,
+        viewWidth,
         viewHeight,
       }
       const result = handleSearchModeInput(
