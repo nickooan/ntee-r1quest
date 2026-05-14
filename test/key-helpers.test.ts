@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import type { Key } from "ink"
 import {
+  findSearchMatches,
   handleBaseModeInput,
+  handleSearchModeInput,
   type BaseModeLimits,
   type BaseModeState,
+  type SearchModeState,
 } from "../src/views/key-helpers/index.ts"
 
 const defaultKey: Key = {
@@ -107,5 +110,64 @@ describe("base mode key helpers", () => {
 
     expect(result.command).toBe("get")
     expect(result.state.command).toBe("")
+  })
+})
+
+describe("search mode key helpers", () => {
+  test("finds matches from regex queries", () => {
+    expect(findSearchMatches("item-1\nitem-22\nitem-x", "item-\\d+")).toEqual([
+      {
+        lineIndex: 0,
+        start: 0,
+        end: 6,
+      },
+      {
+        lineIndex: 1,
+        start: 0,
+        end: 7,
+      },
+    ])
+  })
+
+  test("falls back to plain text matching for invalid regex queries", () => {
+    expect(findSearchMatches("abc [test\nabc test", "[test")).toEqual([
+      {
+        lineIndex: 0,
+        start: 4,
+        end: 9,
+      },
+    ])
+  })
+
+  test("uses up and down to focus search matches", () => {
+    const searchState: SearchModeState = {
+      scrollX: 0,
+      scrollY: 0,
+      query: "abc",
+      focusedMatchIndex: 0,
+    }
+    const matches = findSearchMatches("abc\nnone\nabc", "abc")
+
+    const nextResult = handleSearchModeInput(
+      "",
+      key({ downArrow: true }),
+      searchState,
+      limits,
+      matches,
+    )
+
+    expect(nextResult.state.focusedMatchIndex).toBe(1)
+    expect(nextResult.state.scrollY).toBe(2)
+
+    const previousResult = handleSearchModeInput(
+      "",
+      key({ upArrow: true }),
+      nextResult.state,
+      limits,
+      matches,
+    )
+
+    expect(previousResult.state.focusedMatchIndex).toBe(0)
+    expect(previousResult.state.scrollY).toBe(0)
   })
 })

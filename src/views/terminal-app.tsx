@@ -3,8 +3,15 @@ import React, { useEffect, useState } from "react"
 import { Box, Text, render, useInput, useWindowSize } from "ink"
 import {
   clampValue,
+  findSearchMatches,
+  focusSearchMatch,
   handleBaseModeInput,
+  handleSearchModeInput,
+  resolveModeCommand,
   type BaseModeState,
+  type SearchMatch,
+  type SearchModeState,
+  TerminalMode,
 } from "./key-helpers/index.ts"
 import { formatError, formatPending, formatResponse } from "./response.tsx"
 
@@ -14,7 +21,6 @@ export type TerminalAppProps = {
   isPending?: boolean
   height?: number
   width?: number
-  prompt?: string
   onCommand?: (command: string) => void | Promise<void>
 }
 
@@ -22,6 +28,8 @@ type Viewport = {
   lines: string[]
   maxScrollX: number
   maxScrollY: number
+  safeScrollX: number
+  safeScrollY: number
 }
 
 const defaultHeight = 20
@@ -89,7 +97,80 @@ export const buildTerminalViewport = (
     lines: visibleLines,
     maxScrollX,
     maxScrollY,
+    safeScrollX,
+    safeScrollY,
   }
+}
+
+type VisibleLineProps = {
+  line: string
+  lineIndex: number
+  scrollX: number
+  width: number
+  matches: SearchMatch[]
+  focusedMatchIndex: number
+}
+
+const VisibleLine = ({
+  line,
+  lineIndex,
+  scrollX,
+  width,
+  matches,
+  focusedMatchIndex,
+}: VisibleLineProps) => {
+  const visibleStart = scrollX
+  const visibleEnd = scrollX + width
+  const lineMatches = matches
+    .map((match, matchIndex) => ({
+      ...match,
+      matchIndex,
+    }))
+    .filter(
+      (match) =>
+        match.lineIndex === lineIndex &&
+        match.end > visibleStart &&
+        match.start < visibleEnd,
+    )
+    .sort((left, right) => left.start - right.start)
+  const children: React.ReactNode[] = []
+  let cursor = visibleStart
+
+  for (const match of lineMatches) {
+    const matchStart = Math.max(match.start, visibleStart)
+    const matchEnd = Math.min(match.end, visibleEnd)
+
+    if (matchStart > cursor) {
+      children.push(
+        <Text key={`text-${cursor}`} wrap="truncate-end">
+          {line.slice(cursor, matchStart)}
+        </Text>,
+      )
+    }
+
+    children.push(
+      <Text
+        key={`match-${match.matchIndex}-${matchStart}`}
+        color="black"
+        backgroundColor="white"
+        bold={match.matchIndex === focusedMatchIndex}
+      >
+        {line.slice(matchStart, matchEnd)}
+      </Text>,
+    )
+
+    cursor = matchEnd
+  }
+
+  if (cursor < visibleEnd) {
+    children.push(
+      <Text key={`text-${cursor}`} wrap="truncate-end">
+        {line.slice(cursor, visibleEnd).padEnd(visibleEnd - cursor, " ")}
+      </Text>,
+    )
+  }
+
+  return <>{children}</>
 }
 
 export const TerminalApp = ({
@@ -98,15 +179,21 @@ export const TerminalApp = ({
   isPending = false,
   height: fixedHeight,
   width: fixedWidth,
-  prompt = ":",
   onCommand,
 }: TerminalAppProps) => {
   const { columns, rows } = useWindowSize()
   const [frameIndex, setFrameIndex] = useState(0)
+  const [mode, setMode] = useState(TerminalMode.Default)
   const [baseModeState, setBaseModeState] = useState<BaseModeState>({
     scrollX: 0,
     scrollY: 0,
     command: "",
+  })
+  const [searchModeState, setSearchModeState] = useState<SearchModeState>({
+    scrollX: 0,
+    scrollY: 0,
+    query: "",
+    focusedMatchIndex: 0,
   })
   const height = fixedHeight ?? rows ?? defaultHeight
   const width = fixedWidth ?? columns ?? defaultWidth
@@ -122,10 +209,15 @@ export const TerminalApp = ({
     content,
     viewWidth,
     viewHeight,
-    baseModeState.scrollX,
-    baseModeState.scrollY,
+    mode === TerminalMode.Search ? searchModeState.scrollX : baseModeState.scrollX,
+    mode === TerminalMode.Search ? searchModeState.scrollY : baseModeState.scrollY,
   )
-  const safeScrollY = clampValue(baseModeState.scrollY, 0, viewport.maxScrollY)
+  const searchMatches =
+    mode === TerminalMode.Search ? findSearchMatches(content, searchModeState.query) : []
+  const contentLines = normalizeLines(content)
+  const inputValue =
+    mode === TerminalMode.Search ? searchModeState.query : baseModeState.command
+  const promptValue = `@${mode}:`
 
   useEffect(() => {
     if (!isPending) {
@@ -142,15 +234,73 @@ export const TerminalApp = ({
   }, [isPending])
 
   useInput((input, key) => {
+    if (mode === TerminalMode.Search) {
+      const limits = {
+        maxScrollX: viewport.maxScrollX,
+        maxScrollY: viewport.maxScrollY,
+        viewHeight,
+      }
+      const result = handleSearchModeInput(
+        input,
+        key,
+        searchModeState,
+        limits,
+        searchMatches,
+      )
+      const nextMode =
+        result.submittedQuery === undefined
+          ? null
+          : resolveModeCommand(result.submittedQuery)
+
+      if (nextMode === TerminalMode.Default) {
+        setMode(TerminalMode.Default)
+        setBaseModeState({
+          ...baseModeState,
+          scrollX: result.state.scrollX,
+          scrollY: result.state.scrollY,
+        })
+        setSearchModeState({
+          scrollX: result.state.scrollX,
+          scrollY: result.state.scrollY,
+          query: "",
+          focusedMatchIndex: 0,
+        })
+        return
+      }
+
+      const nextMatches = findSearchMatches(content, result.state.query)
+      const nextState =
+        result.state.query === searchModeState.query
+          ? result.state
+          : focusSearchMatch(result.state, limits, nextMatches, 0)
+
+      setSearchModeState(nextState)
+      return
+    }
+
     const result = handleBaseModeInput(input, key, baseModeState, {
       maxScrollX: viewport.maxScrollX,
       maxScrollY: viewport.maxScrollY,
       viewHeight,
     })
+    const nextMode =
+      result.command === undefined ? null : resolveModeCommand(result.command)
+
+    if (nextMode === TerminalMode.Search) {
+      setMode(TerminalMode.Search)
+      setSearchModeState({
+        scrollX: result.state.scrollX,
+        scrollY: result.state.scrollY,
+        query: "",
+        focusedMatchIndex: 0,
+      })
+      setBaseModeState(result.state)
+      return
+    }
 
     setBaseModeState(result.state)
 
-    if (result.command !== undefined) {
+    if (result.command !== undefined && nextMode === null) {
       onCommand?.(result.command)
     }
   })
@@ -162,8 +312,15 @@ export const TerminalApp = ({
       </Box>
       <Box flexDirection="column" width={width} height={viewHeight}>
         {viewport.lines.map((line, index) => (
-          <Box key={`${safeScrollY}-${index}`} width={width}>
-            <Text wrap="truncate-end">{line}</Text>
+          <Box key={`${viewport.safeScrollY}-${index}`} width={width}>
+            <VisibleLine
+              line={contentLines[viewport.safeScrollY + index] ?? ""}
+              lineIndex={viewport.safeScrollY + index}
+              scrollX={viewport.safeScrollX}
+              width={viewWidth}
+              matches={searchMatches}
+              focusedMatchIndex={searchModeState.focusedMatchIndex}
+            />
           </Box>
         ))}
       </Box>
@@ -172,8 +329,8 @@ export const TerminalApp = ({
         height={commandLineHeight}
         backgroundColor={commandBackgroundColor}
       >
-        <Text backgroundColor={commandBackgroundColor}>{prompt}</Text>
-        <Text backgroundColor={commandBackgroundColor}>{baseModeState.command}</Text>
+        <Text backgroundColor={commandBackgroundColor}>{promptValue}</Text>
+        <Text backgroundColor={commandBackgroundColor}>{inputValue}</Text>
         <Text inverse backgroundColor={commandBackgroundColor}>
           {" "}
         </Text>
