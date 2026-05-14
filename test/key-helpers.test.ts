@@ -143,6 +143,7 @@ describe("search mode key helpers", () => {
     const searchState: SearchModeState = {
       scrollX: 0,
       scrollY: 0,
+      input: "",
       query: "abc",
       focusedMatchIndex: 0,
     }
@@ -169,5 +170,41 @@ describe("search mode key helpers", () => {
 
     expect(previousResult.state.focusedMatchIndex).toBe(0)
     expect(previousResult.state.scrollY).toBe(0)
+  })
+
+  test("updates search input without changing active query until submit", () => {
+    const searchState: SearchModeState = {
+      scrollX: 0,
+      scrollY: 0,
+      input: "",
+      query: "old",
+      focusedMatchIndex: 0,
+    }
+
+    const typedResult = handleSearchModeInput(
+      "n",
+      defaultKey,
+      searchState,
+      limits,
+      [],
+    )
+
+    expect(typedResult.state.input).toBe("n")
+    expect(typedResult.state.query).toBe("old")
+
+    const submitResult = handleSearchModeInput(
+      "",
+      key({ return: true }),
+      {
+        ...typedResult.state,
+        input: "new",
+      },
+      limits,
+      [],
+    )
+
+    expect(submitResult.submittedQuery).toBe("new")
+    expect(submitResult.state.input).toBe("")
+    expect(submitResult.state.query).toBe("new")
   })
 })

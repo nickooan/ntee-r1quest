@@ -10,6 +10,7 @@ export type SearchMatch = {
 export type SearchModeState = {
   scrollX: number
   scrollY: number
+  input: string
   query: string
   focusedMatchIndex: number
 }
@@ -196,16 +197,20 @@ export const handleSearchModeInput = (
     return {
       state: {
         ...state,
-        query: state.query.slice(0, -1),
-        focusedMatchIndex: 0,
+        input: state.input.slice(0, -1),
       },
     }
   }
 
   if (key.return) {
     return {
-      state,
-      submittedQuery: state.query,
+      state: {
+        ...state,
+        input: "",
+        query: state.input,
+        focusedMatchIndex: 0,
+      },
+      submittedQuery: state.input,
     }
   }
 
@@ -219,8 +224,7 @@ export const handleSearchModeInput = (
     return {
       state: {
         ...state,
-        query: `${state.query}${input}`,
-        focusedMatchIndex: 0,
+        input: `${state.input}${input}`,
       },
     }
   }

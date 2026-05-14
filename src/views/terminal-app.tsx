@@ -192,6 +192,7 @@ export const TerminalApp = ({
   const [searchModeState, setSearchModeState] = useState<SearchModeState>({
     scrollX: 0,
     scrollY: 0,
+    input: "",
     query: "",
     focusedMatchIndex: 0,
   })
@@ -216,7 +217,7 @@ export const TerminalApp = ({
     mode === TerminalMode.Search ? findSearchMatches(content, searchModeState.query) : []
   const contentLines = normalizeLines(content)
   const inputValue =
-    mode === TerminalMode.Search ? searchModeState.query : baseModeState.command
+    mode === TerminalMode.Search ? searchModeState.input : baseModeState.command
   const promptValue = `@${mode}:`
 
   useEffect(() => {
@@ -262,6 +263,7 @@ export const TerminalApp = ({
         setSearchModeState({
           scrollX: result.state.scrollX,
           scrollY: result.state.scrollY,
+          input: "",
           query: "",
           focusedMatchIndex: 0,
         })
@@ -270,7 +272,7 @@ export const TerminalApp = ({
 
       const nextMatches = findSearchMatches(content, result.state.query)
       const nextState =
-        result.state.query === searchModeState.query
+        result.submittedQuery === undefined
           ? result.state
           : focusSearchMatch(result.state, limits, nextMatches, 0)
 
@@ -291,6 +293,7 @@ export const TerminalApp = ({
       setSearchModeState({
         scrollX: result.state.scrollX,
         scrollY: result.state.scrollY,
+        input: "",
         query: "",
         focusedMatchIndex: 0,
       })
