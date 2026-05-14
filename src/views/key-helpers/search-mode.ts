@@ -27,6 +27,10 @@ export type SearchModeResult = {
   submittedQuery?: string
 }
 
+const getHorizontalScrollStep = (viewWidth: number): number => {
+  return Math.max(4, Math.floor(viewWidth / 4))
+}
+
 const escapeRegExp = (value: string): string => {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
@@ -118,7 +122,10 @@ const scrollXToSearchMatch = (
   const visibleEndColumnIndex = safeScrollX + limits.viewWidth
 
   if (match.start < safeScrollX || match.end > visibleEndColumnIndex) {
-    return clampValue(match.start, 0, limits.maxScrollX)
+    const matchWidth = match.end - match.start
+    const centeredScrollX = match.start - Math.floor((limits.viewWidth - matchWidth) / 2)
+
+    return clampValue(centeredScrollX, 0, limits.maxScrollX)
   }
 
   return safeScrollX
@@ -135,7 +142,11 @@ export const handleSearchModeInput = (
     return {
       state: {
         ...state,
-        scrollX: clampValue(state.scrollX - 1, 0, limits.maxScrollX),
+        scrollX: clampValue(
+          state.scrollX - getHorizontalScrollStep(limits.viewWidth),
+          0,
+          limits.maxScrollX,
+        ),
       },
     }
   }
@@ -144,7 +155,11 @@ export const handleSearchModeInput = (
     return {
       state: {
         ...state,
-        scrollX: clampValue(state.scrollX + 1, 0, limits.maxScrollX),
+        scrollX: clampValue(
+          state.scrollX + getHorizontalScrollStep(limits.viewWidth),
+          0,
+          limits.maxScrollX,
+        ),
       },
     }
   }

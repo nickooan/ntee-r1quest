@@ -46,7 +46,8 @@ const limits: BaseModeLimits = {
 
 const searchLimits = {
   ...limits,
-  viewWidth: 4,
+  maxScrollX: 20,
+  viewWidth: 10,
 }
 
 const key = (keyValues: Partial<Key>): Key => {
@@ -140,6 +141,36 @@ describe("base mode key helpers", () => {
 })
 
 describe("search mode key helpers", () => {
+  test("uses a larger horizontal scroll step in search mode", () => {
+    const searchState: SearchModeState = {
+      scrollX: 8,
+      scrollY: 0,
+      input: "",
+      query: "abc",
+      focusedMatchIndex: 0,
+    }
+
+    expect(
+      handleSearchModeInput(
+        "",
+        key({ leftArrow: true }),
+        searchState,
+        searchLimits,
+        [],
+      ).state.scrollX,
+    ).toBe(4)
+
+    expect(
+      handleSearchModeInput(
+        "",
+        key({ rightArrow: true }),
+        searchState,
+        searchLimits,
+        [],
+      ).state.scrollX,
+    ).toBe(12)
+  })
+
   test("finds matches from regex queries", () => {
     expect(findSearchMatches("item-1\nitem-22\nitem-x", "item-\\d+")).toEqual([
       {
@@ -206,7 +237,7 @@ describe("search mode key helpers", () => {
       query: "abc",
       focusedMatchIndex: 0,
     }
-    const matches = findSearchMatches("abc abc", "abc")
+    const matches = findSearchMatches("abc long-text abc", "abc")
 
     const result = handleSearchModeInput(
       "",
@@ -217,18 +248,18 @@ describe("search mode key helpers", () => {
     )
 
     expect(result.state.focusedMatchIndex).toBe(1)
-    expect(result.state.scrollX).toBe(4)
+    expect(result.state.scrollX).toBe(11)
   })
 
   test("scrolls search mode left when the previous focused match is outside the viewport", () => {
     const searchState: SearchModeState = {
-      scrollX: 4,
+      scrollX: 11,
       scrollY: 0,
       input: "",
       query: "abc",
       focusedMatchIndex: 1,
     }
-    const matches = findSearchMatches("abc abc", "abc")
+    const matches = findSearchMatches("abc long-text abc", "abc")
 
     const result = handleSearchModeInput(
       "",
