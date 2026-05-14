@@ -31,6 +31,7 @@ scripts with macros.
   - [Open the terminal UI](#open-the-terminal-ui)
   - [Set another root with `-r`](#set-another-root-with--r)
   - [Configure a default root with `.r1qconfig.json`](#configure-a-default-root-with-r1qconfigjson)
+  - [Search response output](#search-response-output)
   - [Response display](#response-display)
 - [Runtime Notes](#runtime-notes)
 
@@ -519,11 +520,12 @@ The app opens a command line at the bottom of the terminal. Type a request file
 path and press enter to execute it:
 
 ```text
-:sample
+@default:sample
 ```
 
 If the `.nts` extension is omitted, `.nts` is added automatically. The app stays
-open after each request. Use `control-c` to quit.
+open after each request. The default prompt is `@default:`. Use `control-c` to
+quit.
 
 ### Set another root with `-r`
 
@@ -536,7 +538,7 @@ r1q -r ~/request/core-api
 Then type the request path inside the app:
 
 ```text
-:property
+@default:property
 ```
 
 That executes:
@@ -548,7 +550,7 @@ That executes:
 You can also type a nested path under the root:
 
 ```text
-:core-api/property
+@default:core-api/property
 ```
 
 That looks for:
@@ -585,7 +587,7 @@ r1q
 Then type:
 
 ```text
-:property
+@default:property
 ```
 
 That executes:
@@ -606,6 +608,33 @@ Root resolution precedence is:
 2. `./.r1qconfig.json`
 3. `~/.ntee-r1quest/.r1qconfig.json`
 4. current working directory
+
+### Search response output
+
+From the default prompt, type `@search` and press enter to switch into search
+mode:
+
+```text
+@default:@search
+```
+
+The prompt changes to `@search:`. Type a search query and press enter to
+highlight matching text in the rendered response:
+
+```text
+@search:content-type
+```
+
+Search queries are treated as regular expressions when valid. Invalid regular
+expressions fall back to plain text search. In search mode, use up and down
+arrows to move between matches. Use left, right, page up, page down, home, and
+end to scroll the response view.
+
+To return to request input mode, type `@default` or `@q` and press enter:
+
+```text
+@search:@default
+```
 
 ### Response display
 

@@ -22,6 +22,7 @@ export type TerminalAppProps = {
   error?: unknown
   isPending?: boolean
   root?: string
+  version?: string
   height?: number
   width?: number
   onCommand?: (command: string) => void | Promise<void>
@@ -277,6 +278,7 @@ export const TerminalApp = ({
   error,
   isPending = false,
   root,
+  version,
   height: fixedHeight,
   width: fixedWidth,
   onCommand,
@@ -474,8 +476,9 @@ export const TerminalApp = ({
 
   return (
     <Box flexDirection="column" width={width} height={height}>
-      <Box width={width} height={headerHeight} paddingY={1}>
+      <Box flexDirection="column" width={width} height={headerHeight}>
         <Text bold>{">_ Ntee R1quest"}</Text>
+        {version && <Text color="#006400">{`ver: ${version}`}</Text>}
       </Box>
       <Box flexDirection="column" width={width} height={viewHeight}>
         {viewport.lines.map((line, index) => (
