@@ -30,6 +30,7 @@ const CommandApp = ({ args }: { args: string[] }) => {
     response,
     error,
     isPending,
+    root,
     onCommand: runCommand,
   })
 }

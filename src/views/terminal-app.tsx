@@ -1,3 +1,5 @@
+import { readdirSync } from "node:fs"
+import { relative, resolve, sep } from "node:path"
 import type { AxiosResponse } from "axios"
 import React, { useEffect, useState } from "react"
 import { Box, Text, render, useInput, useWindowSize } from "ink"
@@ -19,6 +21,7 @@ export type TerminalAppProps = {
   response?: AxiosResponse
   error?: unknown
   isPending?: boolean
+  root?: string
   height?: number
   width?: number
   onCommand?: (command: string) => void | Promise<void>
@@ -36,7 +39,14 @@ const defaultHeight = 20
 const defaultWidth = 80
 const commandLineHeight = 1
 const headerHeight = 3
+const suggestionHeight = 5
 const commandBackgroundColor = "#1f1f1f"
+
+export type RequestSuggestion = {
+  value: string
+  label: string
+  type: "directory" | "request"
+}
 
 const normalizeLines = (content: string): string[] => {
   return content.split("\n")
@@ -44,6 +54,95 @@ const normalizeLines = (content: string): string[] => {
 
 const sliceLine = (line: string, scrollX: number, width: number): string => {
   return line.slice(scrollX, scrollX + width).padEnd(width, " ")
+}
+
+const isInsideRoot = (root: string, target: string): boolean => {
+  const relativeTarget = relative(root, target)
+
+  return (
+    relativeTarget === "" ||
+    (!relativeTarget.startsWith("..") && !relativeTarget.startsWith(sep))
+  )
+}
+
+export const buildRequestSuggestions = (
+  root: string | undefined,
+  input: string,
+): RequestSuggestion[] => {
+  const trimmedInput = input.trim()
+
+  if (!root || !trimmedInput || trimmedInput.startsWith("@")) {
+    return []
+  }
+
+  const normalizedInput = trimmedInput.replaceAll("\\", "/")
+  const lastSlashIndex = normalizedInput.lastIndexOf("/")
+  const directoryInput =
+    lastSlashIndex === -1 ? "" : normalizedInput.slice(0, lastSlashIndex)
+  const namePrefix =
+    lastSlashIndex === -1
+      ? normalizedInput
+      : normalizedInput.slice(lastSlashIndex + 1)
+  const resolvedRoot = resolve(root)
+  const resolvedDirectory = resolve(resolvedRoot, directoryInput)
+
+  if (!isInsideRoot(resolvedRoot, resolvedDirectory)) {
+    return []
+  }
+
+  try {
+    return readdirSync(resolvedDirectory, { withFileTypes: true })
+      .flatMap((entry): RequestSuggestion[] => {
+        if (entry.isDirectory()) {
+          if (!entry.name.startsWith(namePrefix)) {
+            return []
+          }
+
+          const value = directoryInput
+            ? `${directoryInput}/${entry.name}/`
+            : `${entry.name}/`
+
+          return [
+            {
+              value,
+              label: value,
+              type: "directory",
+            },
+          ]
+        }
+
+        if (!entry.isFile() || !entry.name.endsWith(".nts")) {
+          return []
+        }
+
+        const requestName = entry.name.slice(0, -".nts".length)
+
+        if (!requestName.startsWith(namePrefix)) {
+          return []
+        }
+
+        const value = directoryInput
+          ? `${directoryInput}/${requestName}`
+          : requestName
+
+        return [
+          {
+            value,
+            label: value,
+            type: "request",
+          },
+        ]
+      })
+      .sort((left, right) => {
+        if (left.type !== right.type) {
+          return left.type === "directory" ? -1 : 1
+        }
+
+        return left.label.localeCompare(right.label)
+      })
+  } catch {
+    return []
+  }
 }
 
 const formatTerminalContent = ({
@@ -177,6 +276,7 @@ export const TerminalApp = ({
   response,
   error,
   isPending = false,
+  root,
   height: fixedHeight,
   width: fixedWidth,
   onCommand,
@@ -196,9 +296,17 @@ export const TerminalApp = ({
     query: "",
     focusedMatchIndex: 0,
   })
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0)
   const height = fixedHeight ?? rows ?? defaultHeight
   const width = fixedWidth ?? columns ?? defaultWidth
-  const viewHeight = Math.max(1, height - headerHeight - commandLineHeight)
+  const suggestions = buildRequestSuggestions(root, baseModeState.command)
+  const shouldShowSuggestions =
+    mode === TerminalMode.Default && suggestions.length > 0
+  const effectiveSuggestionHeight = shouldShowSuggestions ? suggestionHeight : 0
+  const viewHeight = Math.max(
+    1,
+    height - headerHeight - commandLineHeight - effectiveSuggestionHeight,
+  )
   const viewWidth = Math.max(1, width)
   const content = formatTerminalContent({
     response,
@@ -219,6 +327,20 @@ export const TerminalApp = ({
   const inputValue =
     mode === TerminalMode.Search ? searchModeState.input : baseModeState.command
   const promptValue = `@${mode}:`
+  const safeSelectedSuggestionIndex = clampValue(
+    selectedSuggestionIndex,
+    0,
+    Math.max(0, suggestions.length - 1),
+  )
+  const suggestionWindowStart = clampValue(
+    safeSelectedSuggestionIndex - suggestionHeight + 1,
+    0,
+    Math.max(0, suggestions.length - suggestionHeight),
+  )
+  const visibleSuggestions = suggestions.slice(
+    suggestionWindowStart,
+    suggestionWindowStart + suggestionHeight,
+  )
 
   useEffect(() => {
     if (!isPending) {
@@ -280,6 +402,43 @@ export const TerminalApp = ({
       return
     }
 
+    if (shouldShowSuggestions && key.upArrow) {
+      setSelectedSuggestionIndex((currentIndex) =>
+        clampValue(currentIndex - 1, 0, suggestions.length - 1),
+      )
+      return
+    }
+
+    if (shouldShowSuggestions && key.downArrow) {
+      setSelectedSuggestionIndex((currentIndex) =>
+        clampValue(currentIndex + 1, 0, suggestions.length - 1),
+      )
+      return
+    }
+
+    if (shouldShowSuggestions && key.return) {
+      const selectedSuggestion = suggestions[safeSelectedSuggestionIndex]
+
+      if (selectedSuggestion?.type === "directory") {
+        setBaseModeState({
+          ...baseModeState,
+          command: selectedSuggestion.value,
+        })
+        setSelectedSuggestionIndex(0)
+        return
+      }
+
+      if (selectedSuggestion) {
+        setBaseModeState({
+          ...baseModeState,
+          command: "",
+        })
+        setSelectedSuggestionIndex(0)
+        onCommand?.(selectedSuggestion.value)
+        return
+      }
+    }
+
     const result = handleBaseModeInput(input, key, baseModeState, {
       maxScrollX: viewport.maxScrollX,
       maxScrollY: viewport.maxScrollY,
@@ -302,6 +461,10 @@ export const TerminalApp = ({
     }
 
     setBaseModeState(result.state)
+
+    if (result.state.command !== baseModeState.command) {
+      setSelectedSuggestionIndex(0)
+    }
 
     if (result.command !== undefined && nextMode === null) {
       onCommand?.(result.command)
@@ -327,6 +490,33 @@ export const TerminalApp = ({
           </Box>
         ))}
       </Box>
+      {shouldShowSuggestions && (
+        <Box flexDirection="column" width={width} height={suggestionHeight}>
+          {visibleSuggestions.map((suggestion, index) => {
+            const suggestionIndex = suggestionWindowStart + index
+            const isSelected = suggestionIndex === safeSelectedSuggestionIndex
+
+            return (
+              <Box key={suggestion.value} width={width}>
+                <Text
+                  color={isSelected ? "black" : undefined}
+                  backgroundColor={isSelected ? "white" : commandBackgroundColor}
+                  bold={suggestion.type === "directory"}
+                >
+                  {suggestion.label.padEnd(width, " ")}
+                </Text>
+              </Box>
+            )
+          })}
+          {Array.from({
+            length: suggestionHeight - visibleSuggestions.length,
+          }).map((_, index) => (
+            <Text key={`empty-suggestion-${index}`} backgroundColor={commandBackgroundColor}>
+              {" ".repeat(width)}
+            </Text>
+          ))}
+        </Box>
+      )}
       <Box
         width={width}
         height={commandLineHeight}
