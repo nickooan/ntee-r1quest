@@ -241,6 +241,7 @@ const VisibleLine = ({
   for (const match of lineMatches) {
     const matchStart = Math.max(match.start, visibleStart)
     const matchEnd = Math.min(match.end, visibleEnd)
+    const isFocusedMatch = match.matchIndex === focusedMatchIndex
 
     if (matchStart > cursor) {
       children.push(
@@ -254,8 +255,9 @@ const VisibleLine = ({
       <Text
         key={`match-${match.matchIndex}-${matchStart}`}
         color="black"
-        backgroundColor="white"
-        bold={match.matchIndex === focusedMatchIndex}
+        backgroundColor={isFocusedMatch ? "yellow" : "white"}
+        bold={isFocusedMatch}
+        underline={isFocusedMatch}
       >
         {line.slice(matchStart, matchEnd)}
       </Text>,
