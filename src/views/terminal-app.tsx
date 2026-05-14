@@ -23,6 +23,7 @@ export type TerminalAppProps = {
   isPending?: boolean
   root?: string
   version?: string
+  requestDurationMs?: number
   height?: number
   width?: number
   onCommand?: (command: string) => void | Promise<void>
@@ -40,6 +41,7 @@ const defaultHeight = 20
 const defaultWidth = 80
 const commandLineHeight = 1
 const headerHeight = 3
+const requestStatsHeight = 1
 const suggestionHeight = 5
 const commandBackgroundColor = "#1f1f1f"
 
@@ -279,6 +281,7 @@ export const TerminalApp = ({
   isPending = false,
   root,
   version,
+  requestDurationMs,
   height: fixedHeight,
   width: fixedWidth,
   onCommand,
@@ -307,7 +310,11 @@ export const TerminalApp = ({
   const effectiveSuggestionHeight = shouldShowSuggestions ? suggestionHeight : 0
   const viewHeight = Math.max(
     1,
-    height - headerHeight - commandLineHeight - effectiveSuggestionHeight,
+    height -
+      headerHeight -
+      requestStatsHeight -
+      commandLineHeight -
+      effectiveSuggestionHeight,
   )
   const viewWidth = Math.max(1, width)
   const content = formatTerminalContent({
@@ -479,6 +486,13 @@ export const TerminalApp = ({
       <Box flexDirection="column" width={width} height={headerHeight}>
         <Text bold>{">_ Ntee R1quest"}</Text>
         {version && <Text color="#006400">{`ver: ${version}`}</Text>}
+      </Box>
+      <Box width={width} height={requestStatsHeight}>
+        <Text>
+          {requestDurationMs === undefined
+            ? ""
+            : `>_ Spend ${requestDurationMs} ms,`}
+        </Text>
       </Box>
       <Box flexDirection="column" width={width} height={viewHeight}>
         {viewport.lines.map((line, index) => (

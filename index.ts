@@ -11,11 +11,15 @@ const CommandApp = ({ args }: { args: string[] }) => {
   const [response, setResponse] = useState<AxiosResponse | undefined>()
   const [error, setError] = useState<unknown>()
   const [isPending, setIsPending] = useState(false)
+  const [requestDurationMs, setRequestDurationMs] = useState<number | undefined>()
 
   const runCommand = async (command: string) => {
+    const requestStartTime = Date.now()
+
     setIsPending(true)
     setResponse(undefined)
     setError(undefined)
+    setRequestDurationMs(undefined)
 
     try {
       const nextResponse = await execute(command, root)
@@ -24,6 +28,7 @@ const CommandApp = ({ args }: { args: string[] }) => {
     } catch (nextError) {
       setError(nextError)
     } finally {
+      setRequestDurationMs(Date.now() - requestStartTime)
       setIsPending(false)
     }
   }
@@ -34,6 +39,7 @@ const CommandApp = ({ args }: { args: string[] }) => {
     isPending,
     root,
     version: VERSION,
+    requestDurationMs,
     onCommand: runCommand,
   })
 }
