@@ -1,0 +1,10 @@
+url "https://ntee.io"
+type post
+
+header accept, text/csv
+header content-type, text/csv
+
+body "name,type,enabled
+r1quest,request,true
+ntee,service,true
+"

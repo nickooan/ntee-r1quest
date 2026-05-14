@@ -1,0 +1,12 @@
+url "https://ntee.io"
+type post
+
+header accept, text/xml
+header content-type, text/xml
+
+body "<?xml version='1.0' encoding='UTF-8'?>
+<request>
+  <name>r1quest</name>
+  <enabled>true</enabled>
+</request>
+"

@@ -1,0 +1,15 @@
+url "https://ntee.io"
+type post
+
+header accept, text/css
+header content-type, text/css
+
+body ":root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+}
+"

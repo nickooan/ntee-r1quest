@@ -1,0 +1,13 @@
+url "https://ntee.io"
+type post
+
+header accept, text/vcard
+header content-type, text/vcard
+
+body "BEGIN:VCARD
+VERSION:4.0
+FN:R1Quest
+ORG:ntee
+EMAIL:hello@ntee.io
+END:VCARD
+"

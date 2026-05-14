@@ -1,0 +1,18 @@
+url "https://ntee.io"
+type post
+
+header accept, text/calendar
+header content-type, text/calendar
+
+body "BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//ntee//r1quest//EN
+BEGIN:VEVENT
+UID:r1quest-event@ntee.io
+DTSTAMP:20260514T000000Z
+DTSTART:20260514T090000Z
+DTEND:20260514T100000Z
+SUMMARY:R1Quest sync
+END:VEVENT
+END:VCALENDAR
+"

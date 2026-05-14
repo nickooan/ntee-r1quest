@@ -203,6 +203,39 @@ describe("request", () => {
     });
   });
 
+  test("executes a text html request", async () => {
+    const scopeObject: ScopeObject = {
+      url: "https://ntee.io",
+      method: "post",
+      headers: {
+        authorization: "bearer test-token",
+        "content-type": "text/html",
+      },
+      body: "<p>r1quest</p>",
+    };
+
+    server.use(
+      http.post("https://ntee.io", async ({ request }) => {
+        expect(request.headers.get("authorization")).toBe("bearer test-token");
+        expect(request.headers.get("content-type")).toBe("text/html");
+        expect(await request.text()).toBe("<p>r1quest</p>");
+
+        return HttpResponse.json({
+          method: "post",
+          ok: true,
+        });
+      }),
+    );
+
+    const response = await execute(scopeObject);
+
+    expect(response.status).toBe(200);
+    expect(response.data).toEqual({
+      method: "post",
+      ok: true,
+    });
+  });
+
   test("executes a patch request", async () => {
     const scopeObject: ScopeObject = {
       url: "https://ntee.io",
@@ -352,6 +385,29 @@ describe("request", () => {
     await expect(execute(scopeObject)).rejects.toThrow(
       "Text request body must be a string.",
     );
+  });
+
+  test("executes a text get request without a body", async () => {
+    const scopeObject: ScopeObject = {
+      url: "https://ntee.io",
+      method: "get",
+      headers: {
+        "content-type": "text/plain",
+      },
+    };
+
+    server.use(
+      http.get("https://ntee.io", async ({ request }) => {
+        expect(await request.text()).toBe("");
+
+        return HttpResponse.text("ok");
+      }),
+    );
+
+    const response = await execute(scopeObject);
+
+    expect(response.status).toBe(200);
+    expect(response.data).toBe("ok");
   });
 
   test("throws when json body contains a file", async () => {
