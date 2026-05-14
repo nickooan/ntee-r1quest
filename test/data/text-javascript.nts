@@ -1,0 +1,11 @@
+url "https://ntee.io"
+type post
+
+header accept, text/javascript
+header content-type, text/javascript
+
+body "const requestName = 'r1quest';
+const enabled = true;
+
+console.log(requestName, enabled);
+"

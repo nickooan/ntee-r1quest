@@ -1,0 +1,12 @@
+url "https://ntee.io"
+type post
+
+header accept, text/rtf
+header content-type, text/rtf
+
+body "{\\rtf1\\ansi
+{\\fonttbl{\\f0 Arial;}}
+\\f0\\fs24 R1Quest text/rtf body\\par
+Enabled: true\\par
+}
+"

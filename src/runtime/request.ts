@@ -18,7 +18,7 @@ export const execute = async (
     return handleJSONRequest(scopeObject);
   }
 
-  if (contentType.includes("text/plain")) {
+  if (contentType.startsWith("text/")) {
     return handleTextRequest(scopeObject);
   }
 
@@ -106,7 +106,11 @@ export const handleTextRequest = async (
 
   assertNoFileBody(scopeObject);
 
-  if (typeof scopeObject.body !== "string") {
+  const canOmitBody =
+    scopeObject.method?.toLowerCase() === "get" &&
+    (scopeObject.body === null || scopeObject.body === undefined);
+
+  if (!canOmitBody && typeof scopeObject.body !== "string") {
     throw new Error("Text request body must be a string.");
   }
 
