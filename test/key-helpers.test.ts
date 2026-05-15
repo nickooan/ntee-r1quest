@@ -215,7 +215,7 @@ describe("search mode key helpers", () => {
     )
 
     expect(nextResult.state.focusedMatchIndex).toBe(1)
-    expect(nextResult.state.scrollY).toBe(2)
+    expect(nextResult.state.scrollY).toBe(0)
 
     const previousResult = handleSearchModeInput(
       "",
@@ -227,6 +227,31 @@ describe("search mode key helpers", () => {
 
     expect(previousResult.state.focusedMatchIndex).toBe(0)
     expect(previousResult.state.scrollY).toBe(0)
+  })
+
+  test("keeps focused search matches below the top of the viewport when possible", () => {
+    const searchState: SearchModeState = {
+      scrollX: 0,
+      scrollY: 0,
+      input: "",
+      query: "abc",
+      focusedMatchIndex: 0,
+    }
+    const matches = findSearchMatches(
+      "none\nnone\nnone\nabc\nnone\nnone\nnone\nnone",
+      "abc",
+    )
+
+    const result = handleSearchModeInput(
+      "",
+      key({ downArrow: true }),
+      searchState,
+      searchLimits,
+      matches,
+    )
+
+    expect(result.state.focusedMatchIndex).toBe(0)
+    expect(result.state.scrollY).toBe(1)
   })
 
   test("scrolls search mode right when the next focused match is outside the viewport", () => {

@@ -31,6 +31,8 @@ const getHorizontalScrollStep = (viewWidth: number): number => {
   return Math.max(4, Math.floor(viewWidth / 4))
 }
 
+const searchMatchTopPadding = 2
+
 const escapeRegExp = (value: string): string => {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
@@ -109,8 +111,17 @@ export const focusSearchMatch = (
     ...state,
     focusedMatchIndex: safeFocusedMatchIndex,
     scrollX: scrollXToSearchMatch(state.scrollX, limits, focusedMatch),
-    scrollY: clampValue(focusedMatch.lineIndex, 0, limits.maxScrollY),
+    scrollY: scrollYToSearchMatch(limits, focusedMatch),
   }
+}
+
+const scrollYToSearchMatch = (
+  limits: SearchModeLimits,
+  match: SearchMatch,
+): number => {
+  const topPadding = Math.min(searchMatchTopPadding, Math.max(0, limits.viewHeight - 1))
+
+  return clampValue(match.lineIndex - topPadding, 0, limits.maxScrollY)
 }
 
 const scrollXToSearchMatch = (
