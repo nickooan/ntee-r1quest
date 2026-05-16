@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "@jest/globals"
 import type { Key } from "ink"
 import {
   findSearchMatches,
@@ -59,7 +59,9 @@ const key = (keyValues: Partial<Key>): Key => {
 
 describe("base mode key helpers", () => {
   test("handles vertical and horizontal scroll keys", () => {
-    expect(handleBaseModeInput("", key({ upArrow: true }), state, limits).state).toEqual({
+    expect(
+      handleBaseModeInput("", key({ upArrow: true }), state, limits).state,
+    ).toEqual({
       ...state,
       scrollY: 2,
     })
@@ -91,13 +93,25 @@ describe("base mode key helpers", () => {
     }
 
     expect(
-      handleBaseModeInput("", key({ upArrow: true }), state, limits, suggestionState),
+      handleBaseModeInput(
+        "",
+        key({ upArrow: true }),
+        state,
+        limits,
+        suggestionState,
+      ),
     ).toEqual({
       state,
       selectedSuggestionIndex: 0,
     })
     expect(
-      handleBaseModeInput("", key({ downArrow: true }), state, limits, suggestionState),
+      handleBaseModeInput(
+        "",
+        key({ downArrow: true }),
+        state,
+        limits,
+        suggestionState,
+      ),
     ).toEqual({
       state,
       selectedSuggestionIndex: 2,
@@ -105,7 +119,9 @@ describe("base mode key helpers", () => {
   })
 
   test("handles page and boundary scroll keys", () => {
-    expect(handleBaseModeInput("", key({ pageUp: true }), state, limits).state).toEqual({
+    expect(
+      handleBaseModeInput("", key({ pageUp: true }), state, limits).state,
+    ).toEqual({
       ...state,
       scrollY: 0,
     })
@@ -115,12 +131,16 @@ describe("base mode key helpers", () => {
       ...state,
       scrollY: 7,
     })
-    expect(handleBaseModeInput("", key({ home: true }), state, limits).state).toEqual({
+    expect(
+      handleBaseModeInput("", key({ home: true }), state, limits).state,
+    ).toEqual({
       ...state,
       scrollX: 0,
       scrollY: 0,
     })
-    expect(handleBaseModeInput("", key({ end: true }), state, limits).state).toEqual({
+    expect(
+      handleBaseModeInput("", key({ end: true }), state, limits).state,
+    ).toEqual({
       ...state,
       scrollX: 5,
       scrollY: 10,
@@ -128,9 +148,12 @@ describe("base mode key helpers", () => {
   })
 
   test("handles command input editing and submit", () => {
-    expect(handleBaseModeInput("x", defaultKey, state, limits).state.command).toBe("getx")
     expect(
-      handleBaseModeInput("", key({ backspace: true }), state, limits).state.command,
+      handleBaseModeInput("x", defaultKey, state, limits).state.command,
+    ).toBe("getx")
+    expect(
+      handleBaseModeInput("", key({ backspace: true }), state, limits).state
+        .command,
     ).toBe("ge")
 
     const result = handleBaseModeInput("", key({ return: true }), state, limits)

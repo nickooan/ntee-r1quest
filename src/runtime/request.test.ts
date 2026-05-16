@@ -1,30 +1,37 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { http, HttpResponse } from "msw";
-import { setupServer } from "msw/node";
-import type { ScopeObject } from "../compiler/semantics.ts";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "@jest/globals"
+import { http, HttpResponse } from "msw"
+import { setupServer } from "msw/node"
+import type { ScopeObject } from "../compiler/semantics.ts"
 import {
   execute,
   handleFormRequest,
   handleJSONRequest,
   handleTextRequest,
-} from "./request.ts";
+} from "./request.ts"
 
-const server = setupServer();
+const server = setupServer()
 
 describe("request", () => {
   beforeAll(() => {
     server.listen({
       onUnhandledRequest: "error",
-    });
-  });
+    })
+  })
 
   afterEach(() => {
-    server.resetHandlers();
-  });
+    server.resetHandlers()
+  })
 
   afterAll(() => {
-    server.close();
-  });
+    server.close()
+  })
 
   test("executes a get request", async () => {
     const scopeObject: ScopeObject = {
@@ -34,27 +41,27 @@ describe("request", () => {
         authorization: "bearer test-token",
         "content-type": "application/json",
       },
-    };
+    }
 
     server.use(
       http.get("https://ntee.io", ({ request }) => {
-        expect(request.headers.get("authorization")).toBe("bearer test-token");
+        expect(request.headers.get("authorization")).toBe("bearer test-token")
 
         return HttpResponse.json({
           method: "get",
           ok: true,
-        });
+        })
       }),
-    );
+    )
 
-    const response = await execute(scopeObject);
+    const response = await execute(scopeObject)
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(200)
     expect(response.data).toEqual({
       method: "get",
       ok: true,
-    });
-  });
+    })
+  })
 
   test("executes a post request", async () => {
     const scopeObject: ScopeObject = {
@@ -67,30 +74,30 @@ describe("request", () => {
       body: {
         name: "r1quest",
       },
-    };
+    }
 
     server.use(
       http.post("https://ntee.io", async ({ request }) => {
-        expect(request.headers.get("authorization")).toBe("bearer test-token");
+        expect(request.headers.get("authorization")).toBe("bearer test-token")
         expect(await request.json()).toEqual({
           name: "r1quest",
-        });
+        })
 
         return HttpResponse.json({
           method: "post",
           ok: true,
-        });
+        })
       }),
-    );
+    )
 
-    const response = await execute(scopeObject);
+    const response = await execute(scopeObject)
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(200)
     expect(response.data).toEqual({
       method: "post",
       ok: true,
-    });
-  });
+    })
+  })
 
   test("executes a json request with an array body", async () => {
     const scopeObject: ScopeObject = {
@@ -101,28 +108,28 @@ describe("request", () => {
         "content-type": "application/json",
       },
       body: [{ name: "a" }, { name: "b" }],
-    };
+    }
 
     server.use(
       http.post("https://ntee.io", async ({ request }) => {
-        expect(request.headers.get("authorization")).toBe("bearer test-token");
-        expect(await request.json()).toEqual([{ name: "a" }, { name: "b" }]);
+        expect(request.headers.get("authorization")).toBe("bearer test-token")
+        expect(await request.json()).toEqual([{ name: "a" }, { name: "b" }])
 
         return HttpResponse.json({
           method: "post",
           ok: true,
-        });
+        })
       }),
-    );
+    )
 
-    const response = await execute(scopeObject);
+    const response = await execute(scopeObject)
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(200)
     expect(response.data).toEqual({
       method: "post",
       ok: true,
-    });
-  });
+    })
+  })
 
   test("executes a multipart form request", async () => {
     const scopeObject: ScopeObject = {
@@ -138,37 +145,37 @@ describe("request", () => {
         enabled: true,
         tags: ["api", "form"],
       },
-    };
+    }
 
     server.use(
       http.post("https://ntee.io", async ({ request }) => {
-        expect(request.headers.get("authorization")).toBe("bearer test-token");
+        expect(request.headers.get("authorization")).toBe("bearer test-token")
         expect(request.headers.get("content-type")).toStartWith(
           "multipart/form-data",
-        );
+        )
 
-        const formData = await request.formData();
+        const formData = await request.formData()
 
-        expect(formData.get("name")).toBe("r1quest");
-        expect(formData.get("age")).toBe("2");
-        expect(formData.get("enabled")).toBe("true");
-        expect(formData.get("tags")).toBe(JSON.stringify(["api", "form"]));
+        expect(formData.get("name")).toBe("r1quest")
+        expect(formData.get("age")).toBe("2")
+        expect(formData.get("enabled")).toBe("true")
+        expect(formData.get("tags")).toBe(JSON.stringify(["api", "form"]))
 
         return HttpResponse.json({
           method: "post",
           ok: true,
-        });
+        })
       }),
-    );
+    )
 
-    const response = await execute(scopeObject);
+    const response = await execute(scopeObject)
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(200)
     expect(response.data).toEqual({
       method: "post",
       ok: true,
-    });
-  });
+    })
+  })
 
   test("executes a text plain request", async () => {
     const scopeObject: ScopeObject = {
@@ -179,29 +186,29 @@ describe("request", () => {
         "content-type": "text/plain",
       },
       body: "plain text body",
-    };
+    }
 
     server.use(
       http.post("https://ntee.io", async ({ request }) => {
-        expect(request.headers.get("authorization")).toBe("bearer test-token");
-        expect(request.headers.get("content-type")).toBe("text/plain");
-        expect(await request.text()).toBe("plain text body");
+        expect(request.headers.get("authorization")).toBe("bearer test-token")
+        expect(request.headers.get("content-type")).toBe("text/plain")
+        expect(await request.text()).toBe("plain text body")
 
         return HttpResponse.json({
           method: "post",
           ok: true,
-        });
+        })
       }),
-    );
+    )
 
-    const response = await execute(scopeObject);
+    const response = await execute(scopeObject)
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(200)
     expect(response.data).toEqual({
       method: "post",
       ok: true,
-    });
-  });
+    })
+  })
 
   test("executes a text html request", async () => {
     const scopeObject: ScopeObject = {
@@ -212,29 +219,29 @@ describe("request", () => {
         "content-type": "text/html",
       },
       body: "<p>r1quest</p>",
-    };
+    }
 
     server.use(
       http.post("https://ntee.io", async ({ request }) => {
-        expect(request.headers.get("authorization")).toBe("bearer test-token");
-        expect(request.headers.get("content-type")).toBe("text/html");
-        expect(await request.text()).toBe("<p>r1quest</p>");
+        expect(request.headers.get("authorization")).toBe("bearer test-token")
+        expect(request.headers.get("content-type")).toBe("text/html")
+        expect(await request.text()).toBe("<p>r1quest</p>")
 
         return HttpResponse.json({
           method: "post",
           ok: true,
-        });
+        })
       }),
-    );
+    )
 
-    const response = await execute(scopeObject);
+    const response = await execute(scopeObject)
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(200)
     expect(response.data).toEqual({
       method: "post",
       ok: true,
-    });
-  });
+    })
+  })
 
   test("executes a patch request", async () => {
     const scopeObject: ScopeObject = {
@@ -247,30 +254,30 @@ describe("request", () => {
       body: {
         name: "r1quest-patched",
       },
-    };
+    }
 
     server.use(
       http.patch("https://ntee.io", async ({ request }) => {
-        expect(request.headers.get("authorization")).toBe("bearer test-token");
+        expect(request.headers.get("authorization")).toBe("bearer test-token")
         expect(await request.json()).toEqual({
           name: "r1quest-patched",
-        });
+        })
 
         return HttpResponse.json({
           method: "patch",
           ok: true,
-        });
+        })
       }),
-    );
+    )
 
-    const response = await execute(scopeObject);
+    const response = await execute(scopeObject)
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(200)
     expect(response.data).toEqual({
       method: "patch",
       ok: true,
-    });
-  });
+    })
+  })
 
   test("executes a put request", async () => {
     const scopeObject: ScopeObject = {
@@ -283,30 +290,30 @@ describe("request", () => {
       body: {
         name: "r1quest-updated",
       },
-    };
+    }
 
     server.use(
       http.put("https://ntee.io", async ({ request }) => {
-        expect(request.headers.get("authorization")).toBe("bearer test-token");
+        expect(request.headers.get("authorization")).toBe("bearer test-token")
         expect(await request.json()).toEqual({
           name: "r1quest-updated",
-        });
+        })
 
         return HttpResponse.json({
           method: "put",
           ok: true,
-        });
+        })
       }),
-    );
+    )
 
-    const response = await execute(scopeObject);
+    const response = await execute(scopeObject)
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(200)
     expect(response.data).toEqual({
       method: "put",
       ok: true,
-    });
-  });
+    })
+  })
 
   test("executes a delete request", async () => {
     const scopeObject: ScopeObject = {
@@ -316,27 +323,27 @@ describe("request", () => {
         authorization: "bearer test-token",
         "content-type": "application/json",
       },
-    };
+    }
 
     server.use(
       http.delete("https://ntee.io", ({ request }) => {
-        expect(request.headers.get("authorization")).toBe("bearer test-token");
+        expect(request.headers.get("authorization")).toBe("bearer test-token")
 
         return HttpResponse.json({
           method: "delete",
           ok: true,
-        });
+        })
       }),
-    );
+    )
 
-    const response = await execute(scopeObject);
+    const response = await execute(scopeObject)
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(200)
     expect(response.data).toEqual({
       method: "delete",
       ok: true,
-    });
-  });
+    })
+  })
 
   test("throws when content type is missing", async () => {
     const scopeObject: ScopeObject = {
@@ -346,12 +353,12 @@ describe("request", () => {
       body: {
         name: "r1quest",
       },
-    };
+    }
 
     await expect(execute(scopeObject)).rejects.toThrow(
       "Unsupported content type: missing.",
-    );
-  });
+    )
+  })
 
   test("throws when content type is unsupported", async () => {
     const scopeObject: ScopeObject = {
@@ -363,12 +370,12 @@ describe("request", () => {
       body: {
         name: "r1quest",
       },
-    };
+    }
 
     await expect(execute(scopeObject)).rejects.toThrow(
       "Unsupported content type: application/xml.",
-    );
-  });
+    )
+  })
 
   test("throws when text body is not a string", async () => {
     const scopeObject: ScopeObject = {
@@ -380,12 +387,12 @@ describe("request", () => {
       body: {
         name: "r1quest",
       },
-    };
+    }
 
     await expect(execute(scopeObject)).rejects.toThrow(
       "Text request body must be a string.",
-    );
-  });
+    )
+  })
 
   test("executes a text get request without a body", async () => {
     const scopeObject: ScopeObject = {
@@ -394,21 +401,21 @@ describe("request", () => {
       headers: {
         "content-type": "text/plain",
       },
-    };
+    }
 
     server.use(
       http.get("https://ntee.io", async ({ request }) => {
-        expect(await request.text()).toBe("");
+        expect(await request.text()).toBe("")
 
-        return HttpResponse.text("ok");
+        return HttpResponse.text("ok")
       }),
-    );
+    )
 
-    const response = await execute(scopeObject);
+    const response = await execute(scopeObject)
 
-    expect(response.status).toBe(200);
-    expect(response.data).toBe("ok");
-  });
+    expect(response.status).toBe(200)
+    expect(response.data).toBe("ok")
+  })
 
   test("throws when json body contains a file", async () => {
     const scopeObject: ScopeObject = {
@@ -420,12 +427,12 @@ describe("request", () => {
       body: {
         upload: new Blob(["hello file\n"]),
       },
-    };
+    }
 
     await expect(execute(scopeObject)).rejects.toThrow(
       "File body values are only supported with multipart/form-data requests.",
-    );
-  });
+    )
+  })
 
   test("throws when text body contains a file", async () => {
     const scopeObject: ScopeObject = {
@@ -435,12 +442,12 @@ describe("request", () => {
         "content-type": "text/plain",
       },
       body: new Blob(["hello file\n"]),
-    };
+    }
 
     await expect(execute(scopeObject)).rejects.toThrow(
       "File body values are only supported with multipart/form-data requests.",
-    );
-  });
+    )
+  })
 
   test("throws when multipart method is missing", async () => {
     const scopeObject: ScopeObject = {
@@ -451,16 +458,16 @@ describe("request", () => {
       body: {
         name: "r1quest",
       },
-    };
+    }
 
     await expect(execute(scopeObject)).rejects.toThrow(
       "Cannot execute request without a method.",
-    );
-  });
+    )
+  })
 
   test("exposes request handlers directly", () => {
-    expect(handleJSONRequest).toBeFunction();
-    expect(handleFormRequest).toBeFunction();
-    expect(handleTextRequest).toBeFunction();
-  });
-});
+    expect(handleJSONRequest).toBeFunction()
+    expect(handleFormRequest).toBeFunction()
+    expect(handleTextRequest).toBeFunction()
+  })
+})

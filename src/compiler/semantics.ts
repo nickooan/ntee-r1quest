@@ -76,58 +76,58 @@ export const semantics = scriptGrammar
       return scopeObject
     },
   })
-  .addOperation("compileStatement(scopeObject, headersObject, intermediateObject, cwd)", {
-    RequestStatement(statement) {
-      statement.compileStatement(
-        this.args.scopeObject,
-        this.args.headersObject,
-        this.args.intermediateObject,
-        this.args.cwd,
-      )
-    },
+  .addOperation(
+    "compileStatement(scopeObject, headersObject, intermediateObject, cwd)",
+    {
+      RequestStatement(statement) {
+        statement.compileStatement(
+          this.args.scopeObject,
+          this.args.headersObject,
+          this.args.intermediateObject,
+          this.args.cwd,
+        )
+      },
 
-    HeaderStatement(statement) {
-      statement.compileStatement(
-        this.args.scopeObject,
-        this.args.headersObject,
-        this.args.intermediateObject,
-        this.args.cwd,
-      )
-    },
+      HeaderStatement(statement) {
+        statement.compileStatement(
+          this.args.scopeObject,
+          this.args.headersObject,
+          this.args.intermediateObject,
+          this.args.cwd,
+        )
+      },
 
-    Url(_url, value) {
-      this.args.scopeObject.url = value.toValue(
-        this.args.intermediateObject,
-        this.args.cwd,
-      )
-    },
+      Url(_url, value) {
+        this.args.scopeObject.url = value.toValue(
+          this.args.intermediateObject,
+          this.args.cwd,
+        )
+      },
 
-    Type(_type, method) {
-      this.args.scopeObject.method = method.sourceString
-    },
+      Type(_type, method) {
+        this.args.scopeObject.method = method.sourceString
+      },
 
-    Authorization(_keyword, scheme, credentials) {
-      this.args.headersObject.authorization =
-        `${scheme.sourceString} ${interpolateMacros(
+      Authorization(_keyword, scheme, credentials) {
+        this.args.headersObject.authorization = `${scheme.sourceString} ${interpolateMacros(
           credentials.sourceString.trim(),
           this.args.intermediateObject,
         )}`
-    },
+      },
 
-    Header(_header, key, _comma, value) {
-      this.args.headersObject[key.sourceString.toLowerCase()] = value.toHeaderValue(
-        this.args.intermediateObject,
-        this.args.cwd,
-      )
-    },
+      Header(_header, key, _comma, value) {
+        this.args.headersObject[key.sourceString.toLowerCase()] =
+          value.toHeaderValue(this.args.intermediateObject, this.args.cwd)
+      },
 
-    Body(_body, value) {
-      this.args.scopeObject.body = value.toValue(
-        this.args.intermediateObject,
-        this.args.cwd,
-      )
+      Body(_body, value) {
+        this.args.scopeObject.body = value.toValue(
+          this.args.intermediateObject,
+          this.args.cwd,
+        )
+      },
     },
-  })
+  )
   .addOperation("buildItermediateObject(intermediateObject, cwd)", {
     Ref(_ref, path) {
       buildItermediateObject(
@@ -153,16 +153,16 @@ export const semantics = scriptGrammar
     },
 
     Pair(key, _colon, value) {
-      const compiledValue = value.toValue(this.args.intermediateObject, this.args.cwd)
+      const compiledValue = value.toValue(
+        this.args.intermediateObject,
+        this.args.cwd,
+      )
 
       if (value.getMacroActionName() === "f") {
         return [key.toKey(), [compiledValue]] as [string, ScopeValue]
       }
 
-      return [
-        key.toKey(),
-        compiledValue,
-      ] as [string, ScopeValue]
+      return [key.toKey(), compiledValue] as [string, ScopeValue]
     },
 
     BodyValue(value) {
@@ -230,7 +230,10 @@ export const semantics = scriptGrammar
   })
   .addOperation<[string, ScopeValue]>("toPair(intermediateObject, cwd)", {
     Pair(key, _colon, value) {
-      const compiledValue = value.toValue(this.args.intermediateObject, this.args.cwd)
+      const compiledValue = value.toValue(
+        this.args.intermediateObject,
+        this.args.cwd,
+      )
 
       if (value.getMacroActionName() === "f") {
         return [key.toKey(), [compiledValue]]
@@ -482,7 +485,9 @@ const resolveEnvMacro = (operator: string, key: string): string => {
 }
 
 const resolveFileMacro = (filePath: string, cwd: string): Blob => {
-  return Bun.file(resolve(cwd, filePath))
+  const resolvedPath = resolve(cwd, filePath)
+
+  return new Blob([readFileSync(resolvedPath)])
 }
 
 const parseQuotedString = (source: string): string => {
@@ -495,23 +500,22 @@ const interpolateMacros = (
   value: string,
   intermediateObject: IntermediateObject,
 ): string => {
-  return value.replace(/@([A-Za-z][A-Za-z0-9_-]*)\(([^)]+)\)/g, (
-    source,
-    operator,
-    key,
-  ) => {
-    const resolvedValue = resolveMacro(operator, key, intermediateObject)
+  return value.replace(
+    /@([A-Za-z][A-Za-z0-9_-]*)\(([^)]+)\)/g,
+    (source, operator, key) => {
+      const resolvedValue = resolveMacro(operator, key, intermediateObject)
 
-    if (resolvedValue === null) {
-      return "null"
-    }
+      if (resolvedValue === null) {
+        return "null"
+      }
 
-    if (typeof resolvedValue === "object") {
-      return JSON.stringify(resolvedValue)
-    }
+      if (typeof resolvedValue === "object") {
+        return JSON.stringify(resolvedValue)
+      }
 
-    return String(resolvedValue)
-  })
+      return String(resolvedValue)
+    },
+  )
 }
 
 const toHeaderValue = (value: ScopeValue): HeaderValue => {
@@ -532,7 +536,9 @@ export const compile = (
     throw new SyntaxError(matchResult.message)
   }
 
-  return semantics(matchResult).compile(options.cwd ?? process.cwd()) as ScopeObject
+  return semantics(matchResult).compile(
+    options.cwd ?? process.cwd(),
+  ) as ScopeObject
 }
 
 export enum CompileSourceType {

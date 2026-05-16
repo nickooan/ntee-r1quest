@@ -17,7 +17,4 @@ export {
   type SearchModeResult,
   type SearchModeState,
 } from "./search-mode.ts"
-export {
-  TerminalMode,
-  resolveModeCommand,
-} from "./mode.ts"
+export { TerminalMode, resolveModeCommand } from "./mode.ts"

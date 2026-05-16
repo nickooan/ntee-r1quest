@@ -96,7 +96,11 @@ export const focusSearchMatch = (
     }
   }
 
-  const safeFocusedMatchIndex = clampValue(focusedMatchIndex, 0, matches.length - 1)
+  const safeFocusedMatchIndex = clampValue(
+    focusedMatchIndex,
+    0,
+    matches.length - 1,
+  )
   const focusedMatch = matches[safeFocusedMatchIndex]
 
   if (!focusedMatch) {
@@ -119,7 +123,10 @@ const scrollYToSearchMatch = (
   limits: SearchModeLimits,
   match: SearchMatch,
 ): number => {
-  const topPadding = Math.min(searchMatchTopPadding, Math.max(0, limits.viewHeight - 1))
+  const topPadding = Math.min(
+    searchMatchTopPadding,
+    Math.max(0, limits.viewHeight - 1),
+  )
 
   return clampValue(match.lineIndex - topPadding, 0, limits.maxScrollY)
 }
@@ -134,7 +141,8 @@ const scrollXToSearchMatch = (
 
   if (match.start < safeScrollX || match.end > visibleEndColumnIndex) {
     const matchWidth = match.end - match.start
-    const centeredScrollX = match.start - Math.floor((limits.viewWidth - matchWidth) / 2)
+    const centeredScrollX =
+      match.start - Math.floor((limits.viewWidth - matchWidth) / 2)
 
     return clampValue(centeredScrollX, 0, limits.maxScrollX)
   }
@@ -199,7 +207,11 @@ export const handleSearchModeInput = (
     return {
       state: {
         ...state,
-        scrollY: clampValue(state.scrollY - limits.viewHeight, 0, limits.maxScrollY),
+        scrollY: clampValue(
+          state.scrollY - limits.viewHeight,
+          0,
+          limits.maxScrollY,
+        ),
       },
     }
   }
@@ -208,7 +220,11 @@ export const handleSearchModeInput = (
     return {
       state: {
         ...state,
-        scrollY: clampValue(state.scrollY + limits.viewHeight, 0, limits.maxScrollY),
+        scrollY: clampValue(
+          state.scrollY + limits.viewHeight,
+          0,
+          limits.maxScrollY,
+        ),
       },
     }
   }

@@ -2,24 +2,39 @@
   "name": "ntee-r1quest",
   "version": "0.1.1",
   "license": "GPL-3.0-only",
-  "module": "index.ts",
+  "main": "dist/index.js",
+  "bin": {
+    "r1q": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "type": "module",
-  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
-    "build": "bun build ./index.ts --compile --outfile r1q",
-    "build:install": "bun run build:sign && bash ./bin/scripts/install-local-binary.sh",
-    "build:sign": "bun build ./index.ts --compile --outfile r1q && codesign --force --deep --sign - --entitlements ./entitlements.plist ./r1q"
+    "build": "node ./bin/scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node ./bin/scripts/copy-grammar-assets.mjs",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "start": "node ./dist/index.js",
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest --runInBand",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "msw": "^2.13.4"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.12.4",
+    "jest": "^30.2.0",
+    "msw": "^2.13.4",
+    "prettier": "^3.8.3",
+    "ts-jest": "^29.4.6",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@types/react": "^19.2.14",
-    "axios": "^1.15.0",
+    "axios": "^1.16.1",
     "ink": "^7.0.1",
     "ohm-js": "^17.5.0",
     "react": "^19.2.5",

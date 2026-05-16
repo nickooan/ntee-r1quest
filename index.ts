@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import type { AxiosResponse } from "axios"
 import React, { useMemo, useState } from "react"
 import { render } from "ink"
@@ -47,5 +48,5 @@ const CommandApp = ({ args }: { args: string[] }) => {
 }
 
 if (import.meta.main) {
-  render(React.createElement(CommandApp, { args: Bun.argv.slice(2) }))
+  render(React.createElement(CommandApp, { args: process.argv.slice(2) }))
 }

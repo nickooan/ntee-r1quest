@@ -1,4 +1,4 @@
 declare module "*.ohm" {
-  const source: string;
-  export default source;
+  const source: string
+  export default source
 }

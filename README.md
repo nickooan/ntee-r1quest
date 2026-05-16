@@ -35,8 +35,8 @@ content-type: application/json
 ## Index
 
 - [Install](#install)
-  - [Setup Bun](#setup-bun)
-  - [Global command install](#global-command-install)
+  - [Setup Node.js](#setup-nodejs)
+  - [Development install](#development-install)
 - [File Types](#file-types)
   - [`.nts`](#nts)
   - [`.ntd`](#ntd)
@@ -65,75 +65,53 @@ content-type: application/json
 
 ## Install
 
-### Setup Bun
+### Setup Node.js
 
-Before installing dependencies, make sure the Bun runtime is available in your
+Before installing dependencies, make sure the Node.js runtime is available in your
 shell:
 
 ```bash
-bun --version
+node --version
 ```
 
-If Bun is not installed, install it with Homebrew:
+This project uses npm for dependencies and builds TypeScript to JavaScript before
+running under Node.js.
+
+### Development install
 
 ```bash
-brew install bun
-```
-
-Or use the official Bun installation guide:
-
-https://bun.sh/docs/installation
-
-### Global command install
-
-To install `r1q` as a local command on your machine:
-
-```bash
-# run this before installing, make sure all dependencies are installed.
-bun install
+npm install
 ```
 
 ```bash
-bun run build:install
+npm run build
 ```
 
-That installs:
+The compiled CLI entrypoint is `dist/index.js`. The package exposes this
+entrypoint as the `r1q` command.
 
-```text
-~/.ntee-r1quest/r1q
-~/.ntee-r1quest/.r1qconfig.json
-```
-
-You must manually add this directory to your shell profile `PATH`.
-
-For `zsh`, add this to `~/.zshrc`:
+For local development, link the package after building:
 
 ```bash
-export PATH="$HOME/.ntee-r1quest:$PATH"
+npm link
 ```
 
-For `bash`, add this to `~/.bash_profile` or `~/.bashrc`:
+Then run:
 
 ```bash
-export PATH="$HOME/.ntee-r1quest:$PATH"
+r1q
 ```
 
-Then reload your shell:
+You can also run the compiled entrypoint directly:
 
 ```bash
-source ~/.zshrc
+npm run start
 ```
 
-or:
+After the package is published, users can run it with `npx`:
 
 ```bash
-source ~/.bash_profile
-```
-
-After that, you can run:
-
-```bash
-r1q sample.nts
+npx ntee-r1quest
 ```
 
 ## File Types
@@ -511,29 +489,23 @@ body {
 Server-side `FormData` can read these like browser uploads:
 
 ```ts
-const formData = await request.formData();
-const file = formData.get("file");
-const files = formData.getAll("files");
+const formData = await request.formData()
+const file = formData.get("file")
+const files = formData.getAll("files")
 ```
 
 ## CLI
 
-After installing the global command, open the terminal UI with `r1q`:
+For development, compile the TypeScript source with npm:
 
 ```bash
-r1q
-```
-
-For development, build the local executable with Bun:
-
-```bash
-bun run build
+npm run build
 ```
 
 That creates:
 
 ```text
-./r1q
+./dist
 ```
 
 Supported CLI forms:
@@ -541,6 +513,22 @@ Supported CLI forms:
 ### Open the terminal UI
 
 ```bash
+r1q
+```
+
+For local development, run `npm run build` and `npm link` first. Without linking,
+use `npm run start`.
+
+After publishing, users can also run the package without installing it globally:
+
+```bash
+npx ntee-r1quest
+```
+
+Or install it globally:
+
+```bash
+npm install -g ntee-r1quest
 r1q
 ```
 
@@ -689,9 +677,9 @@ rendered. Other failures render an `Error` section.
 File values are only allowed with `multipart/form-data`.
 
 ```ts
-import { compileFile, CompileSourceType } from "./src/compiler/semantics.ts";
-import { execute } from "./src/runtime/request.ts";
+import { compileFile, CompileSourceType } from "./src/compiler/semantics.ts"
+import { execute } from "./src/runtime/request.ts"
 
-const scopeObject = compileFile("test/data/post.nts", CompileSourceType.File);
-const response = await execute(scopeObject);
+const scopeObject = compileFile("test/data/post.nts", CompileSourceType.File)
+const response = await execute(scopeObject)
 ```

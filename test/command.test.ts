@@ -1,4 +1,11 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "@jest/globals"
 import { join } from "node:path"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
@@ -48,7 +55,10 @@ describe("command runtime", () => {
     )
 
     const originalWorkingDirectory = process.cwd()
-    const response = await execute("get", join(originalWorkingDirectory, "test/data"))
+    const response = await execute(
+      "get",
+      join(originalWorkingDirectory, "test/data"),
+    )
 
     expect(response.status).toBe(200)
     expect(response.data).toEqual({

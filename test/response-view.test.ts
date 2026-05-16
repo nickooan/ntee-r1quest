@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "@jest/globals"
 import { AxiosError } from "axios"
 import type { AxiosResponse, InternalAxiosRequestConfig } from "axios"
 import {
@@ -89,9 +89,16 @@ Unable to connect.`,
       },
       request: {},
     }
-    const error = new AxiosError("Request failed", undefined, config, {}, response)
+    const error = new AxiosError(
+      "Request failed",
+      undefined,
+      config,
+      {},
+      response,
+    )
 
-    expect(formatError(error)).toBe(`--------------- Response of get /missing-resource ---------------
+    expect(formatError(error))
+      .toBe(`--------------- Response of get /missing-resource ---------------
 
 404 Not Found
 
@@ -133,7 +140,8 @@ x-request-id: error-123
       request: {},
     }
 
-    expect(formatResponse(response)).toBe(`--------------- Response of get /xxx/xx/xxx ---------------
+    expect(formatResponse(response))
+      .toBe(`--------------- Response of get /xxx/xx/xxx ---------------
 
 200 OK
 
@@ -173,7 +181,8 @@ x-request-id: abc-123
       request: {},
     }
 
-    expect(formatResponse(response)).toBe(`--------------- Response of post /text-response ---------------
+    expect(formatResponse(response))
+      .toBe(`--------------- Response of post /text-response ---------------
 
 200 OK
 

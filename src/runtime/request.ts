@@ -1,38 +1,38 @@
-import axios, { type AxiosResponse } from "axios";
-import type { ScopeObject } from "../compiler/semantics.ts";
+import axios, { type AxiosResponse } from "axios"
+import type { ScopeObject } from "../compiler/semantics.ts"
 
 export const execute = async (
   scopeObject: ScopeObject,
 ): Promise<AxiosResponse> => {
   const contentType = String(
     scopeObject.headers["content-type"] ?? "",
-  ).toLowerCase();
+  ).toLowerCase()
 
   if (contentType.includes("multipart/form-data")) {
-    return handleFormRequest(scopeObject);
+    return handleFormRequest(scopeObject)
   }
 
-  assertNoFileBody(scopeObject);
+  assertNoFileBody(scopeObject)
 
   if (contentType.includes("application/json")) {
-    return handleJSONRequest(scopeObject);
+    return handleJSONRequest(scopeObject)
   }
 
   if (contentType.startsWith("text/")) {
-    return handleTextRequest(scopeObject);
+    return handleTextRequest(scopeObject)
   }
 
-  throw new Error(`Unsupported content type: ${contentType || "missing"}.`);
-};
+  throw new Error(`Unsupported content type: ${contentType || "missing"}.`)
+}
 
 export const handleJSONRequest = async (
   scopeObject: ScopeObject,
 ): Promise<AxiosResponse> => {
   if (!scopeObject.url) {
-    throw new Error("Cannot execute request without a url.");
+    throw new Error("Cannot execute request without a url.")
   }
 
-  assertNoFileBody(scopeObject);
+  assertNoFileBody(scopeObject)
 
   return axios.request({
     url: scopeObject.url,
@@ -40,44 +40,44 @@ export const handleJSONRequest = async (
     headers: scopeObject.headers,
     data: scopeObject.body,
     adapter: "fetch",
-  });
-};
+  })
+}
 
 export const handleFormRequest = async (
   scopeObject: ScopeObject,
 ): Promise<AxiosResponse> => {
   if (!scopeObject.url) {
-    throw new Error("Cannot execute request without a url.");
+    throw new Error("Cannot execute request without a url.")
   }
 
   if (!scopeObject.method) {
-    throw new Error("Cannot execute request without a method.");
+    throw new Error("Cannot execute request without a method.")
   }
 
-  const formData = new FormData();
-  const requestBody = scopeObject.body;
+  const formData = new FormData()
+  const requestBody = scopeObject.body
 
   if (
     typeof requestBody !== "object" ||
     requestBody === null ||
     Array.isArray(requestBody)
   ) {
-    throw new Error("Form request body must be an object.");
+    throw new Error("Form request body must be an object.")
   }
 
   for (const [key, value] of Object.entries(requestBody)) {
-    appendFormValue(formData, key, value);
+    appendFormValue(formData, key, value)
   }
 
-  const { "content-type": _contentType, ...headers } = scopeObject.headers;
+  const { "content-type": _contentType, ...headers } = scopeObject.headers
   const multipartRequest = new Request(scopeObject.url, {
     method: scopeObject.method.toUpperCase(),
     body: formData,
-  });
-  const contentType = multipartRequest.headers.get("content-type");
+  })
+  const contentType = multipartRequest.headers.get("content-type")
 
   if (!contentType || !multipartRequest.body) {
-    throw new Error("Cannot encode multipart form data.");
+    throw new Error("Cannot encode multipart form data.")
   }
 
   return axios.request({
@@ -94,24 +94,24 @@ export const handleFormRequest = async (
     },
     data: multipartRequest.body,
     adapter: "fetch",
-  });
-};
+  })
+}
 
 export const handleTextRequest = async (
   scopeObject: ScopeObject,
 ): Promise<AxiosResponse> => {
   if (!scopeObject.url) {
-    throw new Error("Cannot execute request without a url.");
+    throw new Error("Cannot execute request without a url.")
   }
 
-  assertNoFileBody(scopeObject);
+  assertNoFileBody(scopeObject)
 
   const canOmitBody =
     scopeObject.method?.toLowerCase() === "get" &&
-    (scopeObject.body === null || scopeObject.body === undefined);
+    (scopeObject.body === null || scopeObject.body === undefined)
 
   if (!canOmitBody && typeof scopeObject.body !== "string") {
-    throw new Error("Text request body must be a string.");
+    throw new Error("Text request body must be a string.")
   }
 
   return axios.request({
@@ -120,32 +120,32 @@ export const handleTextRequest = async (
     headers: scopeObject.headers,
     data: scopeObject.body,
     adapter: "fetch",
-  });
-};
+  })
+}
 
 const assertNoFileBody = (scopeObject: ScopeObject): void => {
   if (containsFileValue(scopeObject.body)) {
     throw new Error(
       "File body values are only supported with multipart/form-data requests.",
-    );
+    )
   }
-};
+}
 
 const containsFileValue = (value: unknown): boolean => {
   if (value instanceof Blob) {
-    return true;
+    return true
   }
 
   if (Array.isArray(value)) {
-    return value.some(containsFileValue);
+    return value.some(containsFileValue)
   }
 
   if (typeof value === "object" && value !== null) {
-    return Object.values(value).some(containsFileValue);
+    return Object.values(value).some(containsFileValue)
   }
 
-  return false;
-};
+  return false
+}
 
 const appendFormValue = (
   formData: FormData,
@@ -154,27 +154,27 @@ const appendFormValue = (
 ): void => {
   if (Array.isArray(value) && value.some(containsFileValue)) {
     for (const item of value) {
-      formData.append(key, toFormValue(item));
+      formData.append(key, toFormValue(item))
     }
 
-    return;
+    return
   }
 
-  formData.append(key, toFormValue(value));
-};
+  formData.append(key, toFormValue(value))
+}
 
 const toFormValue = (value: unknown): string | Blob => {
   if (value === null || value === undefined) {
-    return "";
+    return ""
   }
 
   if (value instanceof Blob) {
-    return value;
+    return value
   }
 
   if (typeof value === "object") {
-    return JSON.stringify(value);
+    return JSON.stringify(value)
   }
 
-  return String(value);
-};
+  return String(value)
+}

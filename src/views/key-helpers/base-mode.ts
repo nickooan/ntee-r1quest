@@ -108,7 +108,11 @@ export const handleBaseModeInput = (
     return {
       state: {
         ...state,
-        scrollY: clampValue(state.scrollY - limits.viewHeight, 0, limits.maxScrollY),
+        scrollY: clampValue(
+          state.scrollY - limits.viewHeight,
+          0,
+          limits.maxScrollY,
+        ),
       },
     }
   }
@@ -117,7 +121,11 @@ export const handleBaseModeInput = (
     return {
       state: {
         ...state,
-        scrollY: clampValue(state.scrollY + limits.viewHeight, 0, limits.maxScrollY),
+        scrollY: clampValue(
+          state.scrollY + limits.viewHeight,
+          0,
+          limits.maxScrollY,
+        ),
       },
     }
   }

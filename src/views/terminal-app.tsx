@@ -329,11 +329,17 @@ export const TerminalApp = ({
     content,
     viewWidth,
     viewHeight,
-    mode === TerminalMode.Search ? searchModeState.scrollX : baseModeState.scrollX,
-    mode === TerminalMode.Search ? searchModeState.scrollY : baseModeState.scrollY,
+    mode === TerminalMode.Search
+      ? searchModeState.scrollX
+      : baseModeState.scrollX,
+    mode === TerminalMode.Search
+      ? searchModeState.scrollY
+      : baseModeState.scrollY,
   )
   const searchMatches =
-    mode === TerminalMode.Search ? findSearchMatches(content, searchModeState.query) : []
+    mode === TerminalMode.Search
+      ? findSearchMatches(content, searchModeState.query)
+      : []
   const contentLines = normalizeLines(content)
   const inputValue =
     mode === TerminalMode.Search ? searchModeState.input : baseModeState.command
@@ -521,7 +527,9 @@ export const TerminalApp = ({
               <Box key={suggestion.value} width={width}>
                 <Text
                   color={isSelected ? "black" : undefined}
-                  backgroundColor={isSelected ? "white" : commandBackgroundColor}
+                  backgroundColor={
+                    isSelected ? "white" : commandBackgroundColor
+                  }
                   bold={suggestion.type === "directory"}
                 >
                   {suggestion.label.padEnd(width, " ")}
@@ -532,7 +540,10 @@ export const TerminalApp = ({
           {Array.from({
             length: suggestionHeight - visibleSuggestions.length,
           }).map((_, index) => (
-            <Text key={`empty-suggestion-${index}`} backgroundColor={commandBackgroundColor}>
+            <Text
+              key={`empty-suggestion-${index}`}
+              backgroundColor={commandBackgroundColor}
+            >
               {" ".repeat(width)}
             </Text>
           ))}
