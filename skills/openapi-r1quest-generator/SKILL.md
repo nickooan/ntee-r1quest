@@ -1,6 +1,7 @@
 ---
 name: openapi-r1quest-generator
 description: Generate ntee-r1quest request projects from Swagger/OpenAPI v3 YAML or JSON files. Use when asked to scan an OpenAPI spec and create .ntd data files plus .nts request files organized by project, HTTP method, and operation name.
+argument-hint: "<openapi-file> <output-dir> <project-name>"
 ---
 
 # OpenAPI R1Quest Generator
