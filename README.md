@@ -37,6 +37,12 @@ content-type: application/json
 - [Install](#install)
   - [Setup Node.js](#setup-nodejs)
   - [Development install](#development-install)
+- [CLI](#cli)
+  - [Open the terminal UI](#open-the-terminal-ui)
+  - [Set another root with `-r`](#set-another-root-with--r)
+  - [Configure a default root with `.r1qconfig.json`](#configure-a-default-root-with-r1qconfigjson)
+  - [Search response output](#search-response-output)
+  - [Response display](#response-display)
 - [File Types](#file-types)
   - [`.nts`](#nts)
   - [`.ntd`](#ntd)
@@ -55,12 +61,6 @@ content-type: application/json
   - [JSON Array](#json-array)
   - [Plain Text](#plain-text)
   - [Multipart Form](#multipart-form)
-- [CLI](#cli)
-  - [Open the terminal UI](#open-the-terminal-ui)
-  - [Set another root with `-r`](#set-another-root-with--r)
-  - [Configure a default root with `.r1qconfig.json`](#configure-a-default-root-with-r1qconfigjson)
-  - [Search response output](#search-response-output)
-  - [Response display](#response-display)
 - [Runtime Notes](#runtime-notes)
 
 ## Install
@@ -113,6 +113,178 @@ After the package is published, users can run it with `npx`:
 ```bash
 npx ntee-r1quest
 ```
+
+## CLI
+
+For development, compile the TypeScript source with npm:
+
+```bash
+npm run build
+```
+
+That creates:
+
+```text
+./dist
+```
+
+Supported CLI forms:
+
+### Open the terminal UI
+
+```bash
+r1q
+```
+
+For local development, run `npm run build` and `npm link` first. Without linking,
+use `npm run start`.
+
+After publishing, users can also run the package without installing it globally:
+
+```bash
+npx ntee-r1quest
+```
+
+Or install it globally:
+
+```bash
+npm install -g ntee-r1quest
+r1q
+```
+
+The app opens a command line at the bottom of the terminal. Type a request file
+path and press enter to execute it:
+
+```text
+@default:sample
+```
+
+If the `.nts` extension is omitted, `.nts` is added automatically. The app stays
+open after each request. The default prompt is `@default:`. Use `control-c` to
+quit.
+
+### Set another root with `-r`
+
+Use `-r` to override the root lookup directory.
+
+```bash
+r1q -r ~/request/core-api
+```
+
+Then type the request path inside the app:
+
+```text
+@default:property
+```
+
+That executes:
+
+```text
+~/request/core-api/property.nts
+```
+
+You can also type a nested path under the root:
+
+```text
+@default:core-api/property
+```
+
+That looks for:
+
+```text
+~/request/core-api/property.nts
+```
+
+### Configure a default root with `.r1qconfig.json`
+
+If you often run requests from the same root, create a config file with a
+`root` attribute.
+
+Current directory config:
+
+```json
+{
+  "root": "~/request/core-api"
+}
+```
+
+Save it as:
+
+```text
+./.r1qconfig.json
+```
+
+Then you can run:
+
+```bash
+r1q
+```
+
+Then type:
+
+```text
+@default:property
+```
+
+That executes:
+
+```text
+~/request/core-api/property.nts
+```
+
+If `./.r1qconfig.json` does not exist, the CLI falls back to:
+
+```text
+~/.ntee-r1quest/.r1qconfig.json
+```
+
+Root resolution precedence is:
+
+1. `-r`
+2. `./.r1qconfig.json`
+3. `~/.ntee-r1quest/.r1qconfig.json`
+4. current working directory
+
+### Search response output
+
+From the default prompt, type `@search` and press enter to switch into search
+mode:
+
+```text
+@default:@search
+```
+
+The prompt changes to `@search:`. Type a search query and press enter to
+highlight matching text in the rendered response:
+
+```text
+@search:content-type
+```
+
+Search queries are treated as regular expressions when valid. Invalid regular
+expressions fall back to plain text search. In search mode, use up and down
+arrows to move between matches. Use left, right, page up, page down, home, and
+end to scroll the response view.
+
+To return to request input mode, type `@default` or `@q` and press enter:
+
+```text
+@search:@default
+```
+
+### Response display
+
+The CLI renders:
+
+- a fixed terminal view with a command line at the bottom
+- a pending indicator while the request is running
+- a `Response` section with status
+- a `Headers` section
+- a `Body` section
+
+Use arrow keys to scroll the response view horizontally and vertically. If the
+request fails with an HTTP response, the response status, headers, and body are
+rendered. Other failures render an `Error` section.
 
 ## File Types
 
@@ -493,178 +665,6 @@ const formData = await request.formData()
 const file = formData.get("file")
 const files = formData.getAll("files")
 ```
-
-## CLI
-
-For development, compile the TypeScript source with npm:
-
-```bash
-npm run build
-```
-
-That creates:
-
-```text
-./dist
-```
-
-Supported CLI forms:
-
-### Open the terminal UI
-
-```bash
-r1q
-```
-
-For local development, run `npm run build` and `npm link` first. Without linking,
-use `npm run start`.
-
-After publishing, users can also run the package without installing it globally:
-
-```bash
-npx ntee-r1quest
-```
-
-Or install it globally:
-
-```bash
-npm install -g ntee-r1quest
-r1q
-```
-
-The app opens a command line at the bottom of the terminal. Type a request file
-path and press enter to execute it:
-
-```text
-@default:sample
-```
-
-If the `.nts` extension is omitted, `.nts` is added automatically. The app stays
-open after each request. The default prompt is `@default:`. Use `control-c` to
-quit.
-
-### Set another root with `-r`
-
-Use `-r` to override the root lookup directory.
-
-```bash
-r1q -r ~/request/core-api
-```
-
-Then type the request path inside the app:
-
-```text
-@default:property
-```
-
-That executes:
-
-```text
-~/request/core-api/property.nts
-```
-
-You can also type a nested path under the root:
-
-```text
-@default:core-api/property
-```
-
-That looks for:
-
-```text
-~/request/core-api/property.nts
-```
-
-### Configure a default root with `.r1qconfig.json`
-
-If you often run requests from the same root, create a config file with a
-`root` attribute.
-
-Current directory config:
-
-```json
-{
-  "root": "~/request/core-api"
-}
-```
-
-Save it as:
-
-```text
-./.r1qconfig.json
-```
-
-Then you can run:
-
-```bash
-r1q
-```
-
-Then type:
-
-```text
-@default:property
-```
-
-That executes:
-
-```text
-~/request/core-api/property.nts
-```
-
-If `./.r1qconfig.json` does not exist, the CLI falls back to:
-
-```text
-~/.ntee-r1quest/.r1qconfig.json
-```
-
-Root resolution precedence is:
-
-1. `-r`
-2. `./.r1qconfig.json`
-3. `~/.ntee-r1quest/.r1qconfig.json`
-4. current working directory
-
-### Search response output
-
-From the default prompt, type `@search` and press enter to switch into search
-mode:
-
-```text
-@default:@search
-```
-
-The prompt changes to `@search:`. Type a search query and press enter to
-highlight matching text in the rendered response:
-
-```text
-@search:content-type
-```
-
-Search queries are treated as regular expressions when valid. Invalid regular
-expressions fall back to plain text search. In search mode, use up and down
-arrows to move between matches. Use left, right, page up, page down, home, and
-end to scroll the response view.
-
-To return to request input mode, type `@default` or `@q` and press enter:
-
-```text
-@search:@default
-```
-
-### Response display
-
-The CLI renders:
-
-- a fixed terminal view with a command line at the bottom
-- a pending indicator while the request is running
-- a `Response` section with status
-- a `Headers` section
-- a `Body` section
-
-Use arrow keys to scroll the response view horizontally and vertically. If the
-request fails with an HTTP response, the response status, headers, and body are
-rendered. Other failures render an `Error` section.
 
 ## Runtime Notes
 

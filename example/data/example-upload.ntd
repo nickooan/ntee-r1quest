@@ -1,0 +1,2 @@
+host: "https://httpbin.org"
+content-type: multipart/form-data

@@ -1,0 +1,11 @@
+ref ../data/example-upload.ntd
+
+url "@i(host)/post"
+type post
+
+header content-type, @i(content-type)
+
+body {
+  name: "r1quest"
+  file: @f(../files/example.txt)
+}
