@@ -29,13 +29,13 @@ npx ntee-r1quest
 Use `-r` to choose the request root directory:
 
 ```bash
-npx ntee-r1quest -r ./example
+npx ntee-r1quest -r ./example/request
 ```
 
 Inside the terminal UI, type a request file name without the `.nts` extension:
 
 ```text
-@default >request/example
+@default >example
 ```
 
 Nested paths are supported:
@@ -70,7 +70,7 @@ r1q
 Or run it with an explicit request root:
 
 ```bash
-r1q -r ./example
+r1q -r ./example/request
 ```
 
 When installed or linked, the package name is `ntee-r1quest`, but the CLI command
@@ -92,13 +92,13 @@ request root.
 Try:
 
 ```text
-@default >request/example
+@default >example
 ```
 
 or the file upload example:
 
 ```text
-@default >request/example-upload
+@default >example-upload
 ```
 
 After a response is rendered, switch to search mode with:
@@ -125,8 +125,8 @@ The example files are:
 example/data/example.ntd
 example/data/example-upload.ntd
 example/files/example.txt
-example/request/example.nts
-example/request/example-upload.nts
+example/example.nts
+example/example-upload.nts
 ```
 
 ## Request File Declaration
@@ -402,14 +402,14 @@ The repo includes a GET example using JSONPlaceholder:
 
 ```text
 example/data/example.ntd
-example/request/example.nts
+example/example.nts
 ```
 
 It also includes a multipart upload example using httpbin:
 
 ```text
 example/data/example-upload.ntd
-example/request/example-upload.nts
+example/example-upload.nts
 example/files/example.txt
 ```
 
@@ -423,11 +423,11 @@ npm run start
 Then type:
 
 ```text
-@default >request/example
+@default >example
 ```
 
 or:
 
 ```text
-@default >request/example-upload
+@default >example-upload
 ```
