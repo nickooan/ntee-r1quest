@@ -46,8 +46,14 @@ Nested paths are supported:
 
 ### 3. Link locally and run `r1q`
 
-For local development, install dependencies, build the compiled JavaScript, and
-link the package:
+Install the published package globally:
+
+```bash
+npm install -g ntee-r1quest
+```
+
+Or, for local development, install dependencies, build the compiled JavaScript,
+and link the package:
 
 ```bash
 npm install
@@ -72,8 +78,7 @@ is `r1q`.
 
 ### 4. Run the bundled examples
 
-You can also clone the repo and run the app against the bundled `example`
-directory:
+You can clone the repo and run the app against the bundled `example` directory:
 
 ```bash
 npm install
