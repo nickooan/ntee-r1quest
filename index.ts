@@ -5,7 +5,7 @@ import { render } from "ink"
 import { execute, resolveRoot } from "./src/runtime/command.ts"
 import { TerminalApp } from "./src/views/terminal-app.tsx"
 
-export const VERSION = "0.2.0"
+export const VERSION = "0.2.1"
 
 const CommandApp = ({ args }: { args: string[] }) => {
   const root = useMemo(() => resolveRoot(args), [args])
