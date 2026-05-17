@@ -290,6 +290,7 @@ export const TerminalApp = ({
 }: TerminalAppProps) => {
   const { columns, rows } = useWindowSize()
   const [frameIndex, setFrameIndex] = useState(0)
+  const [isCursorVisible, setIsCursorVisible] = useState(true)
   const [mode, setMode] = useState(TerminalMode.Default)
   const [baseModeState, setBaseModeState] = useState<BaseModeState>({
     scrollX: 0,
@@ -343,7 +344,7 @@ export const TerminalApp = ({
   const contentLines = normalizeLines(content)
   const inputValue =
     mode === TerminalMode.Search ? searchModeState.input : baseModeState.command
-  const promptValue = `@${mode}:`
+  const promptValue = `@${mode} >`
   const safeSelectedSuggestionIndex = clampValue(
     selectedSuggestionIndex,
     0,
@@ -372,6 +373,16 @@ export const TerminalApp = ({
       clearInterval(interval)
     }
   }, [isPending])
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setIsCursorVisible((currentValue) => !currentValue)
+    }, 500)
+
+    return () => {
+      clearInterval(interval)
+    }
+  }, [])
 
   useInput((input, key) => {
     if (mode === TerminalMode.Search) {
@@ -556,8 +567,8 @@ export const TerminalApp = ({
       >
         <Text backgroundColor={commandBackgroundColor}>{promptValue}</Text>
         <Text backgroundColor={commandBackgroundColor}>{inputValue}</Text>
-        <Text inverse backgroundColor={commandBackgroundColor}>
-          {" "}
+        <Text bold backgroundColor={commandBackgroundColor}>
+          {isCursorVisible ? "_" : " "}
         </Text>
       </Box>
     </Box>

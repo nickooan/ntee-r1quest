@@ -1,685 +1,428 @@
 # ntee-r1quest
 
-`ntee-r1quest` is a small request DSL for describing HTTP requests in `.nts`
-files. Definition data lives in `.ntd` files and can be referenced from request
-scripts with macros.
+`ntee-r1quest` is a small terminal HTTP request runner. Requests are written in
+`.nts` files, reusable data is written in `.ntd` files, and macros connect the
+two.
 
-## Terminal Preview
+![ntee-r1quest terminal demo](docs/assets/readme-demo.gif)
 
-```text
->_ Ntee R1quest
-ver: 0.1.0
+## Usage
 
->_ Spend 123 ms,
+### 1. Install Node.js
 
---------------- Response of get /users ---------------
-
-200 OK
-
---------------- Headers ---------------
-
-content-type: application/json
-
---------------- Body ---------------
-
-{
-  "id": 1,
-  "name": "r1quest"
-}
-
---------------- End of get /users ---------------
-
-@default:sample
-```
-
-## Index
-
-- [Install](#install)
-  - [Setup Node.js](#setup-nodejs)
-  - [Development install](#development-install)
-- [CLI](#cli)
-  - [Open the terminal UI](#open-the-terminal-ui)
-  - [Set another root with `-r`](#set-another-root-with--r)
-  - [Configure a default root with `.r1qconfig.json`](#configure-a-default-root-with-r1qconfigjson)
-  - [Search response output](#search-response-output)
-  - [Response display](#response-display)
-- [File Types](#file-types)
-  - [`.nts`](#nts)
-  - [`.ntd`](#ntd)
-- [Request Syntax](#request-syntax)
-  - [References](#references)
-  - [URL](#url)
-  - [Method](#method)
-  - [Authorization](#authorization)
-  - [Headers](#headers)
-- [Macros](#macros)
-  - [`@i(key)`](#ikey)
-  - [`@env(KEY)`](#envkey)
-  - [`@f(path)`](#fpath)
-- [Body Examples](#body-examples)
-  - [JSON Object](#json-object)
-  - [JSON Array](#json-array)
-  - [Plain Text](#plain-text)
-  - [Multipart Form](#multipart-form)
-- [Runtime Notes](#runtime-notes)
-
-## Install
-
-### Setup Node.js
-
-Before installing dependencies, make sure the Node.js runtime is available in your
-shell:
+`ntee-r1quest` runs on Node.js. Check that Node is available before running it:
 
 ```bash
 node --version
 ```
 
-This project uses npm for dependencies and builds TypeScript to JavaScript before
-running under Node.js.
+This project targets Node.js 24 or newer.
 
-### Development install
+### 2. Run with npx
+
+After the package is published, run the terminal UI with:
+
+```bash
+npx ntee-r1quest
+```
+
+Use `-r` to choose the request root directory:
+
+```bash
+npx ntee-r1quest -r ./example
+```
+
+Inside the terminal UI, type a request file name without the `.nts` extension:
+
+```text
+@default >request/example
+```
+
+Nested paths are supported:
+
+```text
+@default >folder/request-name
+```
+
+### 3. Link locally and run `r1q`
+
+For local development, install dependencies, build the compiled JavaScript, and
+link the package:
 
 ```bash
 npm install
-```
-
-```bash
 npm run build
-```
-
-The compiled CLI entrypoint is `dist/index.js`. The package exposes this
-entrypoint as the `r1q` command.
-
-For local development, link the package after building:
-
-```bash
 npm link
 ```
 
-Then run:
+Then run the CLI command from any directory:
 
 ```bash
 r1q
 ```
 
-You can also run the compiled entrypoint directly:
+Or run it with an explicit request root:
 
 ```bash
+r1q -r ./example
+```
+
+When installed or linked, the package name is `ntee-r1quest`, but the CLI command
+is `r1q`.
+
+### 4. Run the bundled examples
+
+You can also clone the repo and run the app against the bundled `example`
+directory:
+
+```bash
+npm install
+npm run build
 npm run start
 ```
 
-After the package is published, users can run it with `npx`:
+`npm run start` runs the compiled app from `dist/index.js` with `example` as the
+request root.
 
-```bash
-npx ntee-r1quest
-```
-
-## CLI
-
-For development, compile the TypeScript source with npm:
-
-```bash
-npm run build
-```
-
-That creates:
+Try:
 
 ```text
-./dist
+@default >request/example
 ```
 
-Supported CLI forms:
-
-### Open the terminal UI
-
-```bash
-r1q
-```
-
-For local development, run `npm run build` and `npm link` first. Without linking,
-use `npm run start`.
-
-After publishing, users can also run the package without installing it globally:
-
-```bash
-npx ntee-r1quest
-```
-
-Or install it globally:
-
-```bash
-npm install -g ntee-r1quest
-r1q
-```
-
-The app opens a command line at the bottom of the terminal. Type a request file
-path and press enter to execute it:
+or the file upload example:
 
 ```text
-@default:sample
+@default >request/example-upload
 ```
 
-If the `.nts` extension is omitted, `.nts` is added automatically. The app stays
-open after each request. The default prompt is `@default:`. Use `control-c` to
-quit.
-
-### Set another root with `-r`
-
-Use `-r` to override the root lookup directory.
-
-```bash
-r1q -r ~/request/core-api
-```
-
-Then type the request path inside the app:
+After a response is rendered, switch to search mode with:
 
 ```text
-@default:property
+@default >@search
 ```
 
-That executes:
+Then type a search query to highlight matching response text:
 
 ```text
-~/request/core-api/property.nts
+@search >content-type
 ```
 
-You can also type a nested path under the root:
+Return to request mode with `@q` or `@default`:
 
 ```text
-@default:core-api/property
+@search >@q
 ```
 
-That looks for:
+The example files are:
 
 ```text
-~/request/core-api/property.nts
+example/data/example.ntd
+example/data/example-upload.ntd
+example/files/example.txt
+example/request/example.nts
+example/request/example-upload.nts
 ```
 
-### Configure a default root with `.r1qconfig.json`
+## Request File Declaration
 
-If you often run requests from the same root, create a config file with a
-`root` attribute.
+### `.ntd` definition files
 
-Current directory config:
+`.ntd` files hold reusable definition data. Request files can load this data
+with `ref` and read values with `@i(key)`.
 
-```json
-{
-  "root": "~/request/core-api"
+Example:
+
+```ntd
+host: "https://jsonplaceholder.typicode.com"
+content-type: application/json
+token: @env(API_TOKEN)
+enabled: true
+age: 2
+tags: ["api", "example"]
+profile: {
+  name: "r1quest"
 }
 ```
 
-Save it as:
+Supported value types:
 
-```text
-./.r1qconfig.json
+- string
+- number
+- boolean
+- null
+- array
+- object
+- `@env(KEY)` environment variable macro
+
+Caution points:
+
+- Wrap URLs in double quotes. Unquoted `http://` or `https://` contains `//`,
+  which starts a comment.
+- Bare values default to strings unless they are `true`, `false`, `null`, or a
+  number.
+- Keys may be bare identifiers such as `content-type`, or quoted strings when
+  needed.
+- `.ntd` files can use `@env(KEY)`, but they cannot use `@i(...)` or `@f(...)`.
+
+Good:
+
+```ntd
+host: "https://httpbin.org"
 ```
 
-Then you can run:
+Problematic:
 
-```bash
-r1q
+```ntd
+host: https://httpbin.org
 ```
 
-Then type:
+### `.nts` request files
 
-```text
-@default:property
-```
+`.nts` files declare one HTTP request. They can include references, a URL, a
+method, headers, authorization, and an optional body.
 
-That executes:
-
-```text
-~/request/core-api/property.nts
-```
-
-If `./.r1qconfig.json` does not exist, the CLI falls back to:
-
-```text
-~/.ntee-r1quest/.r1qconfig.json
-```
-
-Root resolution precedence is:
-
-1. `-r`
-2. `./.r1qconfig.json`
-3. `~/.ntee-r1quest/.r1qconfig.json`
-4. current working directory
-
-### Search response output
-
-From the default prompt, type `@search` and press enter to switch into search
-mode:
-
-```text
-@default:@search
-```
-
-The prompt changes to `@search:`. Type a search query and press enter to
-highlight matching text in the rendered response:
-
-```text
-@search:content-type
-```
-
-Search queries are treated as regular expressions when valid. Invalid regular
-expressions fall back to plain text search. In search mode, use up and down
-arrows to move between matches. Use left, right, page up, page down, home, and
-end to scroll the response view.
-
-To return to request input mode, type `@default` or `@q` and press enter:
-
-```text
-@search:@default
-```
-
-### Response display
-
-The CLI renders:
-
-- a fixed terminal view with a command line at the bottom
-- a pending indicator while the request is running
-- a `Response` section with status
-- a `Headers` section
-- a `Body` section
-
-Use arrow keys to scroll the response view horizontally and vertically. If the
-request fails with an HTTP response, the response status, headers, and body are
-rendered. Other failures render an `Error` section.
-
-## File Types
-
-### `.nts`
-
-`.nts` files describe one request: URL, method, headers, authorization, and body.
+Example:
 
 ```nts
-ref ./user.ntd
+ref ../data/example.ntd
 
-url "https://ntee.io"
+url "@i(host)/todos/1"
+type get
+
+header accept, @i(content-type)
+header content-type, @i(content-type)
+```
+
+Supported declarations:
+
+- `ref ./path/to/file.ntd`
+- `url "https://example.com/path"`
+- `type get`
+- `header content-type, application/json`
+- `auth bearer token`
+- `authorization basic token`
+- `body ...`
+
+References:
+
+```nts
+ref ../data/example.ntd
+```
+
+`ref` must appear before the other request statements. The path is resolved
+relative to the `.nts` file.
+
+URL:
+
+```nts
+url "@i(host)/post"
+```
+
+The URL declaration expects a quoted string. You can interpolate `@i(...)`
+macros inside the string.
+
+Method:
+
+```nts
+type post
+```
+
+Common HTTP methods such as `get`, `post`, `put`, `patch`, and `delete` are
+supported.
+
+Authorization:
+
+```nts
+auth bearer @i(token)
+```
+
+or:
+
+```nts
+authorization basic @i(credentials)
+```
+
+Headers:
+
+```nts
+header accept, application/json
+header content-type, @i(content-type)
+```
+
+Header keys are normalized to lowercase at compile time. Header macro values
+must resolve to primitive values: string, number, boolean, or null.
+
+JSON object body:
+
+```nts
+body {
+  name: "r1quest"
+  enabled: true
+  tags: ["api", "example"]
+}
+```
+
+JSON array body:
+
+```nts
+body [
+  { name: "first" },
+  { name: "second" }
+]
+```
+
+Plain text body:
+
+```nts
+body "plain text body"
+```
+
+Multiline text body:
+
+```nts
+body "line one
+line two
+line three"
+```
+
+Multipart file upload body:
+
+```nts
+ref ../data/example-upload.ntd
+
+url "@i(host)/post"
 type post
 
-header content-type, application/json
-auth bearer @i(token)
+header content-type, @i(content-type)
 
 body {
   name: "r1quest"
-  spid: @i(name)
-  description: my age is @i(age)
-  off: @i(off)
-  arr: @i(arr)
+  file: @f(../files/example.txt)
 }
 ```
 
-### `.ntd`
+Caution points:
 
-`.ntd` files store reusable definition data. A request script can load them with
-`ref`.
-
-```ntd
-name: macro-name
-token: test-token
-age: 2
-off: false
-arr: ["macro", 2, false]
-```
-
-`.ntd` values can also read from environment variables with `@env(KEY)`.
-
-```ntd
-token: @env(API_TOKEN)
-base-url: @env(API_BASE_URL)
-```
-
-When a definition file is built, `@env(KEY)` resolves from `process.env.KEY`.
-If the environment variable is missing, compilation throws:
-
-```text
-Undefined env macro: @env(KEY)
-```
-
-Values support strings, numbers, booleans, null, arrays, and objects. Unquoted
-bare values default to strings unless they are `true`, `false`, `null`, or a
-number.
-
-```ntd
-trace-token: asdgjklasjdklf
-off: false
-off2: "false"
-age: 2
-arr: [name, weight, "1", true]
-content: {
-  sub-content: xyz
-}
-```
-
-## Request Syntax
-
-### References
-
-`ref` imports `.ntd` data before the request is compiled.
-
-```nts
-ref ./user.ntd
-ref ../shared/auth.ntd
-```
-
-References must appear before request statements.
-
-### URL
-
-```nts
-url "https://ntee.io"
-```
-
-### Method
-
-Use `type` for the HTTP method.
-
-```nts
-type get
-type post
-type put
-type delete
-type patch
-```
-
-Any HTTP token is accepted, so standard methods such as `head`, `options`,
-`trace`, and `connect` are valid too.
-
-### Authorization
-
-Use `auth` or `authorization`.
-
-```nts
-auth bearer test-token
-authorization basic username-password-token
-```
-
-The auth line compiles into an `authorization` header.
-
-With definition data:
-
-```ntd
-token: test-token
-```
-
-```nts
-ref ./user.ntd
-auth bearer @i(token)
-```
-
-Compiles to:
-
-```ts
-headers: {
-  authorization: "bearer test-token"
-}
-```
-
-### Headers
-
-Headers use this form:
-
-```nts
-header content-type, application/json
-header accept, application/json
-header trace-token, "abc"
-```
-
-Header names are normalized to lowercase during compile.
-
-Header values can be quoted strings, unquoted strings, numbers, booleans, null,
-or `@i(...)` macros.
-
-```nts
-ref ./user.ntd
-
-header x-token, @i(token)
-header retry-count, 2
-header debug, false
-```
-
-`@f(...)` is not valid in headers.
+- `@f(...)` is only valid inside request body values.
+- `@f(...)` takes a literal file path. It does not take an `@i(...)` macro as
+  its path.
+- File paths in `@f(...)` are resolved relative to the `.nts` file.
+- `ref` paths are resolved relative to the `.nts` file.
+- Comments start with `//`.
 
 ## Macros
 
 ### `@i(key)`
 
-Reads a value from referenced `.ntd` definition data.
+`@i(key)` reads a value from referenced `.ntd` definition data.
+
+Use it in `.nts` files:
+
+- quoted URL strings
+- authorization credentials
+- header values
+- body values
+- plain text/bare string interpolation
+
+Example:
 
 ```ntd
-token: test-token
-age: 2
-off: false
+host: "https://httpbin.org"
+content-type: application/json
 ```
 
 ```nts
-auth bearer @i(token)
+ref ../data/example.ntd
 
-body {
-  age: @i(age)
-  off: @i(off)
-  description: my age is @i(age)
-}
+url "@i(host)/post"
+type post
+
+header content-type, @i(content-type)
 ```
 
-Standalone `@i(...)` preserves the original value type:
-
-```nts
-body {
-  age: @i(age)
-}
-```
-
-Compiles to:
-
-```ts
-body: {
-  age: 2
-}
-```
-
-Mixed into a string or bare string, `@i(...)` interpolates as text:
-
-```nts
-body {
-  description: my age is @i(age)
-}
-```
-
-Compiles to:
-
-```ts
-body: {
-  description: "my age is 2"
-}
-```
+`@i(...)` is not supported inside `.ntd` files.
 
 ### `@env(KEY)`
 
-Reads a value from an environment variable. This macro is only available in
-`.ntd` definition files.
+`@env(KEY)` reads an environment variable.
+
+Use it only in `.ntd` files:
 
 ```ntd
 token: @env(API_TOKEN)
-base-url: @env(API_BASE_URL)
 ```
 
-When the `.ntd` file is built, `@env(KEY)` resolves from `process.env.KEY`.
-If the environment variable is missing, compilation throws:
+Then reference it from `.nts` with `@i(...)`:
 
-```text
-Undefined env macro: @env(KEY)
+```nts
+ref ../data/auth.ntd
+
+url "https://api.example.com/me"
+type get
+
+auth bearer @i(token)
 ```
+
+If the environment variable is missing, compilation throws an error.
 
 ### `@f(path)`
 
-Creates a file value from a path. It is only valid in body object values.
+`@f(path)` loads a local file as a request body value.
+
+Use it only in `.nts` body values:
 
 ```nts
 body {
-  file: @f(upload.txt)
+  file: @f(../files/example.txt)
 }
 ```
 
-The compiled value is always an array:
-
-```ts
-body: {
-  file: [Blob]
-}
-```
-
-Multiple files can be assigned with an array:
-
-```nts
-body {
-  files: [@f(upload.txt), @f(upload2.txt)]
-}
-```
-
-Compiles to:
-
-```ts
-body: {
-  files: [Blob, Blob]
-}
-```
-
-File paths resolve relative to the `.nts` file when using `compileFile`.
-
-`@f(...)` cannot be used directly as the whole body:
-
-```nts
-body @f(upload.txt) // invalid
-```
-
-`@f(...)` is intended for `multipart/form-data` requests. Runtime throws if a
-file value is used with JSON or text requests.
-
-## Body Examples
-
-### JSON Object
-
-```nts
-header content-type, application/json
-
-body {
-  name: "r1quest"
-  age: 2
-  off: false
-  tags: ["api", "test"]
-  nested: {
-    value: xyz
-  }
-}
-```
-
-### JSON Array
-
-```nts
-header content-type, application/json
-
-body [{ name: a }, { name: b }]
-```
-
-```nts
-header content-type, application/json
-
-body [1, 2, 3]
-```
-
-### Plain Text
-
-Plain text bodies must be quoted.
-
-```nts
-header content-type, text/plain
-
-body "plain text"
-```
-
-Multiline text is supported.
-
-```nts
-header content-type, text/plain
-
-body "hello
-new line
-another line
-"
-```
-
-For longer multiline content, keep the body wrapped by one opening quote and one
-closing quote:
-
-```nts
-header content-type, text/plain
-
-body "
-hello, asdfa
-new line
-new line
-     new line
-"
-```
-
-### Multipart Form
-
-Use `multipart/form-data` with an object body.
+For form uploads, set the request content type to multipart form data:
 
 ```nts
 header content-type, multipart/form-data
-
-body {
-  name: r1quest
-  age: 2
-  enabled: true
-}
 ```
 
-File upload:
+Caution points:
 
-```nts
-header content-type, multipart/form-data
+- `@f(...)` cannot be used in headers or authorization.
+- `@f(...)` cannot be used as the entire body by itself.
+- `@f(...)` paths are literal paths, not macros.
+- File paths are resolved relative to the `.nts` file.
 
-body {
-  file: @f(upload.txt)
-}
+## Examples
+
+The repo includes a GET example using JSONPlaceholder:
+
+```text
+example/data/example.ntd
+example/request/example.nts
 ```
 
-Multiple files under one field name:
+It also includes a multipart upload example using httpbin:
 
-```nts
-header content-type, multipart/form-data
-
-body {
-  files: [@f(upload.txt), @f(upload2.txt)]
-}
+```text
+example/data/example-upload.ntd
+example/request/example-upload.nts
+example/files/example.txt
 ```
 
-Server-side `FormData` can read these like browser uploads:
+Run them with:
 
-```ts
-const formData = await request.formData()
-const file = formData.get("file")
-const files = formData.getAll("files")
+```bash
+npm run build
+npm run start
 ```
 
-## Runtime Notes
+Then type:
 
-`execute(scopeObject)` sends requests based on `content-type`:
+```text
+@default >request/example
+```
 
-- `application/json` sends the body as JSON-compatible data.
-- `text/plain` requires a string body.
-- `multipart/form-data` converts the body object into `FormData`.
+or:
 
-File values are only allowed with `multipart/form-data`.
-
-```ts
-import { compileFile, CompileSourceType } from "./src/compiler/semantics.ts"
-import { execute } from "./src/runtime/request.ts"
-
-const scopeObject = compileFile("test/data/post.nts", CompileSourceType.File)
-const response = await execute(scopeObject)
+```text
+@default >request/example-upload
 ```
