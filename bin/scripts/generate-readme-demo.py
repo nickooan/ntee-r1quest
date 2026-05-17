@@ -1,7 +1,7 @@
 from pathlib import Path
 
-WIDTH = 760
-HEIGHT = 420
+WIDTH = 620
+HEIGHT = 340
 SCALE = 2
 CHAR_WIDTH = 6 * SCALE
 LINE_HEIGHT = 10 * SCALE
@@ -152,50 +152,25 @@ def lzw_image_data(pixels):
     min_code_size = 3
     clear = 1 << min_code_size
     end = clear + 1
-    dictionary = {(index,): index for index in range(clear)}
-    next_code = end + 1
     code_size = min_code_size + 1
     bit_buffer = 0
     bit_count = 0
     out = bytearray()
 
-    def write_code(code, size):
+    def write_code(code):
         nonlocal bit_buffer, bit_count
         bit_buffer |= code << bit_count
-        bit_count += size
+        bit_count += code_size
         while bit_count >= 8:
             out.append(bit_buffer & 0xFF)
             bit_buffer >>= 8
             bit_count -= 8
 
-    write_code(clear, code_size)
-    word = (pixels[0],)
+    for pixel in pixels:
+        write_code(clear)
+        write_code(pixel)
 
-    for pixel in pixels[1:]:
-        next_word = word + (pixel,)
-
-        if next_word in dictionary:
-            word = next_word
-            continue
-
-        write_code(dictionary[word], code_size)
-
-        if next_code < 4096:
-            dictionary[next_word] = next_code
-            next_code += 1
-
-            if next_code == (1 << code_size) and code_size < 12:
-                code_size += 1
-        else:
-            write_code(clear, code_size)
-            dictionary = {(index,): index for index in range(clear)}
-            next_code = end + 1
-            code_size = min_code_size + 1
-
-        word = (pixel,)
-
-    write_code(dictionary[word], code_size)
-    write_code(end, code_size)
+    write_code(end)
 
     if bit_count:
         out.append(bit_buffer & 0xFF)
@@ -302,7 +277,7 @@ SCENES = [
 def main():
     frames = []
     for scene in SCENES:
-        frames.extend([draw_terminal(scene)] * 4)
+        frames.extend([draw_terminal(scene)] * 2)
     output = Path("docs/assets/readme-demo.gif")
     output.parent.mkdir(parents=True, exist_ok=True)
     write_gif(output, frames)
