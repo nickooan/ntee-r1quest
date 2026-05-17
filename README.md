@@ -73,6 +73,29 @@ Or run it with an explicit request root:
 r1q -r ./example/request
 ```
 
+If `-r` is not provided, `r1q` looks for a config file with a request resource
+root:
+
+```json
+{
+  "root": "~/example-api-collection"
+}
+```
+
+Config lookup checks the current directory first:
+
+```text
+./.r1qconfig.json
+```
+
+Then it checks your home config:
+
+```text
+~/.ntee-r1quest/.r1qconfig.json
+```
+
+If no config is found, `r1q` uses the current directory as the requests collection root.
+
 When installed or linked, the package name is `ntee-r1quest`, but the CLI command
 is `r1q`.
 
