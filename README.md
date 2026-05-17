@@ -148,8 +148,8 @@ The example files are:
 example/data/example.ntd
 example/data/example-upload.ntd
 example/files/example.txt
-example/example.nts
-example/example-upload.nts
+example/request/example.nts
+example/request/example-upload.nts
 ```
 
 ## Request File Declaration
@@ -425,14 +425,14 @@ The repo includes a GET example using JSONPlaceholder:
 
 ```text
 example/data/example.ntd
-example/example.nts
+example/request/example.nts
 ```
 
 It also includes a multipart upload example using httpbin:
 
 ```text
 example/data/example-upload.ntd
-example/example-upload.nts
+example/request/example-upload.nts
 example/files/example.txt
 ```
 
@@ -454,3 +454,56 @@ or:
 ```text
 @default >example-upload
 ```
+
+## Skills
+
+This repo includes a Claude Code and Codex-compatible skill for generating
+`ntee-r1quest` request collections from Swagger/OpenAPI v3 specs:
+
+```text
+skills/openapi-r1quest-generator/SKILL.md
+```
+
+The skill describes how to scan an OpenAPI YAML or JSON file and generate a
+request project with this shape:
+
+```text
+<output-dir>/<project-name>/
+  data/
+    common.ntd
+    auth.ntd
+    <operation-name>.ntd
+  get-property.nts
+  create-property.nts
+```
+
+Import it into Claude Code globally:
+
+```bash
+mkdir -p ~/.claude/skills
+cp -R skills/openapi-r1quest-generator ~/.claude/skills/openapi-r1quest-generator
+```
+
+Or import it into a project-local Claude Code workspace:
+
+```bash
+mkdir -p .claude/skills
+cp -R skills/openapi-r1quest-generator .claude/skills/openapi-r1quest-generator
+```
+
+Import it into Codex globally:
+
+```bash
+mkdir -p ~/.codex/skills
+cp -R skills/openapi-r1quest-generator ~/.codex/skills/openapi-r1quest-generator
+```
+
+Or with `CODEX_HOME`:
+
+```bash
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+cp -R skills/openapi-r1quest-generator "${CODEX_HOME:-$HOME/.codex}/skills/openapi-r1quest-generator"
+```
+
+Once installed, ask Claude Code or Codex to use the skill with an OpenAPI spec
+path, output directory, and project name.
