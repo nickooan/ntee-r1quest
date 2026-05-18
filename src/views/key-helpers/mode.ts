@@ -1,17 +1,18 @@
 export enum TerminalMode {
-  Default = "default",
+  Query = "query",
   Search = "search",
 }
 
-export const defaultModeCommands = new Set(["@default", "@q"])
+export const queryModeCommands = new Set(["@query", "@q"])
+export const searchModeCommands = new Set(["@search", "@s"])
 
 export const resolveModeCommand = (command: string): TerminalMode | null => {
-  if (command === "@search") {
+  if (searchModeCommands.has(command)) {
     return TerminalMode.Search
   }
 
-  if (defaultModeCommands.has(command)) {
-    return TerminalMode.Default
+  if (queryModeCommands.has(command)) {
+    return TerminalMode.Query
   }
 
   return null

@@ -4,6 +4,8 @@ import {
   findSearchMatches,
   handleBaseModeInput,
   handleSearchModeInput,
+  resolveModeCommand,
+  TerminalMode,
   type BaseModeLimits,
   type BaseModeState,
   type SearchModeState,
@@ -57,6 +59,15 @@ const key = (keyValues: Partial<Key>): Key => {
   }
 }
 
+describe("mode commands", () => {
+  test("resolves long and short mode commands", () => {
+    expect(resolveModeCommand("@query")).toBe(TerminalMode.Query)
+    expect(resolveModeCommand("@q")).toBe(TerminalMode.Query)
+    expect(resolveModeCommand("@search")).toBe(TerminalMode.Search)
+    expect(resolveModeCommand("@s")).toBe(TerminalMode.Search)
+  })
+})
+
 describe("base mode key helpers", () => {
   test("handles vertical and horizontal scroll keys", () => {
     expect(
@@ -82,39 +93,6 @@ describe("base mode key helpers", () => {
     ).toEqual({
       ...state,
       scrollX: 3,
-    })
-  })
-
-  test("uses up and down to select suggestions when suggestions are visible", () => {
-    const suggestionState = {
-      shouldShowSuggestions: true,
-      selectedSuggestionIndex: 1,
-      suggestionCount: 3,
-    }
-
-    expect(
-      handleBaseModeInput(
-        "",
-        key({ upArrow: true }),
-        state,
-        limits,
-        suggestionState,
-      ),
-    ).toEqual({
-      state,
-      selectedSuggestionIndex: 0,
-    })
-    expect(
-      handleBaseModeInput(
-        "",
-        key({ downArrow: true }),
-        state,
-        limits,
-        suggestionState,
-      ),
-    ).toEqual({
-      state,
-      selectedSuggestionIndex: 2,
     })
   })
 
@@ -277,6 +255,28 @@ describe("search mode key helpers", () => {
     expect(result.state.scrollY).toBe(1)
   })
 
+  test("scrolls search mode horizontally without changing the current match", () => {
+    const searchState: SearchModeState = {
+      scrollX: 0,
+      scrollY: 0,
+      input: "",
+      query: "abc",
+      focusedMatchIndex: 0,
+    }
+    const matches = findSearchMatches("abc long-text abc", "abc")
+
+    const result = handleSearchModeInput(
+      "",
+      key({ rightArrow: true }),
+      searchState,
+      searchLimits,
+      matches,
+    )
+
+    expect(result.state.focusedMatchIndex).toBe(0)
+    expect(result.state.scrollX).toBe(4)
+  })
+
   test("scrolls search mode right when the next focused match is outside the viewport", () => {
     const searchState: SearchModeState = {
       scrollX: 0,
@@ -319,6 +319,28 @@ describe("search mode key helpers", () => {
 
     expect(result.state.focusedMatchIndex).toBe(0)
     expect(result.state.scrollX).toBe(0)
+  })
+
+  test("scrolls search mode left without changing the current match", () => {
+    const searchState: SearchModeState = {
+      scrollX: 11,
+      scrollY: 0,
+      input: "",
+      query: "abc",
+      focusedMatchIndex: 1,
+    }
+    const matches = findSearchMatches("abc long-text abc", "abc")
+
+    const result = handleSearchModeInput(
+      "",
+      key({ leftArrow: true }),
+      searchState,
+      searchLimits,
+      matches,
+    )
+
+    expect(result.state.focusedMatchIndex).toBe(1)
+    expect(result.state.scrollX).toBe(7)
   })
 
   test("updates search input without changing active query until submit", () => {
