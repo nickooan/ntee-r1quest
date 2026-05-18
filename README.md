@@ -35,13 +35,13 @@ npx ntee-r1quest -r ./example/request
 Inside the terminal UI, type a request file name without the `.nts` extension:
 
 ```text
-@default >example
+@query >example
 ```
 
 Nested paths are supported:
 
 ```text
-@default >folder/request-name
+@query >folder/request-name
 ```
 
 ### 3. Link locally and run `r1q`
@@ -115,19 +115,19 @@ request root.
 Try:
 
 ```text
-@default >example
+@query >example
 ```
 
 or the file upload example:
 
 ```text
-@default >example-upload
+@query >example-upload
 ```
 
-After a response is rendered, switch to search mode with:
+After a response is rendered, switch to search mode with `@search` or `@s`:
 
 ```text
-@default >@search
+@query >@search
 ```
 
 Then type a search query to highlight matching response text:
@@ -136,7 +136,7 @@ Then type a search query to highlight matching response text:
 @search >content-type
 ```
 
-Return to request mode with `@q` or `@default`:
+Return to query mode with `@q` or `@query`:
 
 ```text
 @search >@q
@@ -150,6 +150,10 @@ example/data/example-upload.ntd
 example/files/example.txt
 example/request/example.nts
 example/request/example-upload.nts
+example/request/folder-1/create-post.nts
+example/request/folder-1/get-post.nts
+example/request/folder-2/delete-post.nts
+example/request/folder-2/update-post.nts
 ```
 
 ## Request File Declaration
@@ -426,6 +430,10 @@ The repo includes a GET example using JSONPlaceholder:
 ```text
 example/data/example.ntd
 example/request/example.nts
+example/request/folder-1/create-post.nts
+example/request/folder-1/get-post.nts
+example/request/folder-2/delete-post.nts
+example/request/folder-2/update-post.nts
 ```
 
 It also includes a multipart upload example using httpbin:
@@ -446,13 +454,13 @@ npm run start
 Then type:
 
 ```text
-@default >example
+@query >example
 ```
 
 or:
 
 ```text
-@default >example-upload
+@query >example-upload
 ```
 
 ## Skills

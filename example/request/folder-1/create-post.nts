@@ -1,0 +1,13 @@
+ref ../../data/example.ntd
+
+url "@i(host)/posts"
+type post
+
+header accept, @i(content-type)
+header content-type, @i(content-type)
+
+body {
+  title: "r1quest nested example"
+  body: "Created from folder-1/create-post"
+  userId: 1
+}

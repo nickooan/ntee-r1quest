@@ -4,7 +4,6 @@ export {
   handleBaseModeInput,
   type BaseModeLimits,
   type BaseModeResult,
-  type BaseModeSuggestionState,
   type BaseModeState,
 } from "./base-mode.ts"
 export {

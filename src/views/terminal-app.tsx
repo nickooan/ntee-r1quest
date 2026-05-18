@@ -42,13 +42,17 @@ const defaultWidth = 80
 const commandLineHeight = 1
 const headerHeight = 3
 const requestStatsHeight = 1
-const suggestionHeight = 5
+const paneGap = 1
 const commandBackgroundColor = "#1f1f1f"
+const paneBorderColor = "#3a3a3a"
 
-export type RequestSuggestion = {
-  value: string
-  label: string
-  type: "directory" | "request"
+export type FileTreeEntry = {
+  name: string
+  relativePath: string
+  commandValue: string
+  depth: number
+  type: "directory" | "request" | "file"
+  isExpanded: boolean
 }
 
 const normalizeLines = (content: string): string[] => {
@@ -68,84 +72,378 @@ const isInsideRoot = (root: string, target: string): boolean => {
   )
 }
 
-export const buildRequestSuggestions = (
+export const buildFileTreeEntries = (
   root: string | undefined,
-  input: string,
-): RequestSuggestion[] => {
-  const trimmedInput = input.trim()
-
-  if (!root || !trimmedInput || trimmedInput.startsWith("@")) {
+  expandedDirectoryPaths: ReadonlySet<string> = new Set(),
+): FileTreeEntry[] => {
+  if (!root) {
     return []
   }
 
-  const normalizedInput = trimmedInput.replaceAll("\\", "/")
-  const lastSlashIndex = normalizedInput.lastIndexOf("/")
-  const directoryInput =
-    lastSlashIndex === -1 ? "" : normalizedInput.slice(0, lastSlashIndex)
-  const namePrefix =
-    lastSlashIndex === -1
-      ? normalizedInput
-      : normalizedInput.slice(lastSlashIndex + 1)
   const resolvedRoot = resolve(root)
-  const resolvedDirectory = resolve(resolvedRoot, directoryInput)
+  const entries: FileTreeEntry[] = []
 
-  if (!isInsideRoot(resolvedRoot, resolvedDirectory)) {
-    return []
-  }
+  const appendDirectory = (directoryPath: string, depth: number) => {
+    const resolvedDirectory = resolve(resolvedRoot, directoryPath)
 
-  try {
-    return readdirSync(resolvedDirectory, { withFileTypes: true })
-      .flatMap((entry): RequestSuggestion[] => {
+    if (!isInsideRoot(resolvedRoot, resolvedDirectory)) {
+      return
+    }
+
+    try {
+      const directoryEntries = readdirSync(resolvedDirectory, {
+        withFileTypes: true,
+      }).sort((left, right) => {
+        if (left.isDirectory() !== right.isDirectory()) {
+          return left.isDirectory() ? -1 : 1
+        }
+
+        return left.name.localeCompare(right.name)
+      })
+
+      for (const entry of directoryEntries) {
+        const relativeEntryPath = directoryPath
+          ? `${directoryPath}/${entry.name}`
+          : entry.name
+
         if (entry.isDirectory()) {
-          if (!entry.name.startsWith(namePrefix)) {
-            return []
+          const isExpanded = expandedDirectoryPaths.has(relativeEntryPath)
+
+          entries.push({
+            name: entry.name,
+            relativePath: relativeEntryPath,
+            commandValue: `${relativeEntryPath}/`,
+            depth,
+            type: "directory",
+            isExpanded,
+          })
+
+          if (isExpanded) {
+            appendDirectory(relativeEntryPath, depth + 1)
           }
 
-          const value = directoryInput
-            ? `${directoryInput}/${entry.name}/`
-            : `${entry.name}/`
-
-          return [
-            {
-              value,
-              label: value,
-              type: "directory",
-            },
-          ]
+          continue
         }
 
-        if (!entry.isFile() || !entry.name.endsWith(".nts")) {
-          return []
+        if (!entry.isFile()) {
+          continue
         }
 
-        const requestName = entry.name.slice(0, -".nts".length)
+        const isRequest = entry.name.endsWith(".nts")
+        const commandValue = isRequest
+          ? relativeEntryPath.slice(0, -".nts".length)
+          : relativeEntryPath
 
-        if (!requestName.startsWith(namePrefix)) {
-          return []
-        }
-
-        const value = directoryInput
-          ? `${directoryInput}/${requestName}`
-          : requestName
-
-        return [
-          {
-            value,
-            label: value,
-            type: "request",
-          },
-        ]
-      })
-      .sort((left, right) => {
-        if (left.type !== right.type) {
-          return left.type === "directory" ? -1 : 1
-        }
-
-        return left.label.localeCompare(right.label)
-      })
-  } catch {
-    return []
+        entries.push({
+          name: entry.name,
+          relativePath: relativeEntryPath,
+          commandValue,
+          depth,
+          type: isRequest ? "request" : "file",
+          isExpanded: false,
+        })
+      }
+    } catch {
+      return
+    }
   }
+
+  appendDirectory("", 0)
+
+  return entries
+}
+
+export const findFileTreeMatchIndex = (
+  entries: FileTreeEntry[],
+  input: string,
+): number => {
+  const normalizedInput = input.trim().replaceAll("\\", "/").toLowerCase()
+
+  if (!normalizedInput || normalizedInput.startsWith("@")) {
+    return -1
+  }
+
+  const exactIndex = entries.findIndex((entry) => {
+    return (
+      entry.commandValue.toLowerCase() === normalizedInput ||
+      entry.name.toLowerCase() === normalizedInput
+    )
+  })
+
+  if (exactIndex !== -1) {
+    return exactIndex
+  }
+
+  const startsWithIndex = entries.findIndex((entry) => {
+    return (
+      entry.commandValue.toLowerCase().startsWith(normalizedInput) ||
+      entry.name.toLowerCase().startsWith(normalizedInput)
+    )
+  })
+
+  if (startsWithIndex !== -1) {
+    return startsWithIndex
+  }
+
+  return entries.findIndex((entry) => {
+    return (
+      entry.commandValue.toLowerCase().includes(normalizedInput) ||
+      entry.name.toLowerCase().includes(normalizedInput)
+    )
+  })
+}
+
+export const buildFileTreeViewport = (
+  entries: FileTreeEntry[],
+  height: number,
+  scrollY: number,
+  highlightedIndex: number,
+): {
+  entries: FileTreeEntry[]
+  maxScrollY: number
+  safeScrollY: number
+} => {
+  const maxScrollY = Math.max(0, entries.length - height)
+  const nextScrollY =
+    highlightedIndex === -1
+      ? scrollY
+      : highlightedIndex - Math.floor(Math.max(1, height) / 2)
+  const safeScrollY = clampValue(nextScrollY, 0, maxScrollY)
+  const visibleEntries = entries.slice(safeScrollY, safeScrollY + height)
+
+  return {
+    entries: visibleEntries,
+    maxScrollY,
+    safeScrollY,
+  }
+}
+
+const formatFileTreeEntryLabel = (
+  entry: FileTreeEntry,
+  width: number,
+): string => {
+  const indent = "  ".repeat(entry.depth)
+  const marker =
+    entry.type === "directory" ? (entry.isExpanded ? "↓ " : "→ ") : "  "
+  const label = `${indent}${marker}${entry.name}`
+
+  if (label.length > width) {
+    return label.slice(0, Math.max(0, width - 1)).padEnd(width, " ")
+  }
+
+  return label.padEnd(width, " ")
+}
+
+const formatFileTreeEntryParts = (
+  entry: FileTreeEntry,
+  width: number,
+): {
+  indent: string
+  marker: string
+  name: string
+  padding: string
+} => {
+  const label = formatFileTreeEntryLabel(entry, width)
+  const indent = "  ".repeat(entry.depth)
+  const marker =
+    entry.type === "directory" ? (entry.isExpanded ? "↓ " : "→ ") : "  "
+  const prefixLength = Math.min(label.length, indent.length + marker.length)
+
+  return {
+    indent: label.slice(0, Math.min(label.length, indent.length)),
+    marker: label.slice(indent.length, prefixLength),
+    name: label.slice(prefixLength).trimEnd(),
+    padding: " ".repeat(label.length - label.trimEnd().length),
+  }
+}
+
+export const buildExpandedDirectoryPaths = (
+  commandValue: string,
+): Set<string> => {
+  const expandedDirectoryPaths = new Set<string>()
+  const normalizedCommand = commandValue.trim().replaceAll("\\", "/")
+  const pathParts = normalizedCommand.split("/").filter(Boolean)
+  const directoryDepth = normalizedCommand.endsWith("/")
+    ? pathParts.length
+    : Math.max(0, pathParts.length - 1)
+
+  for (let index = 1; index <= directoryDepth; index += 1) {
+    expandedDirectoryPaths.add(pathParts.slice(0, index).join("/"))
+  }
+
+  return expandedDirectoryPaths
+}
+
+const resolveHighlightedEntry = (
+  entries: FileTreeEntry[],
+  input: string,
+): number => {
+  const matchedIndex = findFileTreeMatchIndex(entries, input)
+
+  if (matchedIndex !== -1) {
+    return matchedIndex
+  }
+
+  return -1
+}
+
+export const resolveSidebarCommand = (
+  inputCommand: string,
+  selectedCommand: string,
+): string => {
+  const trimmedInputCommand = inputCommand.trim()
+
+  if (!trimmedInputCommand || trimmedInputCommand.startsWith("@")) {
+    return selectedCommand
+  }
+
+  return inputCommand
+}
+
+type SidebarProps = {
+  entries: FileTreeEntry[]
+  highlightedIndex: number
+  width: number
+  height: number
+}
+
+type PaneTitleProps = {
+  title: string
+  width: number
+}
+
+const PaneTitle = ({ title, width }: PaneTitleProps) => {
+  const label = ` ${title} `.slice(0, Math.max(0, width - 4))
+
+  return (
+    <Box position="absolute" top={-1} left={2}>
+      <Text color="white">{label}</Text>
+    </Box>
+  )
+}
+
+const Sidebar = ({
+  entries,
+  highlightedIndex,
+  width,
+  height,
+}: SidebarProps) => {
+  const viewportHeight = Math.max(1, height - 2)
+  const viewport = buildFileTreeViewport(
+    entries,
+    viewportHeight,
+    0,
+    highlightedIndex,
+  )
+
+  return (
+    <Box
+      flexDirection="column"
+      width={width}
+      height={height}
+      borderStyle="single"
+      borderColor={paneBorderColor}
+      position="relative"
+    >
+      <PaneTitle title="Collections" width={width} />
+      {viewport.entries.map((entry, index) => {
+        const entryIndex = viewport.safeScrollY + index
+        const isHighlighted = entryIndex === highlightedIndex
+        const labelParts = formatFileTreeEntryParts(
+          entry,
+          Math.max(1, width - 2),
+        )
+        const textColor = isHighlighted ? "black" : undefined
+        const backgroundColor = isHighlighted ? "yellow" : undefined
+        const dimColor = !isHighlighted
+
+        return (
+          <Text
+            key={entry.relativePath}
+            color={textColor}
+            backgroundColor={backgroundColor}
+            dimColor={dimColor}
+          >
+            <Text
+              color={textColor}
+              backgroundColor={backgroundColor}
+              dimColor={dimColor}
+            >
+              {labelParts.indent}
+            </Text>
+            <Text
+              color={textColor}
+              backgroundColor={backgroundColor}
+              dimColor={dimColor}
+              bold={entry.type === "directory"}
+            >
+              {labelParts.marker}
+            </Text>
+            <Text
+              color={textColor}
+              backgroundColor={backgroundColor}
+              dimColor={dimColor}
+            >
+              {labelParts.name}
+              {labelParts.padding}
+            </Text>
+          </Text>
+        )
+      })}
+      {Array.from({
+        length: Math.max(0, viewportHeight - viewport.entries.length),
+      }).map((_, index) => (
+        <Text key={`empty-tree-${index}`}>
+          {" ".repeat(Math.max(1, width - 2))}
+        </Text>
+      ))}
+    </Box>
+  )
+}
+
+type ResponsePaneProps = {
+  contentLines: string[]
+  viewport: Viewport
+  searchMatches: SearchMatch[]
+  focusedMatchIndex: number
+  width: number
+  height: number
+}
+
+const ResponsePane = ({
+  contentLines,
+  viewport,
+  searchMatches,
+  focusedMatchIndex,
+  width,
+  height,
+}: ResponsePaneProps) => {
+  const contentWidth = Math.max(1, width - 2)
+
+  return (
+    <Box
+      flexDirection="column"
+      width={width}
+      height={height}
+      borderStyle="single"
+      borderColor={paneBorderColor}
+      position="relative"
+    >
+      <PaneTitle title="Result" width={width} />
+      {viewport.lines.map((line, index) => (
+        <Box key={`${viewport.safeScrollY}-${index}`} width={contentWidth}>
+          <VisibleLine
+            line={contentLines[viewport.safeScrollY + index] ?? ""}
+            lineIndex={viewport.safeScrollY + index}
+            scrollX={viewport.safeScrollX}
+            width={contentWidth}
+            matches={searchMatches}
+            focusedMatchIndex={focusedMatchIndex}
+          />
+        </Box>
+      ))}
+    </Box>
+  )
 }
 
 const formatTerminalContent = ({
@@ -291,7 +589,7 @@ export const TerminalApp = ({
   const { columns, rows } = useWindowSize()
   const [frameIndex, setFrameIndex] = useState(0)
   const [isCursorVisible, setIsCursorVisible] = useState(true)
-  const [mode, setMode] = useState(TerminalMode.Default)
+  const [mode, setMode] = useState(TerminalMode.Query)
   const [baseModeState, setBaseModeState] = useState<BaseModeState>({
     scrollX: 0,
     scrollY: 0,
@@ -304,22 +602,30 @@ export const TerminalApp = ({
     query: "",
     focusedMatchIndex: 0,
   })
-  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0)
+  const [selectedCommand, setSelectedCommand] = useState("")
   const height = fixedHeight ?? rows ?? defaultHeight
   const width = fixedWidth ?? columns ?? defaultWidth
-  const suggestions = buildRequestSuggestions(root, baseModeState.command)
-  const shouldShowSuggestions =
-    mode === TerminalMode.Default && suggestions.length > 0
-  const effectiveSuggestionHeight = shouldShowSuggestions ? suggestionHeight : 0
+  const sidebarCommand = resolveSidebarCommand(
+    baseModeState.command,
+    selectedCommand,
+  )
+  const expandedPathsForInput = buildExpandedDirectoryPaths(sidebarCommand)
+  const fileTreeEntries = buildFileTreeEntries(root, expandedPathsForInput)
+  const sidebarWidth = Math.min(
+    Math.max(12, Math.floor(width / 4)),
+    Math.max(1, width - paneGap - 3),
+  )
+  const responsePaneWidth = Math.max(3, width - sidebarWidth - paneGap)
+  const responseContentWidth = Math.max(1, responsePaneWidth - 2)
   const viewHeight = Math.max(
     1,
-    height -
-      headerHeight -
-      requestStatsHeight -
-      commandLineHeight -
-      effectiveSuggestionHeight,
+    height - headerHeight - requestStatsHeight - commandLineHeight,
   )
-  const viewWidth = Math.max(1, width)
+  const responseContentHeight = Math.max(1, viewHeight - 2)
+  const highlightedEntryIndex = resolveHighlightedEntry(
+    fileTreeEntries,
+    sidebarCommand,
+  )
   const content = formatTerminalContent({
     response,
     error,
@@ -328,8 +634,8 @@ export const TerminalApp = ({
   })
   const viewport = buildTerminalViewport(
     content,
-    viewWidth,
-    viewHeight,
+    responseContentWidth,
+    responseContentHeight,
     mode === TerminalMode.Search
       ? searchModeState.scrollX
       : baseModeState.scrollX,
@@ -345,20 +651,6 @@ export const TerminalApp = ({
   const inputValue =
     mode === TerminalMode.Search ? searchModeState.input : baseModeState.command
   const promptValue = `@${mode} >`
-  const safeSelectedSuggestionIndex = clampValue(
-    selectedSuggestionIndex,
-    0,
-    Math.max(0, suggestions.length - 1),
-  )
-  const suggestionWindowStart = clampValue(
-    safeSelectedSuggestionIndex - suggestionHeight + 1,
-    0,
-    Math.max(0, suggestions.length - suggestionHeight),
-  )
-  const visibleSuggestions = suggestions.slice(
-    suggestionWindowStart,
-    suggestionWindowStart + suggestionHeight,
-  )
 
   useEffect(() => {
     if (!isPending) {
@@ -389,8 +681,8 @@ export const TerminalApp = ({
       const limits = {
         maxScrollX: viewport.maxScrollX,
         maxScrollY: viewport.maxScrollY,
-        viewWidth,
-        viewHeight,
+        viewWidth: responseContentWidth,
+        viewHeight: responseContentHeight,
       }
       const result = handleSearchModeInput(
         input,
@@ -404,8 +696,8 @@ export const TerminalApp = ({
           ? null
           : resolveModeCommand(result.submittedQuery)
 
-      if (nextMode === TerminalMode.Default) {
-        setMode(TerminalMode.Default)
+      if (nextMode === TerminalMode.Query) {
+        setMode(TerminalMode.Query)
         setBaseModeState({
           ...baseModeState,
           scrollX: result.state.scrollX,
@@ -431,44 +723,46 @@ export const TerminalApp = ({
       return
     }
 
-    if (shouldShowSuggestions && key.return) {
-      const selectedSuggestion = suggestions[safeSelectedSuggestionIndex]
+    const isModeCommandInput = baseModeState.command.trim().startsWith("@")
+    const isQueryCommandInput =
+      baseModeState.command.trim() !== "" && !isModeCommandInput
+    const highlightedEntry = isQueryCommandInput
+      ? fileTreeEntries[highlightedEntryIndex]
+      : undefined
 
-      if (selectedSuggestion?.type === "directory") {
+    if (!isModeCommandInput && highlightedEntry && key.return) {
+      if (highlightedEntry.type === "directory") {
+        setSelectedCommand(highlightedEntry.commandValue)
         setBaseModeState({
           ...baseModeState,
-          command: selectedSuggestion.value,
+          command: highlightedEntry.commandValue,
         })
-        setSelectedSuggestionIndex(0)
         return
       }
 
-      if (selectedSuggestion) {
+      if (highlightedEntry.type === "request") {
+        setSelectedCommand(highlightedEntry.commandValue)
         setBaseModeState({
           ...baseModeState,
           command: "",
         })
-        setSelectedSuggestionIndex(0)
-        onCommand?.(selectedSuggestion.value)
+        onCommand?.(highlightedEntry.commandValue)
         return
       }
+
+      setSelectedCommand(highlightedEntry.commandValue)
+      setBaseModeState({
+        ...baseModeState,
+        command: highlightedEntry.commandValue,
+      })
+      return
     }
 
-    const result = handleBaseModeInput(
-      input,
-      key,
-      baseModeState,
-      {
-        maxScrollX: viewport.maxScrollX,
-        maxScrollY: viewport.maxScrollY,
-        viewHeight,
-      },
-      {
-        shouldShowSuggestions,
-        selectedSuggestionIndex: safeSelectedSuggestionIndex,
-        suggestionCount: suggestions.length,
-      },
-    )
+    const result = handleBaseModeInput(input, key, baseModeState, {
+      maxScrollX: viewport.maxScrollX,
+      maxScrollY: viewport.maxScrollY,
+      viewHeight: responseContentHeight,
+    })
     const nextMode =
       result.command === undefined ? null : resolveModeCommand(result.command)
 
@@ -487,16 +781,10 @@ export const TerminalApp = ({
 
     setBaseModeState(result.state)
 
-    if (result.selectedSuggestionIndex !== undefined) {
-      setSelectedSuggestionIndex(result.selectedSuggestionIndex)
-      return
-    }
-
-    if (result.state.command !== baseModeState.command) {
-      setSelectedSuggestionIndex(0)
-    }
-
     if (result.command !== undefined && nextMode === null) {
+      if (result.command.trim()) {
+        setSelectedCommand(result.command)
+      }
       onCommand?.(result.command)
     }
   })
@@ -508,58 +796,24 @@ export const TerminalApp = ({
         {version && <Text color="#006400">{`ver: ${version}`}</Text>}
       </Box>
       <Box width={width} height={requestStatsHeight}>
-        <Text>
-          {requestDurationMs === undefined
-            ? ""
-            : `>_ Spend ${requestDurationMs} ms,`}
-        </Text>
+        <Text>{`◷ Time Spend ${requestDurationMs ?? 0} ms,`}</Text>
       </Box>
-      <Box flexDirection="column" width={width} height={viewHeight}>
-        {viewport.lines.map((line, index) => (
-          <Box key={`${viewport.safeScrollY}-${index}`} width={width}>
-            <VisibleLine
-              line={contentLines[viewport.safeScrollY + index] ?? ""}
-              lineIndex={viewport.safeScrollY + index}
-              scrollX={viewport.safeScrollX}
-              width={viewWidth}
-              matches={searchMatches}
-              focusedMatchIndex={searchModeState.focusedMatchIndex}
-            />
-          </Box>
-        ))}
+      <Box width={width} height={viewHeight} columnGap={paneGap}>
+        <Sidebar
+          entries={fileTreeEntries}
+          highlightedIndex={highlightedEntryIndex}
+          width={sidebarWidth}
+          height={viewHeight}
+        />
+        <ResponsePane
+          contentLines={contentLines}
+          viewport={viewport}
+          searchMatches={searchMatches}
+          focusedMatchIndex={searchModeState.focusedMatchIndex}
+          width={responsePaneWidth}
+          height={viewHeight}
+        />
       </Box>
-      {shouldShowSuggestions && (
-        <Box flexDirection="column" width={width} height={suggestionHeight}>
-          {visibleSuggestions.map((suggestion, index) => {
-            const suggestionIndex = suggestionWindowStart + index
-            const isSelected = suggestionIndex === safeSelectedSuggestionIndex
-
-            return (
-              <Box key={suggestion.value} width={width}>
-                <Text
-                  color={isSelected ? "black" : undefined}
-                  backgroundColor={
-                    isSelected ? "white" : commandBackgroundColor
-                  }
-                  bold={suggestion.type === "directory"}
-                >
-                  {suggestion.label.padEnd(width, " ")}
-                </Text>
-              </Box>
-            )
-          })}
-          {Array.from({
-            length: suggestionHeight - visibleSuggestions.length,
-          }).map((_, index) => (
-            <Text
-              key={`empty-suggestion-${index}`}
-              backgroundColor={commandBackgroundColor}
-            >
-              {" ".repeat(width)}
-            </Text>
-          ))}
-        </Box>
-      )}
       <Box
         width={width}
         height={commandLineHeight}

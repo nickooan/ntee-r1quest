@@ -1,7 +1,11 @@
 import { describe, expect, test } from "@jest/globals"
 import { join } from "node:path"
 import {
-  buildRequestSuggestions,
+  buildFileTreeEntries,
+  buildFileTreeViewport,
+  buildExpandedDirectoryPaths,
+  resolveSidebarCommand,
+  findFileTreeMatchIndex,
   buildTerminalViewport,
 } from "../src/views/terminal-app.tsx"
 
@@ -28,27 +32,95 @@ describe("terminal app view", () => {
     expect(viewport.maxScrollY).toBe(0)
   })
 
-  test("builds request suggestions from root request files", () => {
+  test("builds a root file tree", () => {
     const root = join(process.cwd(), "test/data")
 
-    expect(buildRequestSuggestions(root, "g")).toEqual([
-      {
-        value: "get",
-        label: "get",
-        type: "request",
-      },
-    ])
+    expect(buildFileTreeEntries(root)).toContainEqual({
+      name: "get.nts",
+      relativePath: "get.nts",
+      commandValue: "get",
+      depth: 0,
+      type: "request",
+      isExpanded: false,
+    })
   })
 
-  test("builds nested request suggestions from directory input", () => {
+  test("builds nested file tree entries for expanded directories", () => {
     const root = join(process.cwd(), "test/data")
 
-    expect(buildRequestSuggestions(root, "nested/g")).toEqual([
+    expect(buildFileTreeEntries(root, new Set(["nested"]))).toContainEqual({
+      name: "get.nts",
+      relativePath: "nested/get.nts",
+      commandValue: "nested/get",
+      depth: 1,
+      type: "request",
+      isExpanded: false,
+    })
+  })
+
+  test("expands only the directories for the current command path", () => {
+    expect([...buildExpandedDirectoryPaths("nested/get")]).toEqual(["nested"])
+    expect([...buildExpandedDirectoryPaths("nested/")]).toEqual(["nested"])
+    expect([...buildExpandedDirectoryPaths("other")]).toEqual([])
+  })
+
+  test("keeps the selected sidebar command only while query input is empty or mode input", () => {
+    expect(resolveSidebarCommand("", "nested/get")).toBe("nested/get")
+    expect(resolveSidebarCommand("@s", "nested/get")).toBe("nested/get")
+    expect(resolveSidebarCommand("get", "nested/get")).toBe("get")
+  })
+
+  test("matches file tree entries from command input", () => {
+    const root = join(process.cwd(), "test/data")
+    const entries = buildFileTreeEntries(root, new Set(["nested"]))
+
+    expect(entries[findFileTreeMatchIndex(entries, "nested/g")]).toMatchObject({
+      commandValue: "nested/get",
+    })
+  })
+
+  test("prefers exact file tree matches before prefix matches", () => {
+    const entries = [
       {
-        value: "nested/get",
-        label: "nested/get",
-        type: "request",
+        name: "example-upload.nts",
+        relativePath: "example-upload.nts",
+        commandValue: "example-upload",
+        depth: 0,
+        type: "request" as const,
+        isExpanded: false,
       },
-    ])
+      {
+        name: "example.nts",
+        relativePath: "example.nts",
+        commandValue: "example",
+        depth: 0,
+        type: "request" as const,
+        isExpanded: false,
+      },
+    ]
+
+    expect(entries[findFileTreeMatchIndex(entries, "example")]).toMatchObject({
+      commandValue: "example",
+    })
+    expect(
+      entries[findFileTreeMatchIndex(entries, "example.nts")],
+    ).toMatchObject({
+      commandValue: "example",
+    })
+  })
+
+  test("centers the highlighted file tree entry in the sidebar viewport", () => {
+    const entries = Array.from({ length: 20 }, (_, index) => ({
+      name: `item-${index}`,
+      relativePath: `item-${index}`,
+      commandValue: `item-${index}`,
+      depth: 0,
+      type: "file" as const,
+      isExpanded: false,
+    }))
+    const viewport = buildFileTreeViewport(entries, 5, 0, 10)
+
+    expect(viewport.safeScrollY).toBe(8)
+    expect(viewport.entries[2]?.name).toBe("item-10")
   })
 })

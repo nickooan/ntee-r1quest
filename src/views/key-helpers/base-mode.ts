@@ -15,13 +15,6 @@ export type BaseModeLimits = {
 export type BaseModeResult = {
   state: BaseModeState
   command?: string
-  selectedSuggestionIndex?: number
-}
-
-export type BaseModeSuggestionState = {
-  shouldShowSuggestions: boolean
-  selectedSuggestionIndex: number
-  suggestionCount: number
 }
 
 export const clampValue = (value: number, min: number, max: number): number => {
@@ -44,30 +37,7 @@ export const handleBaseModeInput = (
   key: Key,
   state: BaseModeState,
   limits: BaseModeLimits,
-  suggestions?: BaseModeSuggestionState,
 ): BaseModeResult => {
-  if (suggestions?.shouldShowSuggestions && key.upArrow) {
-    return {
-      state,
-      selectedSuggestionIndex: clampValue(
-        suggestions.selectedSuggestionIndex - 1,
-        0,
-        suggestions.suggestionCount - 1,
-      ),
-    }
-  }
-
-  if (suggestions?.shouldShowSuggestions && key.downArrow) {
-    return {
-      state,
-      selectedSuggestionIndex: clampValue(
-        suggestions.selectedSuggestionIndex + 1,
-        0,
-        suggestions.suggestionCount - 1,
-      ),
-    }
-  }
-
   if (key.upArrow) {
     return {
       state: {
