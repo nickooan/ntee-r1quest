@@ -1,17 +1,21 @@
-import { readdirSync, readFileSync } from "node:fs"
+import { readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { basename, relative, resolve, sep } from "node:path"
 import type { AxiosResponse } from "axios"
 import React, { useEffect, useState } from "react"
 import { Box, Text, render, useInput, useWindowSize } from "ink"
 import {
   clampValue,
+  createEditModeState,
   findSearchMatches,
   focusSearchMatch,
   handleBaseModeInput,
+  handleEditModeInput,
   handleSearchModeInput,
   handleViewModeInput,
   resolveModeCommand,
+  serializeEditModeContent,
   type BaseModeState,
+  type EditModeState,
   type SearchMatch,
   type SearchModeState,
   type ViewModeState,
@@ -42,6 +46,7 @@ type Viewport = {
 
 type OpenViewFile = {
   fileName: string
+  path: string
   content: string
 }
 
@@ -53,6 +58,8 @@ const requestStatsHeight = 1
 const paneGap = 1
 const commandBackgroundColor = "#1f1f1f"
 const paneBorderColor = "#3a3a3a"
+const editModeRequiresViewFileMessage =
+  "please select a file in view mode then enter to @edit."
 
 export type FileTreeEntry = {
   name: string
@@ -326,14 +333,40 @@ const readViewFile = (
   try {
     return {
       fileName: basename(entry.relativePath),
+      path: resolvedPath,
       content: readFileSync(resolvedPath, "utf8"),
     }
   } catch (error) {
     return {
       fileName: basename(entry.relativePath),
+      path: resolvedPath,
       content: error instanceof Error ? error.message : "Unable to read file.",
     }
   }
+}
+
+const resolveEditScroll = (
+  state: EditModeState,
+  width: number,
+  height: number,
+): Pick<ViewModeState, "scrollX" | "scrollY"> => {
+  const layout = buildViewEditLayout(width, height, state.lines.length)
+  let scrollX = state.cursorX < 0 ? 0 : state.cursorX
+  let scrollY = state.cursorY < 0 ? 0 : state.cursorY
+
+  if (state.cursorX >= layout.contentWidth) {
+    scrollX = state.cursorX - layout.contentWidth + 1
+  } else {
+    scrollX = 0
+  }
+
+  if (state.cursorY >= layout.contentHeight) {
+    scrollY = state.cursorY - layout.contentHeight + 1
+  } else {
+    scrollY = 0
+  }
+
+  return { scrollX, scrollY }
 }
 
 type SidebarProps = {
@@ -643,16 +676,17 @@ export const TerminalApp = ({
     scrollX: 0,
     scrollY: 0,
   })
+  const [editModeState, setEditModeState] = useState<EditModeState | null>(null)
   const [openViewFile, setOpenViewFile] = useState<OpenViewFile | null>(null)
+  const [localError, setLocalError] = useState<unknown>()
   const [selectedCommand, setSelectedCommand] = useState("")
   const height = fixedHeight ?? rows ?? defaultHeight
   const width = fixedWidth ?? columns ?? defaultWidth
   const commandInput =
-    mode === TerminalMode.View ? viewModeState.command : baseModeState.command
-  const sidebarCommand = resolveSidebarCommand(
-    commandInput,
-    selectedCommand,
-  )
+    mode === TerminalMode.View || mode === TerminalMode.Edit
+      ? viewModeState.command
+      : baseModeState.command
+  const sidebarCommand = resolveSidebarCommand(commandInput, selectedCommand)
   const expandedPathsForInput = buildExpandedDirectoryPaths(sidebarCommand)
   const fileTreeEntries = buildFileTreeEntries(root, expandedPathsForInput)
   const sidebarWidth = Math.min(
@@ -672,7 +706,7 @@ export const TerminalApp = ({
   )
   const content = formatTerminalContent({
     response,
-    error,
+    error: localError ?? error,
     isPending,
     frameIndex,
   })
@@ -695,9 +729,11 @@ export const TerminalApp = ({
   const inputValue =
     mode === TerminalMode.Search
       ? searchModeState.input
-      : mode === TerminalMode.View
-        ? viewModeState.command
-        : baseModeState.command
+      : mode === TerminalMode.Edit
+        ? (editModeState?.input ?? "")
+        : mode === TerminalMode.View
+          ? viewModeState.command
+          : baseModeState.command
   const promptValue = `@${mode} >`
 
   useEffect(() => {
@@ -726,10 +762,53 @@ export const TerminalApp = ({
 
   useInput((input, key) => {
     if (openViewFile) {
+      if (mode === TerminalMode.Edit && editModeState) {
+        const result = handleEditModeInput(input, key, editModeState)
+
+        if (result.shouldSave) {
+          const nextContent = serializeEditModeContent(result.state)
+
+          try {
+            writeFileSync(openViewFile.path, nextContent)
+            setOpenViewFile({
+              ...openViewFile,
+              content: nextContent,
+            })
+            setLocalError(undefined)
+          } catch (error) {
+            setLocalError(error)
+          }
+        }
+
+        if (result.shouldExitEdit) {
+          setMode(TerminalMode.View)
+          setEditModeState(null)
+          setViewModeState({
+            ...viewModeState,
+            command: "",
+            scrollX: 0,
+            scrollY: 0,
+          })
+          return
+        }
+
+        const nextScroll = resolveEditScroll(result.state, width, height)
+
+        setEditModeState(result.state)
+        setViewModeState({
+          ...viewModeState,
+          command: "",
+          scrollX: nextScroll.scrollX,
+          scrollY: nextScroll.scrollY,
+        })
+        return
+      }
+
       if (key.escape) {
         setOpenViewFile(null)
         setViewModeState({
           ...viewModeState,
+          command: "",
           scrollX: 0,
           scrollY: 0,
         })
@@ -747,6 +826,44 @@ export const TerminalApp = ({
         maxScrollY: Math.max(0, viewLines.length - viewLayout.contentHeight),
         viewHeight: viewLayout.contentHeight,
       })
+      const nextMode =
+        result.selectedCommand === undefined
+          ? null
+          : resolveModeCommand(result.selectedCommand)
+
+      if (nextMode === TerminalMode.Edit) {
+        if (mode === TerminalMode.View) {
+          setMode(TerminalMode.Edit)
+          setEditModeState(createEditModeState(openViewFile.content))
+          setLocalError(undefined)
+        }
+
+        setViewModeState({
+          ...result.state,
+          command: "",
+        })
+        return
+      }
+
+      if (nextMode === TerminalMode.Query) {
+        setMode(TerminalMode.Query)
+        setOpenViewFile(null)
+        setViewModeState({
+          command: "",
+          scrollX: 0,
+          scrollY: 0,
+        })
+        return
+      }
+
+      if (nextMode === TerminalMode.View) {
+        setMode(TerminalMode.View)
+        setViewModeState({
+          ...result.state,
+          command: "",
+        })
+        return
+      }
 
       setViewModeState(result.state)
       return
@@ -805,6 +922,17 @@ export const TerminalApp = ({
         return
       }
 
+      if (nextMode === TerminalMode.Edit) {
+        setLocalError(new Error(editModeRequiresViewFileMessage))
+        setSearchModeState({
+          ...result.state,
+          input: "",
+          query: "",
+          focusedMatchIndex: 0,
+        })
+        return
+      }
+
       const nextMatches = findSearchMatches(content, result.state.query)
       const nextState =
         result.submittedQuery === undefined
@@ -837,6 +965,7 @@ export const TerminalApp = ({
 
         if (nextOpenViewFile) {
           setSelectedCommand(highlightedEntry.commandValue)
+          setEditModeState(null)
           setViewModeState({
             command: "",
             scrollX: 0,
@@ -882,6 +1011,16 @@ export const TerminalApp = ({
       }
 
       if (nextMode === TerminalMode.View) {
+        setViewModeState({
+          command: "",
+          scrollX: 0,
+          scrollY: 0,
+        })
+        return
+      }
+
+      if (nextMode === TerminalMode.Edit) {
+        setLocalError(new Error(editModeRequiresViewFileMessage))
         setViewModeState({
           command: "",
           scrollX: 0,
@@ -961,18 +1100,30 @@ export const TerminalApp = ({
       return
     }
 
+    if (nextMode === TerminalMode.Edit) {
+      setLocalError(new Error(editModeRequiresViewFileMessage))
+      setBaseModeState(result.state)
+      return
+    }
+
     setBaseModeState(result.state)
 
     if (result.command !== undefined && nextMode === null) {
       if (result.command.trim()) {
         setSelectedCommand(result.command)
       }
+      setLocalError(undefined)
       onCommand?.(result.command)
     }
   })
 
   return (
-    <Box flexDirection="column" width={width} height={height} position="relative">
+    <Box
+      flexDirection="column"
+      width={width}
+      height={height}
+      position="relative"
+    >
       <Box flexDirection="column" width={width} height={headerHeight}>
         <Text bold>{">_ Ntee R1quest"}</Text>
         {version && <Text color="#006400">{`ver: ${version}`}</Text>}
@@ -1010,11 +1161,21 @@ export const TerminalApp = ({
       {openViewFile && (
         <ViewEdit
           fileName={openViewFile.fileName}
-          content={openViewFile.content}
+          content={
+            mode === TerminalMode.Edit && editModeState
+              ? serializeEditModeContent(editModeState)
+              : openViewFile.content
+          }
           width={width}
           height={height}
           scrollX={viewModeState.scrollX}
           scrollY={viewModeState.scrollY}
+          isEditing={mode === TerminalMode.Edit}
+          cursorX={editModeState?.cursorX}
+          cursorY={editModeState?.cursorY}
+          input={editModeState?.input}
+          isSavePromptOpen={editModeState?.isSavePromptOpen}
+          selectedSaveAction={editModeState?.selectedSaveAction}
         />
       )}
     </Box>

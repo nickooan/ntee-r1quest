@@ -1,10 +1,13 @@
 import { describe, expect, test } from "@jest/globals"
 import type { Key } from "ink"
 import {
+  createEditModeState,
   findSearchMatches,
+  handleEditModeInput,
   handleBaseModeInput,
   handleSearchModeInput,
   handleViewModeInput,
+  serializeEditModeContent,
   resolveModeCommand,
   TerminalMode,
   type BaseModeLimits,
@@ -68,6 +71,8 @@ describe("mode commands", () => {
     expect(resolveModeCommand("@s")).toBe(TerminalMode.Search)
     expect(resolveModeCommand("@view")).toBe(TerminalMode.View)
     expect(resolveModeCommand("@v")).toBe(TerminalMode.View)
+    expect(resolveModeCommand("@edit")).toBe(TerminalMode.Edit)
+    expect(resolveModeCommand("@e")).toBe(TerminalMode.Edit)
   })
 })
 
@@ -119,6 +124,88 @@ describe("view mode key helpers", () => {
       handleViewModeInput("", key({ rightArrow: true }), viewState, viewLimits)
         .state.scrollX,
     ).toBe(3)
+  })
+})
+
+describe("edit mode key helpers", () => {
+  test("moves the cursor and clamps to shorter target lines", () => {
+    const editState = {
+      ...createEditModeState("abcdef\nxy"),
+      cursorX: 5,
+      cursorY: 0,
+    }
+
+    const result = handleEditModeInput("", key({ downArrow: true }), editState)
+
+    expect(result.state.cursorY).toBe(1)
+    expect(result.state.cursorX).toBe(2)
+  })
+
+  test("buffers input and applies replacement on enter", () => {
+    const typedResult = handleEditModeInput(
+      "X",
+      defaultKey,
+      createEditModeState("abc"),
+    )
+
+    expect(typedResult.state.input).toBe("X")
+    expect(serializeEditModeContent(typedResult.state)).toBe("abc")
+
+    const appliedResult = handleEditModeInput(
+      "",
+      key({ return: true }),
+      typedResult.state,
+    )
+
+    expect(appliedResult.state.input).toBe("")
+    expect(appliedResult.state.cursorX).toBe(1)
+    expect(serializeEditModeContent(appliedResult.state)).toBe("Xbc")
+  })
+
+  test("inserts an empty line and removes file content with backspace", () => {
+    const insertedResult = handleEditModeInput(
+      "",
+      key({ return: true }),
+      createEditModeState("abc"),
+    )
+
+    expect(serializeEditModeContent(insertedResult.state)).toBe("abc\n")
+
+    const removedResult = handleEditModeInput("", key({ backspace: true }), {
+      ...createEditModeState("abc"),
+      cursorX: 2,
+    })
+
+    expect(serializeEditModeContent(removedResult.state)).toBe("ac")
+    expect(removedResult.state.cursorX).toBe(1)
+  })
+
+  test("opens save confirmation and selects yes or no", () => {
+    const promptResult = handleEditModeInput(
+      "",
+      key({ escape: true }),
+      createEditModeState("abc"),
+    )
+
+    expect(promptResult.state.isSavePromptOpen).toBe(true)
+    expect(promptResult.state.selectedSaveAction).toBe("yes")
+
+    const noResult = handleEditModeInput(
+      "",
+      key({ rightArrow: true }),
+      promptResult.state,
+    )
+
+    expect(noResult.state.selectedSaveAction).toBe("no")
+
+    const confirmResult = handleEditModeInput(
+      "",
+      key({ return: true }),
+      noResult.state,
+    )
+
+    expect(confirmResult.shouldSave).toBe(false)
+    expect(confirmResult.shouldExitEdit).toBe(true)
   })
 })
 

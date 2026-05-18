@@ -72,10 +72,7 @@ export const handleViewModeInput = (
     return {
       state: {
         ...state,
-        scrollY: Math.min(
-          limits.maxScrollY,
-          state.scrollY + limits.viewHeight,
-        ),
+        scrollY: Math.min(limits.maxScrollY, state.scrollY + limits.viewHeight),
       },
     }
   }

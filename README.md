@@ -151,6 +151,8 @@ Enter to open that file in a modal:
 ```
 
 Press Esc in the modal to close it and return to the main terminal view.
+While the modal is open in view mode, enter `@edit` or `@e` to switch the modal
+into edit mode. Entering `@edit` anywhere else shows an error in Result.
 
 The example files are:
 

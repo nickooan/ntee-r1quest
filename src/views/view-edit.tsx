@@ -8,6 +8,12 @@ export type ViewEditProps = {
   height: number
   scrollX: number
   scrollY: number
+  isEditing?: boolean
+  cursorX?: number
+  cursorY?: number
+  input?: string
+  isSavePromptOpen?: boolean
+  selectedSaveAction?: "yes" | "no"
 }
 
 const borderColor = "#5a5a5a"
@@ -86,13 +92,10 @@ type HighlightedLineProps = {
   scrollX: number
 }
 
-const HighlightedLine = ({ line, width, scrollX }: HighlightedLineProps) => {
-  const visibleLine = line.slice(scrollX, scrollX + width)
-  const padding = Math.max(0, width - visibleLine.length)
-
+const HighlightedText = ({ text }: { text: string }) => {
   return (
     <>
-      {highlightLine(visibleLine).map((segment, index) => (
+      {highlightLine(text).map((segment, index) => (
         <Text
           key={`${index}-${segment.text}`}
           color={segment.color}
@@ -102,7 +105,63 @@ const HighlightedLine = ({ line, width, scrollX }: HighlightedLineProps) => {
           {segment.text}
         </Text>
       ))}
+    </>
+  )
+}
+
+const HighlightedLine = ({ line, width, scrollX }: HighlightedLineProps) => {
+  const visibleLine = line.slice(scrollX, scrollX + width)
+  const padding = Math.max(0, width - visibleLine.length)
+
+  return (
+    <>
+      <HighlightedText text={visibleLine} />
       {" ".repeat(padding)}
+    </>
+  )
+}
+
+type EditableLineProps = {
+  line: string
+  width: number
+  scrollX: number
+  cursorX: number
+  input: string
+}
+
+const EditableLine = ({
+  line,
+  width,
+  scrollX,
+  cursorX,
+  input,
+}: EditableLineProps) => {
+  const cursorEnd = cursorX + Math.max(1, input.length)
+  const visibleStart = scrollX
+  const visibleEnd = scrollX + width
+
+  if (cursorEnd <= visibleStart || cursorX >= visibleEnd) {
+    return <HighlightedLine line={line} width={width} scrollX={scrollX} />
+  }
+
+  const before = line.slice(visibleStart, cursorX)
+  const cursorText = input || line[cursorX] || " "
+  const visibleCursorText = cursorText.slice(
+    Math.max(0, visibleStart - cursorX),
+    Math.max(0, visibleEnd - cursorX),
+  )
+  const afterStart = input ? cursorX + input.length : cursorX + 1
+  const after = line.slice(Math.max(afterStart, visibleStart), visibleEnd)
+  const renderedLength = before.length + visibleCursorText.length + after.length
+
+  return (
+    <>
+      <HighlightedText text={before} />
+      <Text color="whiteBright" backgroundColor={input ? "green" : "white"}>
+        {visibleCursorText}
+      </Text>
+      <HighlightedText text={after} />
+      {" ".repeat(Math.max(0, width - renderedLength))}
     </>
   )
 }
@@ -150,6 +209,12 @@ export const ViewEdit = ({
   height,
   scrollX,
   scrollY,
+  isEditing = false,
+  cursorX = 0,
+  cursorY = 0,
+  input = "",
+  isSavePromptOpen = false,
+  selectedSaveAction = "yes",
 }: ViewEditProps) => {
   const contentLines = content.split("\n")
   const { modalWidth, modalHeight, left, top, contentWidth, contentHeight } =
@@ -157,6 +222,7 @@ export const ViewEdit = ({
   const lineNumberWidth = String(
     Math.max(contentLines.length, contentHeight),
   ).length
+  const title = isEditing ? `${fileName} (editing)` : fileName
   const lines = contentLines.slice(scrollY, scrollY + contentHeight)
 
   while (lines.length < contentHeight) {
@@ -179,8 +245,12 @@ export const ViewEdit = ({
           {"Esc"}
         </Text>
       </Box>
-      <Box position="absolute" top={-1} left={Math.max(2, Math.floor((modalWidth - fileName.length) / 2))}>
-        <Text bold>{` ${fileName.slice(0, Math.max(1, modalWidth - 6))} `}</Text>
+      <Box
+        position="absolute"
+        top={-1}
+        left={Math.max(2, Math.floor((modalWidth - title.length) / 2))}
+      >
+        <Text bold>{` ${title.slice(0, Math.max(1, modalWidth - 6))} `}</Text>
       </Box>
       {Array.from({ length: paddingY }).map((_, index) => (
         <Text key={`padding-top-${index}`}>
@@ -194,7 +264,21 @@ export const ViewEdit = ({
             {String(scrollY + index + 1).padStart(lineNumberWidth, " ")}
             {" │"}
           </Text>
-          <HighlightedLine line={line} width={contentWidth} scrollX={scrollX} />
+          {isEditing && scrollY + index === cursorY ? (
+            <EditableLine
+              line={line}
+              width={contentWidth}
+              scrollX={scrollX}
+              cursorX={cursorX}
+              input={input}
+            />
+          ) : (
+            <HighlightedLine
+              line={line}
+              width={contentWidth}
+              scrollX={scrollX}
+            />
+          )}
           {" ".repeat(paddingX)}
         </Text>
       ))}
@@ -203,6 +287,40 @@ export const ViewEdit = ({
           {" ".repeat(Math.max(1, modalWidth - 2))}
         </Text>
       ))}
+      {isSavePromptOpen && (
+        <Box
+          position="absolute"
+          top={Math.max(1, Math.floor(modalHeight / 2) - 2)}
+          left={Math.max(2, Math.floor(modalWidth / 2) - 10)}
+          width={20}
+          height={5}
+          borderStyle="single"
+          borderColor={borderColor}
+          flexDirection="column"
+          alignItems="center"
+        >
+          <Text>{"Save it?"}</Text>
+          <Text>
+            <Text
+              color={selectedSaveAction === "yes" ? "black" : undefined}
+              backgroundColor={
+                selectedSaveAction === "yes" ? "white" : undefined
+              }
+            >
+              {" Yes "}
+            </Text>
+            {"  "}
+            <Text
+              color={selectedSaveAction === "no" ? "black" : undefined}
+              backgroundColor={
+                selectedSaveAction === "no" ? "white" : undefined
+              }
+            >
+              {" No "}
+            </Text>
+          </Text>
+        </Box>
+      )}
     </Box>
   )
 }

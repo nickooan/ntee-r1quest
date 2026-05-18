@@ -17,6 +17,14 @@ export {
   type SearchModeState,
 } from "./search-mode.ts"
 export {
+  createEditModeState,
+  handleEditModeInput,
+  serializeEditModeContent,
+  type EditModeResult,
+  type EditModeState,
+  type EditSaveAction,
+} from "./edit-mode.ts"
+export {
   handleViewModeInput,
   type ViewModeResult,
   type ViewModeState,
