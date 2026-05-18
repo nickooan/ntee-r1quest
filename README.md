@@ -477,11 +477,13 @@ or:
 
 ## Skills
 
-This repo includes a Claude Code and Codex-compatible skill for generating
+This repo includes a Claude Code plugin with a skill for generating
 `ntee-r1quest` request collections from Swagger/OpenAPI v3 specs:
 
 ```text
-skills/openapi-r1quest-generator/SKILL.md
+skills/openapi-r1quest-generator/
+  .claude-plugin/plugin.json
+  skills/openapi-r1quest-generator/SKILL.md
 ```
 
 The skill describes how to scan an OpenAPI YAML or JSON file and generate a
@@ -497,33 +499,32 @@ request project with this shape:
   create-property.nts
 ```
 
-Import it into Claude Code globally:
+Install it into Claude Code from this repository root:
 
 ```bash
-mkdir -p ~/.claude/skills
-cp -R skills/openapi-r1quest-generator ~/.claude/skills/openapi-r1quest-generator
+claude plugin install ./skills/openapi-r1quest-generator
 ```
 
-Or import it into a project-local Claude Code workspace:
+Validate the plugin from the plugin directory:
 
 ```bash
-mkdir -p .claude/skills
-cp -R skills/openapi-r1quest-generator .claude/skills/openapi-r1quest-generator
+cd skills/openapi-r1quest-generator
+claude plugin validate
 ```
 
 Import it into Codex globally:
 
 ```bash
 mkdir -p ~/.codex/skills
-cp -R skills/openapi-r1quest-generator ~/.codex/skills/openapi-r1quest-generator
+cp -R skills/openapi-r1quest-generator/skills/openapi-r1quest-generator ~/.codex/skills/openapi-r1quest-generator
 ```
 
 Or with `CODEX_HOME`:
 
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-cp -R skills/openapi-r1quest-generator "${CODEX_HOME:-$HOME/.codex}/skills/openapi-r1quest-generator"
+cp -R skills/openapi-r1quest-generator/skills/openapi-r1quest-generator "${CODEX_HOME:-$HOME/.codex}/skills/openapi-r1quest-generator"
 ```
 
-Once installed, ask Claude Code or Codex to use the skill with an OpenAPI spec
-path, output directory, and project name.
+Once installed, ask Claude Code or Codex to use the OpenAPI R1Quest generator
+with an OpenAPI spec path, output directory, and project name.
