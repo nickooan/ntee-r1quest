@@ -4,6 +4,7 @@ import {
   findSearchMatches,
   handleBaseModeInput,
   handleSearchModeInput,
+  handleViewModeInput,
   resolveModeCommand,
   TerminalMode,
   type BaseModeLimits,
@@ -65,6 +66,59 @@ describe("mode commands", () => {
     expect(resolveModeCommand("@q")).toBe(TerminalMode.Query)
     expect(resolveModeCommand("@search")).toBe(TerminalMode.Search)
     expect(resolveModeCommand("@s")).toBe(TerminalMode.Search)
+    expect(resolveModeCommand("@view")).toBe(TerminalMode.View)
+    expect(resolveModeCommand("@v")).toBe(TerminalMode.View)
+  })
+})
+
+describe("view mode key helpers", () => {
+  test("handles input editing and submit", () => {
+    const viewState = { command: "example", scrollX: 0, scrollY: 0 }
+
+    expect(handleViewModeInput("x", defaultKey, viewState).state.command).toBe(
+      "examplex",
+    )
+    expect(
+      handleViewModeInput("", key({ backspace: true }), viewState).state
+        .command,
+    ).toBe("exampl")
+
+    const submitResult = handleViewModeInput(
+      "",
+      key({ return: true }),
+      viewState,
+    )
+
+    expect(submitResult.selectedCommand).toBe("example")
+    expect(
+      handleViewModeInput("", key({ escape: true }), viewState).state,
+    ).toEqual(viewState)
+  })
+
+  test("handles view modal scrolling", () => {
+    const viewState = { command: "", scrollX: 2, scrollY: 3 }
+    const viewLimits = {
+      maxScrollX: 5,
+      maxScrollY: 10,
+      viewHeight: 4,
+    }
+
+    expect(
+      handleViewModeInput("", key({ upArrow: true }), viewState, viewLimits)
+        .state.scrollY,
+    ).toBe(2)
+    expect(
+      handleViewModeInput("", key({ downArrow: true }), viewState, viewLimits)
+        .state.scrollY,
+    ).toBe(4)
+    expect(
+      handleViewModeInput("", key({ leftArrow: true }), viewState, viewLimits)
+        .state.scrollX,
+    ).toBe(1)
+    expect(
+      handleViewModeInput("", key({ rightArrow: true }), viewState, viewLimits)
+        .state.scrollX,
+    ).toBe(3)
   })
 })
 

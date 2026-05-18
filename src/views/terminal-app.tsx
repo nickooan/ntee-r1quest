@@ -1,5 +1,5 @@
-import { readdirSync } from "node:fs"
-import { relative, resolve, sep } from "node:path"
+import { readdirSync, readFileSync } from "node:fs"
+import { basename, relative, resolve, sep } from "node:path"
 import type { AxiosResponse } from "axios"
 import React, { useEffect, useState } from "react"
 import { Box, Text, render, useInput, useWindowSize } from "ink"
@@ -9,13 +9,16 @@ import {
   focusSearchMatch,
   handleBaseModeInput,
   handleSearchModeInput,
+  handleViewModeInput,
   resolveModeCommand,
   type BaseModeState,
   type SearchMatch,
   type SearchModeState,
+  type ViewModeState,
   TerminalMode,
 } from "./key-helpers/index.ts"
 import { formatError, formatPending, formatResponse } from "./response.tsx"
+import { ViewEdit, buildViewEditLayout } from "./view-edit.tsx"
 
 export type TerminalAppProps = {
   response?: AxiosResponse
@@ -35,6 +38,11 @@ type Viewport = {
   maxScrollY: number
   safeScrollX: number
   safeScrollY: number
+}
+
+type OpenViewFile = {
+  fileName: string
+  content: string
 }
 
 const defaultHeight = 20
@@ -298,6 +306,34 @@ export const resolveSidebarCommand = (
   }
 
   return inputCommand
+}
+
+const readViewFile = (
+  root: string | undefined,
+  entry: FileTreeEntry,
+): OpenViewFile | null => {
+  if (!root || entry.type === "directory") {
+    return null
+  }
+
+  const resolvedRoot = resolve(root)
+  const resolvedPath = resolve(resolvedRoot, entry.relativePath)
+
+  if (!isInsideRoot(resolvedRoot, resolvedPath)) {
+    return null
+  }
+
+  try {
+    return {
+      fileName: basename(entry.relativePath),
+      content: readFileSync(resolvedPath, "utf8"),
+    }
+  } catch (error) {
+    return {
+      fileName: basename(entry.relativePath),
+      content: error instanceof Error ? error.message : "Unable to read file.",
+    }
+  }
 }
 
 type SidebarProps = {
@@ -602,11 +638,19 @@ export const TerminalApp = ({
     query: "",
     focusedMatchIndex: 0,
   })
+  const [viewModeState, setViewModeState] = useState<ViewModeState>({
+    command: "",
+    scrollX: 0,
+    scrollY: 0,
+  })
+  const [openViewFile, setOpenViewFile] = useState<OpenViewFile | null>(null)
   const [selectedCommand, setSelectedCommand] = useState("")
   const height = fixedHeight ?? rows ?? defaultHeight
   const width = fixedWidth ?? columns ?? defaultWidth
+  const commandInput =
+    mode === TerminalMode.View ? viewModeState.command : baseModeState.command
   const sidebarCommand = resolveSidebarCommand(
-    baseModeState.command,
+    commandInput,
     selectedCommand,
   )
   const expandedPathsForInput = buildExpandedDirectoryPaths(sidebarCommand)
@@ -649,7 +693,11 @@ export const TerminalApp = ({
       : []
   const contentLines = normalizeLines(content)
   const inputValue =
-    mode === TerminalMode.Search ? searchModeState.input : baseModeState.command
+    mode === TerminalMode.Search
+      ? searchModeState.input
+      : mode === TerminalMode.View
+        ? viewModeState.command
+        : baseModeState.command
   const promptValue = `@${mode} >`
 
   useEffect(() => {
@@ -677,6 +725,33 @@ export const TerminalApp = ({
   }, [])
 
   useInput((input, key) => {
+    if (openViewFile) {
+      if (key.escape) {
+        setOpenViewFile(null)
+        setViewModeState({
+          ...viewModeState,
+          scrollX: 0,
+          scrollY: 0,
+        })
+        return
+      }
+
+      const viewLines = openViewFile.content.split("\n")
+      const viewLayout = buildViewEditLayout(width, height, viewLines.length)
+      const maxLineWidth = viewLines.reduce(
+        (currentMax, line) => Math.max(currentMax, line.length),
+        0,
+      )
+      const result = handleViewModeInput(input, key, viewModeState, {
+        maxScrollX: Math.max(0, maxLineWidth - viewLayout.contentWidth),
+        maxScrollY: Math.max(0, viewLines.length - viewLayout.contentHeight),
+        viewHeight: viewLayout.contentHeight,
+      })
+
+      setViewModeState(result.state)
+      return
+    }
+
     if (mode === TerminalMode.Search) {
       const limits = {
         maxScrollX: viewport.maxScrollX,
@@ -713,6 +788,23 @@ export const TerminalApp = ({
         return
       }
 
+      if (nextMode === TerminalMode.View) {
+        setMode(TerminalMode.View)
+        setViewModeState({
+          command: "",
+          scrollX: 0,
+          scrollY: 0,
+        })
+        setSearchModeState({
+          scrollX: result.state.scrollX,
+          scrollY: result.state.scrollY,
+          input: "",
+          query: "",
+          focusedMatchIndex: 0,
+        })
+        return
+      }
+
       const nextMatches = findSearchMatches(content, result.state.query)
       const nextState =
         result.submittedQuery === undefined
@@ -720,6 +812,85 @@ export const TerminalApp = ({
           : focusSearchMatch(result.state, limits, nextMatches, 0)
 
       setSearchModeState(nextState)
+      return
+    }
+
+    if (mode === TerminalMode.View) {
+      const isModeCommandInput = viewModeState.command.trim().startsWith("@")
+      const isViewCommandInput =
+        viewModeState.command.trim() !== "" && !isModeCommandInput
+      const highlightedEntry = isViewCommandInput
+        ? fileTreeEntries[highlightedEntryIndex]
+        : undefined
+
+      if (!isModeCommandInput && highlightedEntry && key.return) {
+        if (highlightedEntry.type === "directory") {
+          setSelectedCommand(highlightedEntry.commandValue)
+          setViewModeState({
+            ...viewModeState,
+            command: highlightedEntry.commandValue,
+          })
+          return
+        }
+
+        const nextOpenViewFile = readViewFile(root, highlightedEntry)
+
+        if (nextOpenViewFile) {
+          setSelectedCommand(highlightedEntry.commandValue)
+          setViewModeState({
+            command: "",
+            scrollX: 0,
+            scrollY: 0,
+          })
+          setOpenViewFile(nextOpenViewFile)
+        }
+
+        return
+      }
+
+      const result = handleViewModeInput(input, key, viewModeState)
+      const nextMode =
+        result.selectedCommand === undefined
+          ? null
+          : resolveModeCommand(result.selectedCommand)
+
+      if (nextMode === TerminalMode.Query) {
+        setMode(TerminalMode.Query)
+        setViewModeState({
+          command: "",
+          scrollX: 0,
+          scrollY: 0,
+        })
+        return
+      }
+
+      if (nextMode === TerminalMode.Search) {
+        setMode(TerminalMode.Search)
+        setSearchModeState({
+          scrollX: baseModeState.scrollX,
+          scrollY: baseModeState.scrollY,
+          input: "",
+          query: "",
+          focusedMatchIndex: 0,
+        })
+        setViewModeState({
+          command: "",
+          scrollX: 0,
+          scrollY: 0,
+        })
+        return
+      }
+
+      if (nextMode === TerminalMode.View) {
+        setViewModeState({
+          command: "",
+          scrollX: 0,
+          scrollY: 0,
+        })
+        return
+      }
+
+      setViewModeState(result.state)
       return
     }
 
@@ -779,6 +950,17 @@ export const TerminalApp = ({
       return
     }
 
+    if (nextMode === TerminalMode.View) {
+      setMode(TerminalMode.View)
+      setViewModeState({
+        command: "",
+        scrollX: 0,
+        scrollY: 0,
+      })
+      setBaseModeState(result.state)
+      return
+    }
+
     setBaseModeState(result.state)
 
     if (result.command !== undefined && nextMode === null) {
@@ -790,7 +972,7 @@ export const TerminalApp = ({
   })
 
   return (
-    <Box flexDirection="column" width={width} height={height}>
+    <Box flexDirection="column" width={width} height={height} position="relative">
       <Box flexDirection="column" width={width} height={headerHeight}>
         <Text bold>{">_ Ntee R1quest"}</Text>
         {version && <Text color="#006400">{`ver: ${version}`}</Text>}
@@ -825,6 +1007,16 @@ export const TerminalApp = ({
           {isCursorVisible ? "_" : " "}
         </Text>
       </Box>
+      {openViewFile && (
+        <ViewEdit
+          fileName={openViewFile.fileName}
+          content={openViewFile.content}
+          width={width}
+          height={height}
+          scrollX={viewModeState.scrollX}
+          scrollY={viewModeState.scrollY}
+        />
+      )}
     </Box>
   )
 }

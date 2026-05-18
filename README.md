@@ -142,6 +142,16 @@ Return to query mode with `@q` or `@query`:
 @search >@q
 ```
 
+Switch to view mode with `@view` or `@v`, then type a request path and press
+Enter to open that file in a modal:
+
+```text
+@query >@view
+@view >folder-1/get-post
+```
+
+Press Esc in the modal to close it and return to the main terminal view.
+
 The example files are:
 
 ```text

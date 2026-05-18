@@ -16,4 +16,9 @@ export {
   type SearchModeResult,
   type SearchModeState,
 } from "./search-mode.ts"
+export {
+  handleViewModeInput,
+  type ViewModeResult,
+  type ViewModeState,
+} from "./view-mode.ts"
 export { TerminalMode, resolveModeCommand } from "./mode.ts"
