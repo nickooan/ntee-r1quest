@@ -193,15 +193,36 @@ describe("edit mode key helpers", () => {
     expect(serializeEditModeContent(appliedResult.state)).toBe("abXcxyz")
   })
 
-  test("inserts an empty line and removes file content with backspace", () => {
-    const insertedResult = handleEditModeInput(
-      "",
-      key({ return: true }),
-      createEditModeState("abc"),
-    )
+  test("splits the current line on enter with empty input", () => {
+    const middleResult = handleEditModeInput("", key({ return: true }), {
+      ...createEditModeState("abcd"),
+      cursorX: 2,
+    })
 
-    expect(serializeEditModeContent(insertedResult.state)).toBe("abc\n")
+    expect(serializeEditModeContent(middleResult.state)).toBe("ab\ncd")
+    expect(middleResult.state.cursorX).toBe(0)
+    expect(middleResult.state.cursorY).toBe(1)
 
+    const beginningResult = handleEditModeInput("", key({ return: true }), {
+      ...createEditModeState("abcd"),
+      cursorX: 0,
+    })
+
+    expect(serializeEditModeContent(beginningResult.state)).toBe("\nabcd")
+    expect(beginningResult.state.cursorX).toBe(0)
+    expect(beginningResult.state.cursorY).toBe(1)
+
+    const endResult = handleEditModeInput("", key({ return: true }), {
+      ...createEditModeState("abcd"),
+      cursorX: 4,
+    })
+
+    expect(serializeEditModeContent(endResult.state)).toBe("abcd\n")
+    expect(endResult.state.cursorX).toBe(0)
+    expect(endResult.state.cursorY).toBe(1)
+  })
+
+  test("removes file content with backspace", () => {
     const removedResult = handleEditModeInput("", key({ backspace: true }), {
       ...createEditModeState("abc"),
       cursorX: 2,

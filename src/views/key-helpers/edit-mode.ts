@@ -73,10 +73,17 @@ const insertAtCursor = (state: EditModeState): EditModeState => {
   }
 }
 
-const insertEmptyLine = (state: EditModeState): EditModeState => {
+const splitLineAtCursor = (state: EditModeState): EditModeState => {
   const lines = [...state.lines]
+  const line = lines[state.cursorY] ?? ""
+  const safeCursorX = Math.min(Math.max(state.cursorX, 0), line.length)
 
-  lines.splice(state.cursorY + 1, 0, "")
+  if (safeCursorX === line.length) {
+    lines.splice(state.cursorY + 1, 0, "")
+  } else {
+    lines[state.cursorY] = line.slice(0, safeCursorX)
+    lines.splice(state.cursorY + 1, 0, line.slice(safeCursorX))
+  }
 
   return {
     ...state,
@@ -248,7 +255,7 @@ export const handleEditModeInput = (
 
   if (key.return) {
     return {
-      state: state.input ? insertAtCursor(state) : insertEmptyLine(state),
+      state: state.input ? insertAtCursor(state) : splitLineAtCursor(state),
     }
   }
 
