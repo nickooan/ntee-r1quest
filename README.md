@@ -1,8 +1,15 @@
 # ntee-r1quest
 
-`ntee-r1quest` is a small terminal HTTP request runner. Requests are written in
-`.nts` files, reusable data is written in `.ntd` files, and macros connect the
-two.
+`ntee-r1quest` is a Postman-like terminal app for testing HTTP requests from a
+file-based collection. Teams can keep request collections in a Git repo,
+generate them from Swagger/OpenAPI specs, and run the app against that repo.
+
+Once running, `ntee-r1quest` lets you trigger `.nts` request files, review the
+HTTP response, edit requests, and search response output from the terminal.
+
+```bash
+npx ntee-r1quest -r {repo dir}
+```
 
 ![ntee-r1quest terminal demo](docs/assets/readme-demo.gif)
 
