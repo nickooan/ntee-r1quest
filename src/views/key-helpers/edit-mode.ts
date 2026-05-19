@@ -7,6 +7,7 @@ export type EditModeState = {
   cursorX: number
   cursorY: number
   input: string
+  inputCursorX: number
   isSavePromptOpen: boolean
   selectedSaveAction: EditSaveAction
 }
@@ -23,6 +24,7 @@ export const createEditModeState = (content: string): EditModeState => {
     cursorX: 0,
     cursorY: 0,
     input: "",
+    inputCursorX: 0,
     isSavePromptOpen: false,
     selectedSaveAction: "yes",
   }
@@ -49,11 +51,15 @@ const clampCursor = (
   }
 }
 
-const replaceAtCursor = (state: EditModeState): EditModeState => {
+const clampInputCursor = (input: string, inputCursorX: number): number => {
+  return Math.min(Math.max(inputCursorX, 0), input.length)
+}
+
+const insertAtCursor = (state: EditModeState): EditModeState => {
   const lines = [...state.lines]
   const line = lines[state.cursorY] ?? ""
   const nextLine = `${line.slice(0, state.cursorX)}${state.input}${line.slice(
-    state.cursorX + state.input.length,
+    state.cursorX,
   )}`
 
   lines[state.cursorY] = nextLine
@@ -63,6 +69,7 @@ const replaceAtCursor = (state: EditModeState): EditModeState => {
     lines,
     cursorX: state.cursorX + state.input.length,
     input: "",
+    inputCursorX: 0,
   }
 }
 
@@ -177,6 +184,24 @@ export const handleEditModeInput = (
     }
   }
 
+  if (key.shift && key.leftArrow) {
+    return {
+      state: {
+        ...state,
+        inputCursorX: clampInputCursor(state.input, state.inputCursorX - 1),
+      },
+    }
+  }
+
+  if (key.shift && key.rightArrow) {
+    return {
+      state: {
+        ...state,
+        inputCursorX: clampInputCursor(state.input, state.inputCursorX + 1),
+      },
+    }
+  }
+
   if (key.leftArrow) {
     return {
       state: {
@@ -197,10 +222,21 @@ export const handleEditModeInput = (
 
   if (key.backspace || key.delete) {
     if (state.input) {
+      const inputCursorX = clampInputCursor(state.input, state.inputCursorX)
+
+      if (inputCursorX === 0) {
+        return { state }
+      }
+
+      const input = `${state.input.slice(0, inputCursorX - 1)}${state.input.slice(
+        inputCursorX,
+      )}`
+
       return {
         state: {
           ...state,
-          input: state.input.slice(0, -1),
+          input,
+          inputCursorX: inputCursorX - 1,
         },
       }
     }
@@ -212,7 +248,7 @@ export const handleEditModeInput = (
 
   if (key.return) {
     return {
-      state: state.input ? replaceAtCursor(state) : insertEmptyLine(state),
+      state: state.input ? insertAtCursor(state) : insertEmptyLine(state),
     }
   }
 
@@ -221,10 +257,16 @@ export const handleEditModeInput = (
   }
 
   if (input) {
+    const inputCursorX = clampInputCursor(state.input, state.inputCursorX)
+    const nextInput = `${state.input.slice(0, inputCursorX)}${input}${state.input.slice(
+      inputCursorX,
+    )}`
+
     return {
       state: {
         ...state,
-        input: `${state.input}${input}`,
+        input: nextInput,
+        inputCursorX: inputCursorX + input.length,
       },
     }
   }

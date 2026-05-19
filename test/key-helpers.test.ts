@@ -141,7 +141,7 @@ describe("edit mode key helpers", () => {
     expect(result.state.cursorX).toBe(2)
   })
 
-  test("buffers input and applies replacement on enter", () => {
+  test("buffers input and inserts it on enter", () => {
     const typedResult = handleEditModeInput(
       "X",
       defaultKey,
@@ -149,6 +149,7 @@ describe("edit mode key helpers", () => {
     )
 
     expect(typedResult.state.input).toBe("X")
+    expect(typedResult.state.inputCursorX).toBe(1)
     expect(serializeEditModeContent(typedResult.state)).toBe("abc")
 
     const appliedResult = handleEditModeInput(
@@ -158,8 +159,38 @@ describe("edit mode key helpers", () => {
     )
 
     expect(appliedResult.state.input).toBe("")
+    expect(appliedResult.state.inputCursorX).toBe(0)
     expect(appliedResult.state.cursorX).toBe(1)
-    expect(serializeEditModeContent(appliedResult.state)).toBe("Xbc")
+    expect(serializeEditModeContent(appliedResult.state)).toBe("Xabc")
+  })
+
+  test("moves the buffered input cursor with shift arrows", () => {
+    const typedResult = handleEditModeInput(
+      "abc",
+      defaultKey,
+      createEditModeState("xyz"),
+    )
+    const movedResult = handleEditModeInput(
+      "",
+      key({ shift: true, leftArrow: true }),
+      typedResult.state,
+    )
+    const insertedResult = handleEditModeInput(
+      "X",
+      defaultKey,
+      movedResult.state,
+    )
+
+    expect(insertedResult.state.input).toBe("abXc")
+    expect(insertedResult.state.inputCursorX).toBe(3)
+
+    const appliedResult = handleEditModeInput(
+      "",
+      key({ return: true }),
+      insertedResult.state,
+    )
+
+    expect(serializeEditModeContent(appliedResult.state)).toBe("abXcxyz")
   })
 
   test("inserts an empty line and removes file content with backspace", () => {

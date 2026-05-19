@@ -150,8 +150,16 @@ const EditableLine = ({
     Math.max(0, visibleStart - cursorX),
     Math.max(0, visibleEnd - cursorX),
   )
-  const afterStart = input ? cursorX + input.length : cursorX + 1
-  const after = line.slice(Math.max(afterStart, visibleStart), visibleEnd)
+  const afterStart = input ? cursorX : cursorX + 1
+  const afterVisibleStart = Math.max(afterStart, visibleStart)
+  const remainingWidth = Math.max(
+    0,
+    width - before.length - visibleCursorText.length,
+  )
+  const after = line.slice(
+    afterVisibleStart,
+    afterVisibleStart + remainingWidth,
+  )
   const renderedLength = before.length + visibleCursorText.length + after.length
 
   return (

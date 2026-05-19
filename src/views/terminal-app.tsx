@@ -734,6 +734,17 @@ export const TerminalApp = ({
         : mode === TerminalMode.View
           ? viewModeState.command
           : baseModeState.command
+  const commandInputCursorX = Math.min(
+    Math.max(
+      mode === TerminalMode.Edit
+        ? (editModeState?.inputCursorX ?? inputValue.length)
+        : inputValue.length,
+      0,
+    ),
+    inputValue.length,
+  )
+  const inputBeforeCursor = inputValue.slice(0, commandInputCursorX)
+  const inputAfterCursor = inputValue.slice(commandInputCursorX)
   const promptValue = `@${mode} >`
 
   useEffect(() => {
@@ -1153,10 +1164,13 @@ export const TerminalApp = ({
         backgroundColor={commandBackgroundColor}
       >
         <Text backgroundColor={commandBackgroundColor}>{promptValue}</Text>
-        <Text backgroundColor={commandBackgroundColor}>{inputValue}</Text>
+        <Text backgroundColor={commandBackgroundColor}>
+          {inputBeforeCursor}
+        </Text>
         <Text bold backgroundColor={commandBackgroundColor}>
           {isCursorVisible ? "_" : " "}
         </Text>
+        <Text backgroundColor={commandBackgroundColor}>{inputAfterCursor}</Text>
       </Box>
       {openViewFile && (
         <ViewEdit
