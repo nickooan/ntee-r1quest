@@ -17,6 +17,7 @@ export type ViewEditProps = {
 }
 
 const borderColor = "#5a5a5a"
+const savePromptBackgroundColor = "black"
 const paddingX = 1
 const paddingY = 1
 const syntaxPattern =
@@ -304,15 +305,18 @@ export const ViewEdit = ({
           height={5}
           borderStyle="single"
           borderColor={borderColor}
+          backgroundColor={savePromptBackgroundColor}
           flexDirection="column"
           alignItems="center"
         >
-          <Text>{"Save it?"}</Text>
-          <Text>
+          <Text backgroundColor={savePromptBackgroundColor}>{"Save it?"}</Text>
+          <Text backgroundColor={savePromptBackgroundColor}>
             <Text
               color={selectedSaveAction === "yes" ? "black" : undefined}
               backgroundColor={
-                selectedSaveAction === "yes" ? "white" : undefined
+                selectedSaveAction === "yes"
+                  ? "white"
+                  : savePromptBackgroundColor
               }
             >
               {" Yes "}
@@ -321,7 +325,9 @@ export const ViewEdit = ({
             <Text
               color={selectedSaveAction === "no" ? "black" : undefined}
               backgroundColor={
-                selectedSaveAction === "no" ? "white" : undefined
+                selectedSaveAction === "no"
+                  ? "white"
+                  : savePromptBackgroundColor
               }
             >
               {" No "}
