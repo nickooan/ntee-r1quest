@@ -25,6 +25,7 @@
     "start": "node ./dist/index.js -r ./example",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --runInBand",
     "typecheck": "tsc -p tsconfig.json",
+    "pack:dry-run": "npm run build && npm pack --dry-run",
     "clean": "node ./bin/scripts/clean-dist.mjs"
   },
   "devDependencies": {

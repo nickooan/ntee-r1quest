@@ -11,7 +11,7 @@ HTTP response, edit requests, and search response output from the terminal.
 npx ntee-r1quest -r {repo dir}
 ```
 
-![ntee-r1quest terminal demo](docs/assets/readme-demo.gif)
+![ntee-r1quest terminal demo](https://codeberg.org/nickoan/ntee-r1quest/raw/branch/main/docs/assets/readme-demo.gif)
 
 ## Usage
 
