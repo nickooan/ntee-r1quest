@@ -5,13 +5,44 @@ file-based collection. Teams can keep request collections in a Git repo,
 generate them from Swagger/OpenAPI specs, and run the app against that repo.
 
 Once running, `ntee-r1quest` lets you trigger `.nts` request files, review the
-HTTP response, edit requests, and search response output from the terminal.
+HTTP response, edit requests, search response output, and chat with a local AI
+agent from the terminal.
 
 ```bash
-npx ntee-r1quest -r {repo dir}
+npx ntee-r1quest -r {repo dir} -ai codex
 ```
 
 ![ntee-r1quest terminal demo](https://codeberg.org/nickoan/ntee-r1quest/raw/branch/main/docs/assets/readme-demo.gif)
+
+## AI
+
+Use `@ai` inside the terminal UI to enter AI chat mode and talk with your local
+AI agent. The chat runs through an ACP adapter, so the agent session can keep
+running while you leave and re-enter the AI overlay.
+
+The goal of this chat is not to replace your regular local AI agent terminal
+app. It is for short, quick actions while you are working in `ntee-r1quest`, so
+you do not need to swap apps or rebuild context for small questions and edits.
+
+Choose the AI adapter with `-ai`:
+
+```bash
+npx ntee-r1quest -r ./example/request -ai codex
+```
+
+or:
+
+```bash
+npx ntee-r1quest -r ./example/request -ai claude
+```
+
+Currently supported terminal AI agents are:
+
+- `codex`
+- `claude` for Claude Code
+
+If `-ai` is not provided, `ntee-r1quest` reads the `ai` value from
+`.r1qconfig.json`. If neither is provided, it uses `codex` by default.
 
 ## Usage
 
