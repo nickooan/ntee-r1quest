@@ -1,4 +1,5 @@
 import type { Key } from "ink"
+import { isAppExitCommand } from "./mode.ts"
 
 export type AiChatMessage = {
   role: "user" | "assistant"
@@ -79,7 +80,7 @@ export const handleAiModeInput = (
       }
     }
 
-    if (trimmedInput === "@exit" || trimmedInput === "@quit") {
+    if (isAppExitCommand(trimmedInput)) {
       return {
         state: {
           ...state,

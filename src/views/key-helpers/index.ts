@@ -35,4 +35,4 @@ export {
   type ViewModeResult,
   type ViewModeState,
 } from "./view-mode.ts"
-export { TerminalMode, resolveModeCommand } from "./mode.ts"
+export { TerminalMode, isAppExitCommand, resolveModeCommand } from "./mode.ts"

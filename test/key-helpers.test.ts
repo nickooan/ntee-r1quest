@@ -9,6 +9,7 @@ import {
   handleBaseModeInput,
   handleSearchModeInput,
   handleViewModeInput,
+  isAppExitCommand,
   serializeEditModeContent,
   resolveModeCommand,
   TerminalMode,
@@ -77,6 +78,8 @@ describe("mode commands", () => {
     expect(resolveModeCommand("@e")).toBe(TerminalMode.Edit)
     expect(resolveModeCommand("@ai")).toBe(TerminalMode.Ai)
     expect(resolveModeCommand("@a")).toBe(TerminalMode.Ai)
+    expect(isAppExitCommand("@exit")).toBe(true)
+    expect(isAppExitCommand("@quit")).toBe(true)
   })
 })
 

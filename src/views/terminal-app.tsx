@@ -3,7 +3,6 @@ import type { AxiosResponse } from "axios"
 import React, { useEffect, useRef, useState } from "react"
 import { Box, Text, render, useInput, useWindowSize } from "ink"
 import {
-  clampValue,
   createEditModeState,
   createAiModeState,
   findSearchMatches,
@@ -13,17 +12,16 @@ import {
   handleEditModeInput,
   handleSearchModeInput,
   handleViewModeInput,
+  isAppExitCommand,
   resolveModeCommand,
   serializeEditModeContent,
   type BaseModeState,
   type AiModeState,
   type EditModeState,
-  type SearchMatch,
   type SearchModeState,
   type ViewModeState,
   TerminalMode,
 } from "./key-helpers/index.ts"
-import { formatError, formatPending, formatResponse } from "./response.tsx"
 import { Ai, buildAiLayout, buildAiMessageLines } from "./ai.tsx"
 import { ViewEdit, buildViewEditLayout } from "./view-edit.tsx"
 import {
@@ -31,19 +29,37 @@ import {
   type AcpAdaptorConstructor,
   type AcpAdaptorName,
   type CodexAcpPermissionRequest,
-  type CodexAcpResponse,
 } from "../runtime/acp/index.ts"
 import {
   buildExpandedDirectoryPaths,
   buildFileTreeEntries,
-  buildFileTreeViewport,
-  formatFileTreeEntryParts,
   readViewFile,
   resolveHighlightedEntry,
   resolveSidebarCommand,
-  type FileTreeEntry,
   type OpenViewFile,
 } from "../runtime/file-manager/index.ts"
+import {
+  commandBackgroundColor,
+  commandLineHeight,
+  defaultHeight,
+  defaultWidth,
+  editModeRequiresViewFileMessage,
+  headerHeight,
+  paneGap,
+  requestStatsHeight,
+} from "./terminal/constants.ts"
+import {
+  appendAcpResponse,
+  findPermissionOptionId,
+  formatAcpPermissionMessage,
+} from "./terminal/ai-session.ts"
+import { formatTerminalContent } from "./terminal/content.ts"
+import { resolveEditScroll } from "./terminal/edit-scroll.ts"
+import { ResponsePane } from "./terminal/response-pane.tsx"
+import { Sidebar } from "./terminal/sidebar.tsx"
+import { buildTerminalViewport, normalizeLines } from "./terminal/viewport.ts"
+
+export { buildTerminalViewport } from "./terminal/viewport.ts"
 
 export type TerminalAppProps = {
   response?: AxiosResponse
@@ -59,414 +75,7 @@ export type TerminalAppProps = {
   onExit?: () => void
 }
 
-type Viewport = {
-  lines: string[]
-  maxScrollX: number
-  maxScrollY: number
-  safeScrollX: number
-  safeScrollY: number
-}
-
 type AcpAdapter = InstanceType<AcpAdaptorConstructor>
-
-const defaultHeight = 20
-const defaultWidth = 80
-const commandLineHeight = 1
-const headerHeight = 3
-const requestStatsHeight = 1
-const paneGap = 1
-const commandBackgroundColor = "#1f1f1f"
-const paneBorderColor = "#3a3a3a"
-const editModeRequiresViewFileMessage =
-  "please select a file in view mode then enter to @edit."
-const appExitCommands = new Set(["@exit", "@quit"])
-
-const formatAcpPermissionMessage = (
-  request: CodexAcpPermissionRequest,
-): string => {
-  return request.toolCall.title ?? "Allow AI agent action?"
-}
-
-const findPermissionOptionId = (
-  request: CodexAcpPermissionRequest,
-  decision: "allow" | "reject",
-): string | undefined => {
-  const option = request.options.find((permissionOption) => {
-    return decision === "allow"
-      ? permissionOption.kind.startsWith("allow")
-      : permissionOption.kind.startsWith("reject")
-  })
-
-  return option?.optionId
-}
-
-const appendAssistantResponse = (
-  state: AiModeState,
-  content: string,
-): AiModeState => {
-  if (!content) {
-    return state
-  }
-
-  const lastMessage = state.messages.at(-1)
-
-  if (lastMessage?.role === "assistant") {
-    return {
-      ...state,
-      scrollY: 0,
-      messages: [
-        ...state.messages.slice(0, -1),
-        {
-          role: "assistant",
-          content: `${lastMessage.content}${content}`,
-        },
-      ],
-    }
-  }
-
-  return {
-    ...state,
-    scrollY: 0,
-    messages: [
-      ...state.messages,
-      {
-        role: "assistant",
-        content,
-      },
-    ],
-  }
-}
-
-const appendAcpResponse = (
-  state: AiModeState,
-  response: CodexAcpResponse,
-): AiModeState => {
-  const { update } = response
-
-  if (
-    update.sessionUpdate === "agent_message_chunk" &&
-    update.content.type === "text"
-  ) {
-    return appendAssistantResponse(state, update.content.text)
-  }
-
-  if (update.sessionUpdate === "tool_call") {
-    return appendAssistantResponse(state, `\n[${update.title}]`)
-  }
-
-  if (update.sessionUpdate === "tool_call_update" && update.title) {
-    return appendAssistantResponse(state, `\n[${update.title}]`)
-  }
-
-  return state
-}
-
-const normalizeLines = (content: string): string[] => {
-  return content.split("\n")
-}
-
-const sliceLine = (line: string, scrollX: number, width: number): string => {
-  return line.slice(scrollX, scrollX + width).padEnd(width, " ")
-}
-
-const resolveEditScroll = (
-  state: EditModeState,
-  width: number,
-  height: number,
-): Pick<ViewModeState, "scrollX" | "scrollY"> => {
-  const layout = buildViewEditLayout(width, height, state.lines.length)
-  let scrollX = state.cursorX < 0 ? 0 : state.cursorX
-  let scrollY = state.cursorY < 0 ? 0 : state.cursorY
-
-  if (state.cursorX >= layout.contentWidth) {
-    scrollX = state.cursorX - layout.contentWidth + 1
-  } else {
-    scrollX = 0
-  }
-
-  if (state.cursorY >= layout.contentHeight) {
-    scrollY = state.cursorY - layout.contentHeight + 1
-  } else {
-    scrollY = 0
-  }
-
-  return { scrollX, scrollY }
-}
-
-type SidebarProps = {
-  entries: FileTreeEntry[]
-  highlightedIndex: number
-  width: number
-  height: number
-}
-
-type PaneTitleProps = {
-  title: string
-  width: number
-}
-
-const PaneTitle = ({ title, width }: PaneTitleProps) => {
-  const label = ` ${title} `.slice(0, Math.max(0, width - 4))
-
-  return (
-    <Box position="absolute" top={-1} left={2}>
-      <Text color="white">{label}</Text>
-    </Box>
-  )
-}
-
-const Sidebar = ({
-  entries,
-  highlightedIndex,
-  width,
-  height,
-}: SidebarProps) => {
-  const viewportHeight = Math.max(1, height - 2)
-  const viewport = buildFileTreeViewport(
-    entries,
-    viewportHeight,
-    0,
-    highlightedIndex,
-  )
-
-  return (
-    <Box
-      flexDirection="column"
-      width={width}
-      height={height}
-      borderStyle="single"
-      borderColor={paneBorderColor}
-      position="relative"
-    >
-      <PaneTitle title="Collections" width={width} />
-      {viewport.entries.map((entry, index) => {
-        const entryIndex = viewport.safeScrollY + index
-        const isHighlighted = entryIndex === highlightedIndex
-        const labelParts = formatFileTreeEntryParts(
-          entry,
-          Math.max(1, width - 2),
-        )
-        const textColor = isHighlighted ? "black" : undefined
-        const backgroundColor = isHighlighted ? "yellow" : undefined
-        const dimColor = !isHighlighted
-
-        return (
-          <Text
-            key={entry.relativePath}
-            color={textColor}
-            backgroundColor={backgroundColor}
-            dimColor={dimColor}
-          >
-            <Text
-              color={textColor}
-              backgroundColor={backgroundColor}
-              dimColor={dimColor}
-            >
-              {labelParts.indent}
-            </Text>
-            <Text
-              color={textColor}
-              backgroundColor={backgroundColor}
-              dimColor={dimColor}
-              bold={entry.type === "directory"}
-            >
-              {labelParts.marker}
-            </Text>
-            <Text
-              color={textColor}
-              backgroundColor={backgroundColor}
-              dimColor={dimColor}
-            >
-              {labelParts.name}
-              {labelParts.padding}
-            </Text>
-          </Text>
-        )
-      })}
-      {Array.from({
-        length: Math.max(0, viewportHeight - viewport.entries.length),
-      }).map((_, index) => (
-        <Text key={`empty-tree-${index}`}>
-          {" ".repeat(Math.max(1, width - 2))}
-        </Text>
-      ))}
-    </Box>
-  )
-}
-
-type ResponsePaneProps = {
-  contentLines: string[]
-  viewport: Viewport
-  searchMatches: SearchMatch[]
-  focusedMatchIndex: number
-  width: number
-  height: number
-}
-
-const ResponsePane = ({
-  contentLines,
-  viewport,
-  searchMatches,
-  focusedMatchIndex,
-  width,
-  height,
-}: ResponsePaneProps) => {
-  const contentWidth = Math.max(1, width - 2)
-
-  return (
-    <Box
-      flexDirection="column"
-      width={width}
-      height={height}
-      borderStyle="single"
-      borderColor={paneBorderColor}
-      position="relative"
-    >
-      <PaneTitle title="Result" width={width} />
-      {viewport.lines.map((line, index) => (
-        <Box key={`${viewport.safeScrollY}-${index}`} width={contentWidth}>
-          <VisibleLine
-            line={contentLines[viewport.safeScrollY + index] ?? ""}
-            lineIndex={viewport.safeScrollY + index}
-            scrollX={viewport.safeScrollX}
-            width={contentWidth}
-            matches={searchMatches}
-            focusedMatchIndex={focusedMatchIndex}
-          />
-        </Box>
-      ))}
-    </Box>
-  )
-}
-
-const formatTerminalContent = ({
-  response,
-  error,
-  isPending,
-  frameIndex,
-}: Pick<TerminalAppProps, "response" | "error" | "isPending"> & {
-  frameIndex: number
-}): string => {
-  if (isPending) {
-    return formatPending(frameIndex)
-  }
-
-  if (error !== undefined) {
-    return formatError(error)
-  }
-
-  if (response) {
-    return formatResponse(response)
-  }
-
-  return ""
-}
-
-export const buildTerminalViewport = (
-  content: string,
-  width: number,
-  height: number,
-  scrollX: number,
-  scrollY: number,
-): Viewport => {
-  const lines = normalizeLines(content)
-  const maxLineWidth = lines.reduce(
-    (currentMax, line) => Math.max(currentMax, line.length),
-    0,
-  )
-  const maxScrollX = Math.max(0, maxLineWidth - width)
-  const maxScrollY = Math.max(0, lines.length - height)
-  const safeScrollX = clampValue(scrollX, 0, maxScrollX)
-  const safeScrollY = clampValue(scrollY, 0, maxScrollY)
-  const visibleLines = lines
-    .slice(safeScrollY, safeScrollY + height)
-    .map((line) => sliceLine(line, safeScrollX, width))
-
-  while (visibleLines.length < height) {
-    visibleLines.push(" ".repeat(width))
-  }
-
-  return {
-    lines: visibleLines,
-    maxScrollX,
-    maxScrollY,
-    safeScrollX,
-    safeScrollY,
-  }
-}
-
-type VisibleLineProps = {
-  line: string
-  lineIndex: number
-  scrollX: number
-  width: number
-  matches: SearchMatch[]
-  focusedMatchIndex: number
-}
-
-const VisibleLine = ({
-  line,
-  lineIndex,
-  scrollX,
-  width,
-  matches,
-  focusedMatchIndex,
-}: VisibleLineProps) => {
-  const visibleStart = scrollX
-  const visibleEnd = scrollX + width
-  const lineMatches = matches
-    .map((match, matchIndex) => ({
-      ...match,
-      matchIndex,
-    }))
-    .filter(
-      (match) =>
-        match.lineIndex === lineIndex &&
-        match.end > visibleStart &&
-        match.start < visibleEnd,
-    )
-    .sort((left, right) => left.start - right.start)
-  const children: React.ReactNode[] = []
-  let cursor = visibleStart
-
-  for (const match of lineMatches) {
-    const matchStart = Math.max(match.start, visibleStart)
-    const matchEnd = Math.min(match.end, visibleEnd)
-    const isFocusedMatch = match.matchIndex === focusedMatchIndex
-
-    if (matchStart > cursor) {
-      children.push(
-        <Text key={`text-${cursor}`} wrap="truncate-end">
-          {line.slice(cursor, matchStart)}
-        </Text>,
-      )
-    }
-
-    children.push(
-      <Text
-        key={`match-${match.matchIndex}-${matchStart}`}
-        color="black"
-        backgroundColor={isFocusedMatch ? "yellow" : "white"}
-        bold={isFocusedMatch}
-        underline={isFocusedMatch}
-      >
-        {line.slice(matchStart, matchEnd)}
-      </Text>,
-    )
-
-    cursor = matchEnd
-  }
-
-  if (cursor < visibleEnd) {
-    children.push(
-      <Text key={`text-${cursor}`} wrap="truncate-end">
-        {line.slice(cursor, visibleEnd).padEnd(visibleEnd - cursor, " ")}
-      </Text>,
-    )
-  }
-
-  return <>{children}</>
-}
 
 export const TerminalApp = ({
   response,
@@ -855,7 +464,7 @@ export const TerminalApp = ({
 
       if (
         result.selectedCommand !== undefined &&
-        appExitCommands.has(result.selectedCommand)
+        isAppExitCommand(result.selectedCommand)
       ) {
         exitApp()
         return
@@ -929,7 +538,7 @@ export const TerminalApp = ({
 
       if (
         result.submittedQuery !== undefined &&
-        appExitCommands.has(result.submittedQuery)
+        isAppExitCommand(result.submittedQuery)
       ) {
         exitApp()
         return
@@ -1043,7 +652,7 @@ export const TerminalApp = ({
 
       if (
         result.selectedCommand !== undefined &&
-        appExitCommands.has(result.selectedCommand)
+        isAppExitCommand(result.selectedCommand)
       ) {
         exitApp()
         return
@@ -1152,7 +761,7 @@ export const TerminalApp = ({
     const nextMode =
       result.command === undefined ? null : resolveModeCommand(result.command)
 
-    if (result.command !== undefined && appExitCommands.has(result.command)) {
+    if (result.command !== undefined && isAppExitCommand(result.command)) {
       exitApp()
       return
     }
