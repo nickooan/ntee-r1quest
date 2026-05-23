@@ -1,6 +1,6 @@
 {
   "name": "ntee-r1quest",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "homepage": "https://codeberg.org/nickoan/ntee-r1quest",
   "license": "GPL-3.0-only",
   "main": "dist/index.js",
@@ -26,7 +26,8 @@
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --runInBand",
     "typecheck": "tsc -p tsconfig.json",
     "pack:dry-run": "npm run build && npm pack --dry-run",
-    "clean": "node ./bin/scripts/clean-dist.mjs"
+    "clean": "node ./bin/scripts/clean-dist.mjs",
+    "version:bump": "node ./bin/scripts/bump-version.mjs"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
@@ -38,7 +39,10 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@agentclientprotocol/claude-agent-acp": "^0.36.1",
+    "@agentclientprotocol/sdk": "^0.22.1",
     "@types/react": "^19.2.14",
+    "@zed-industries/codex-acp": "^0.14.0",
     "axios": "^1.16.1",
     "ink": "^7.0.1",
     "ohm-js": "^17.5.0",

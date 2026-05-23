@@ -1,13 +1,15 @@
 import { readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { basename, relative, resolve, sep } from "node:path"
 import type { AxiosResponse } from "axios"
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { Box, Text, render, useInput, useWindowSize } from "ink"
 import {
   clampValue,
   createEditModeState,
+  createAiModeState,
   findSearchMatches,
   focusSearchMatch,
+  handleAiModeInput,
   handleBaseModeInput,
   handleEditModeInput,
   handleSearchModeInput,
@@ -15,6 +17,7 @@ import {
   resolveModeCommand,
   serializeEditModeContent,
   type BaseModeState,
+  type AiModeState,
   type EditModeState,
   type SearchMatch,
   type SearchModeState,
@@ -22,7 +25,15 @@ import {
   TerminalMode,
 } from "./key-helpers/index.ts"
 import { formatError, formatPending, formatResponse } from "./response.tsx"
+import { Ai, buildAiLayout, buildAiMessageLines } from "./ai.tsx"
 import { ViewEdit, buildViewEditLayout } from "./view-edit.tsx"
+import {
+  getAdaptor,
+  type AcpAdaptorConstructor,
+  type AcpAdaptorName,
+  type CodexAcpPermissionRequest,
+  type CodexAcpResponse,
+} from "../runtime/acp/index.ts"
 
 export type TerminalAppProps = {
   response?: AxiosResponse
@@ -33,7 +44,9 @@ export type TerminalAppProps = {
   requestDurationMs?: number
   height?: number
   width?: number
+  aiAdaptor?: AcpAdaptorName
   onCommand?: (command: string) => void | Promise<void>
+  onExit?: () => void
 }
 
 type Viewport = {
@@ -50,6 +63,8 @@ type OpenViewFile = {
   content: string
 }
 
+type AcpAdapter = InstanceType<AcpAdaptorConstructor>
+
 const defaultHeight = 20
 const defaultWidth = 80
 const commandLineHeight = 1
@@ -60,6 +75,87 @@ const commandBackgroundColor = "#1f1f1f"
 const paneBorderColor = "#3a3a3a"
 const editModeRequiresViewFileMessage =
   "please select a file in view mode then enter to @edit."
+const appExitCommands = new Set(["@exit", "@quit"])
+
+const formatAcpPermissionMessage = (
+  request: CodexAcpPermissionRequest,
+): string => {
+  return request.toolCall.title ?? "Allow AI agent action?"
+}
+
+const findPermissionOptionId = (
+  request: CodexAcpPermissionRequest,
+  decision: "allow" | "reject",
+): string | undefined => {
+  const option = request.options.find((permissionOption) => {
+    return decision === "allow"
+      ? permissionOption.kind.startsWith("allow")
+      : permissionOption.kind.startsWith("reject")
+  })
+
+  return option?.optionId
+}
+
+const appendAssistantResponse = (
+  state: AiModeState,
+  content: string,
+): AiModeState => {
+  if (!content) {
+    return state
+  }
+
+  const lastMessage = state.messages.at(-1)
+
+  if (lastMessage?.role === "assistant") {
+    return {
+      ...state,
+      scrollY: 0,
+      messages: [
+        ...state.messages.slice(0, -1),
+        {
+          role: "assistant",
+          content: `${lastMessage.content}${content}`,
+        },
+      ],
+    }
+  }
+
+  return {
+    ...state,
+    scrollY: 0,
+    messages: [
+      ...state.messages,
+      {
+        role: "assistant",
+        content,
+      },
+    ],
+  }
+}
+
+const appendAcpResponse = (
+  state: AiModeState,
+  response: CodexAcpResponse,
+): AiModeState => {
+  const { update } = response
+
+  if (
+    update.sessionUpdate === "agent_message_chunk" &&
+    update.content.type === "text"
+  ) {
+    return appendAssistantResponse(state, update.content.text)
+  }
+
+  if (update.sessionUpdate === "tool_call") {
+    return appendAssistantResponse(state, `\n[${update.title}]`)
+  }
+
+  if (update.sessionUpdate === "tool_call_update" && update.title) {
+    return appendAssistantResponse(state, `\n[${update.title}]`)
+  }
+
+  return state
+}
 
 export type FileTreeEntry = {
   name: string
@@ -653,7 +749,11 @@ export const TerminalApp = ({
   requestDurationMs,
   height: fixedHeight,
   width: fixedWidth,
+  aiAdaptor = "codex",
   onCommand,
+  onExit = () => {
+    process.exit(0)
+  },
 }: TerminalAppProps) => {
   const { columns, rows } = useWindowSize()
   const [frameIndex, setFrameIndex] = useState(0)
@@ -676,10 +776,15 @@ export const TerminalApp = ({
     scrollX: 0,
     scrollY: 0,
   })
+  const [aiModeState, setAiModeState] =
+    useState<AiModeState>(createAiModeState())
+  const [aiPermissionRequest, setAiPermissionRequest] =
+    useState<CodexAcpPermissionRequest>()
   const [editModeState, setEditModeState] = useState<EditModeState | null>(null)
   const [openViewFile, setOpenViewFile] = useState<OpenViewFile | null>(null)
   const [localError, setLocalError] = useState<unknown>()
   const [selectedCommand, setSelectedCommand] = useState("")
+  const aiAdapterRef = useRef<AcpAdapter | undefined>(undefined)
   const height = fixedHeight ?? rows ?? defaultHeight
   const width = fixedWidth ?? columns ?? defaultWidth
   const commandInput =
@@ -729,11 +834,13 @@ export const TerminalApp = ({
   const inputValue =
     mode === TerminalMode.Search
       ? searchModeState.input
-      : mode === TerminalMode.Edit
-        ? (editModeState?.input ?? "")
-        : mode === TerminalMode.View
-          ? viewModeState.command
-          : baseModeState.command
+      : mode === TerminalMode.Ai
+        ? aiModeState.input
+        : mode === TerminalMode.Edit
+          ? (editModeState?.input ?? "")
+          : mode === TerminalMode.View
+            ? viewModeState.command
+            : baseModeState.command
   const commandInputCursorX = Math.min(
     Math.max(
       mode === TerminalMode.Edit
@@ -746,6 +853,12 @@ export const TerminalApp = ({
   const inputBeforeCursor = inputValue.slice(0, commandInputCursorX)
   const inputAfterCursor = inputValue.slice(commandInputCursorX)
   const promptValue = `@${mode} >`
+  const aiLayout = buildAiLayout(width, height)
+  const aiMessageLineCount = buildAiMessageLines(
+    aiModeState.messages,
+    aiLayout.contentWidth,
+  ).length
+  const aiMaxScrollY = Math.max(0, aiMessageLineCount - aiLayout.contentHeight)
 
   useEffect(() => {
     if (!isPending) {
@@ -771,7 +884,177 @@ export const TerminalApp = ({
     }
   }, [])
 
+  useEffect(() => {
+    const stopAiAdapter = () => {
+      const adapter = aiAdapterRef.current
+
+      aiAdapterRef.current = undefined
+      adapter?.stop()
+    }
+
+    process.once("exit", stopAiAdapter)
+
+    return () => {
+      process.off("exit", stopAiAdapter)
+      stopAiAdapter()
+    }
+  }, [])
+
+  const startAiMode = () => {
+    if (aiAdapterRef.current) {
+      setAiModeState((currentState) => ({
+        ...currentState,
+        scrollY: 0,
+      }))
+      setMode(TerminalMode.Ai)
+      return
+    }
+
+    const Adaptor = getAdaptor(aiAdaptor)
+    const adapter = new Adaptor({
+      cwd: root ?? process.cwd(),
+      onResponse: (response) => {
+        if (aiAdapterRef.current !== adapter) {
+          return
+        }
+
+        setAiModeState((currentState) => {
+          return appendAcpResponse(currentState, response)
+        })
+      },
+      onPermissionRequest: (request) => {
+        if (aiAdapterRef.current !== adapter) {
+          return
+        }
+
+        setAiPermissionRequest(request)
+      },
+      onError: (error) => {
+        if (aiAdapterRef.current !== adapter) {
+          return
+        }
+
+        setLocalError(error)
+      },
+      onExit: () => {
+        if (aiAdapterRef.current !== adapter) {
+          return
+        }
+
+        aiAdapterRef.current = undefined
+        setAiPermissionRequest(undefined)
+        setMode(TerminalMode.Query)
+      },
+    })
+
+    aiAdapterRef.current = adapter
+    setAiModeState((currentState) => ({
+      ...currentState,
+      scrollY: 0,
+    }))
+    setAiPermissionRequest(undefined)
+    setLocalError(undefined)
+    setMode(TerminalMode.Ai)
+
+    void adapter.run().catch((error: unknown) => {
+      if (aiAdapterRef.current !== adapter) {
+        return
+      }
+
+      setLocalError(error)
+    })
+  }
+
+  const closeAiMode = () => {
+    setMode(TerminalMode.Query)
+  }
+
+  const stopAiMode = () => {
+    aiAdapterRef.current?.stop()
+  }
+
+  const exitApp = () => {
+    stopAiMode()
+    onExit()
+  }
+
+  const respondToAiPermission = (decision: "allow" | "reject") => {
+    if (!aiPermissionRequest) {
+      return
+    }
+
+    const optionId = findPermissionOptionId(aiPermissionRequest, decision)
+
+    if (!optionId) {
+      setLocalError(new Error(`No ${decision} permission option is available.`))
+      return
+    }
+
+    setAiPermissionRequest(undefined)
+    void aiAdapterRef.current
+      ?.write({
+        type: "permission",
+        decision: {
+          type: "selected",
+          optionId,
+        },
+      })
+      .catch((error: unknown) => {
+        setLocalError(error)
+      })
+  }
+
   useInput((input, key) => {
+    if (mode === TerminalMode.Ai) {
+      if (key.escape) {
+        closeAiMode()
+        return
+      }
+
+      if (aiPermissionRequest) {
+        const normalizedInput = input.toLowerCase()
+
+        if (normalizedInput === "y" || key.return) {
+          respondToAiPermission("allow")
+          return
+        }
+
+        if (normalizedInput === "n") {
+          respondToAiPermission("reject")
+          return
+        }
+
+        return
+      }
+
+      const submittedInput = key.return ? aiModeState.input.trim() : ""
+      const result = handleAiModeInput(input, key, aiModeState, {
+        maxScrollY: aiMaxScrollY,
+      })
+
+      if (result.shouldExitAi) {
+        closeAiMode()
+        return
+      }
+
+      setAiModeState(result.state)
+
+      if (result.shouldExitApp) {
+        exitApp()
+        return
+      }
+
+      if (submittedInput) {
+        void aiAdapterRef.current
+          ?.write(submittedInput)
+          .catch((error: unknown) => {
+            setLocalError(error)
+          })
+      }
+
+      return
+    }
+
     if (openViewFile) {
       if (mode === TerminalMode.Edit && editModeState) {
         const result = handleEditModeInput(input, key, editModeState)
@@ -842,6 +1125,14 @@ export const TerminalApp = ({
           ? null
           : resolveModeCommand(result.selectedCommand)
 
+      if (
+        result.selectedCommand !== undefined &&
+        appExitCommands.has(result.selectedCommand)
+      ) {
+        exitApp()
+        return
+      }
+
       if (nextMode === TerminalMode.Edit) {
         if (mode === TerminalMode.View) {
           setMode(TerminalMode.Edit)
@@ -863,6 +1154,15 @@ export const TerminalApp = ({
           command: "",
           scrollX: 0,
           scrollY: 0,
+        })
+        return
+      }
+
+      if (nextMode === TerminalMode.Ai) {
+        startAiMode()
+        setViewModeState({
+          ...result.state,
+          command: "",
         })
         return
       }
@@ -899,6 +1199,14 @@ export const TerminalApp = ({
           ? null
           : resolveModeCommand(result.submittedQuery)
 
+      if (
+        result.submittedQuery !== undefined &&
+        appExitCommands.has(result.submittedQuery)
+      ) {
+        exitApp()
+        return
+      }
+
       if (nextMode === TerminalMode.Query) {
         setMode(TerminalMode.Query)
         setBaseModeState({
@@ -926,6 +1234,17 @@ export const TerminalApp = ({
         setSearchModeState({
           scrollX: result.state.scrollX,
           scrollY: result.state.scrollY,
+          input: "",
+          query: "",
+          focusedMatchIndex: 0,
+        })
+        return
+      }
+
+      if (nextMode === TerminalMode.Ai) {
+        startAiMode()
+        setSearchModeState({
+          ...result.state,
           input: "",
           query: "",
           focusedMatchIndex: 0,
@@ -994,6 +1313,14 @@ export const TerminalApp = ({
           ? null
           : resolveModeCommand(result.selectedCommand)
 
+      if (
+        result.selectedCommand !== undefined &&
+        appExitCommands.has(result.selectedCommand)
+      ) {
+        exitApp()
+        return
+      }
+
       if (nextMode === TerminalMode.Query) {
         setMode(TerminalMode.Query)
         setViewModeState({
@@ -1013,6 +1340,16 @@ export const TerminalApp = ({
           query: "",
           focusedMatchIndex: 0,
         })
+        setViewModeState({
+          command: "",
+          scrollX: 0,
+          scrollY: 0,
+        })
+        return
+      }
+
+      if (nextMode === TerminalMode.Ai) {
+        startAiMode()
         setViewModeState({
           command: "",
           scrollX: 0,
@@ -1087,6 +1424,11 @@ export const TerminalApp = ({
     const nextMode =
       result.command === undefined ? null : resolveModeCommand(result.command)
 
+    if (result.command !== undefined && appExitCommands.has(result.command)) {
+      exitApp()
+      return
+    }
+
     if (nextMode === TerminalMode.Search) {
       setMode(TerminalMode.Search)
       setSearchModeState({
@@ -1107,6 +1449,12 @@ export const TerminalApp = ({
         scrollX: 0,
         scrollY: 0,
       })
+      setBaseModeState(result.state)
+      return
+    }
+
+    if (nextMode === TerminalMode.Ai) {
+      startAiMode()
       setBaseModeState(result.state)
       return
     }
@@ -1190,6 +1538,20 @@ export const TerminalApp = ({
           input={editModeState?.input}
           isSavePromptOpen={editModeState?.isSavePromptOpen}
           selectedSaveAction={editModeState?.selectedSaveAction}
+        />
+      )}
+      {mode === TerminalMode.Ai && (
+        <Ai
+          width={width}
+          height={height}
+          input={aiModeState.input}
+          messages={aiModeState.messages}
+          scrollY={aiModeState.scrollY}
+          permissionMessage={
+            aiPermissionRequest
+              ? formatAcpPermissionMessage(aiPermissionRequest)
+              : undefined
+          }
         />
       )}
     </Box>

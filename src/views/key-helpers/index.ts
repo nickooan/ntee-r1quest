@@ -25,6 +25,12 @@ export {
   type EditSaveAction,
 } from "./edit-mode.ts"
 export {
+  createAiModeState,
+  handleAiModeInput,
+  type AiModeResult,
+  type AiModeState,
+} from "./ai-mode.ts"
+export {
   handleViewModeInput,
   type ViewModeResult,
   type ViewModeState,

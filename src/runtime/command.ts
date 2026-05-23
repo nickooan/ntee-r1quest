@@ -3,20 +3,28 @@ import { existsSync, readFileSync } from "node:fs"
 import { isAbsolute, join, normalize, resolve } from "node:path"
 import type { AxiosResponse } from "axios"
 import { compileFile, CompileSourceType } from "../compiler/semantics.ts"
+import { resolveAdaptorName, type AcpAdaptorName } from "./acp/index.ts"
 import { execute as executeRequest } from "./request.ts"
 
 type ParsedArgs = {
   root?: string
+  ai?: string
 }
 
 type ConfigFile = {
-  root?: string
+  root?: string | null
+  ai?: string | null
 }
 
 type ExecuteOptions = {
   root: string
   source: string
 }
+
+const configPaths = (): string[] => [
+  resolve(process.cwd(), ".r1qconfig.json"),
+  join(homedir(), ".ntee-r1quest", ".r1qconfig.json"),
+]
 
 const expandHomeDirectory = (directory: string): string => {
   if (directory === "~") {
@@ -30,13 +38,22 @@ const expandHomeDirectory = (directory: string): string => {
   return directory
 }
 
-export const readConfigRoot = (): string | null => {
-  const configPaths = [
-    resolve(process.cwd(), ".r1qconfig.json"),
-    join(homedir(), ".ntee-r1quest", ".r1qconfig.json"),
-  ]
+export const readConfig = (): ConfigFile | null => {
+  for (const configPath of configPaths()) {
+    if (!existsSync(configPath)) {
+      continue
+    }
 
-  for (const configPath of configPaths) {
+    const config = JSON.parse(readFileSync(configPath, "utf8")) as ConfigFile
+
+    return config
+  }
+
+  return null
+}
+
+export const readConfigRoot = (): string | null => {
+  for (const configPath of configPaths()) {
     if (!existsSync(configPath)) {
       continue
     }
@@ -51,13 +68,29 @@ export const readConfigRoot = (): string | null => {
   return null
 }
 
+export const readConfigAiAdaptor = (): string | null => {
+  for (const configPath of configPaths()) {
+    if (!existsSync(configPath)) {
+      continue
+    }
+
+    const config = JSON.parse(readFileSync(configPath, "utf8")) as ConfigFile
+
+    if (typeof config.ai === "string" && config.ai.length > 0) {
+      return config.ai
+    }
+  }
+
+  return null
+}
+
 export const parseArguments = (args: string[]): ParsedArgs => {
   const parsedArgs: ParsedArgs = {}
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]
 
-    if (argument !== "-r") {
+    if (argument !== "-r" && argument !== "-ai") {
       continue
     }
 
@@ -67,7 +100,11 @@ export const parseArguments = (args: string[]): ParsedArgs => {
       continue
     }
 
-    parsedArgs.root = value
+    if (argument === "-r") {
+      parsedArgs.root = value
+    } else {
+      parsedArgs.ai = value
+    }
     index += 1
   }
 
@@ -83,6 +120,13 @@ export const resolveRoot = (args: string[] = []): string => {
   return isAbsolute(inputRoot)
     ? normalize(expandHomeDirectory(inputRoot))
     : resolve(baseWorkingDirectory, expandHomeDirectory(inputRoot))
+}
+
+export const resolveAiAdaptor = (args: string[] = []): AcpAdaptorName => {
+  const parsedArgs = parseArguments(args)
+  const inputAiAdaptor = parsedArgs.ai ?? readConfigAiAdaptor() ?? "codex"
+
+  return resolveAdaptorName(inputAiAdaptor)
 }
 
 const normalizeSource = (source: string): string => {

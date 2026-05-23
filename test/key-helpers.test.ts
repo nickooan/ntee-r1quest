@@ -2,7 +2,9 @@ import { describe, expect, test } from "@jest/globals"
 import type { Key } from "ink"
 import {
   createEditModeState,
+  createAiModeState,
   findSearchMatches,
+  handleAiModeInput,
   handleEditModeInput,
   handleBaseModeInput,
   handleSearchModeInput,
@@ -73,6 +75,82 @@ describe("mode commands", () => {
     expect(resolveModeCommand("@v")).toBe(TerminalMode.View)
     expect(resolveModeCommand("@edit")).toBe(TerminalMode.Edit)
     expect(resolveModeCommand("@e")).toBe(TerminalMode.Edit)
+    expect(resolveModeCommand("@ai")).toBe(TerminalMode.Ai)
+    expect(resolveModeCommand("@a")).toBe(TerminalMode.Ai)
+  })
+})
+
+describe("ai mode key helpers", () => {
+  test("handles input, submit, and exit", () => {
+    const typedResult = handleAiModeInput(
+      "hello",
+      defaultKey,
+      createAiModeState(),
+    )
+
+    expect(typedResult.state.input).toBe("hello")
+
+    const submitResult = handleAiModeInput(
+      "",
+      key({ return: true }),
+      typedResult.state,
+    )
+
+    expect(submitResult.state.input).toBe("")
+    expect(submitResult.state.scrollY).toBe(0)
+    expect(submitResult.state.messages).toEqual([
+      {
+        role: "user",
+        content: "hello",
+      },
+    ])
+
+    const exitResult = handleAiModeInput(
+      "",
+      key({ escape: true }),
+      submitResult.state,
+    )
+
+    expect(exitResult.shouldExitAi).toBe(true)
+  })
+
+  test("handles app exit commands in ai mode", () => {
+    const exitResult = handleAiModeInput("", key({ return: true }), {
+      ...createAiModeState(),
+      input: "@exit",
+    })
+    const quitResult = handleAiModeInput("", key({ return: true }), {
+      ...createAiModeState(),
+      input: "@quit",
+    })
+
+    expect(exitResult.shouldExitApp).toBe(true)
+    expect(exitResult.state.input).toBe("")
+    expect(exitResult.state.messages).toEqual([])
+    expect(quitResult.shouldExitApp).toBe(true)
+  })
+
+  test("scrolls chat history with up and down arrows", () => {
+    const aiState = {
+      ...createAiModeState(),
+      scrollY: 2,
+    }
+
+    expect(
+      handleAiModeInput("", key({ upArrow: true }), aiState, {
+        maxScrollY: 5,
+      }).state.scrollY,
+    ).toBe(3)
+    expect(
+      handleAiModeInput("", key({ downArrow: true }), aiState, {
+        maxScrollY: 5,
+      }).state.scrollY,
+    ).toBe(1)
+    expect(
+      handleAiModeInput("", key({ upArrow: true }), aiState, {
+        maxScrollY: 0,
+      }).state.scrollY,
+    ).toBe(0)
   })
 })
 

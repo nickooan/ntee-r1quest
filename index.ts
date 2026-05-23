@@ -2,13 +2,19 @@
 import type { AxiosResponse } from "axios"
 import React, { useMemo, useState } from "react"
 import { render } from "ink"
-import { execute, resolveRoot } from "./src/runtime/command.ts"
+import {
+  execute,
+  resolveAiAdaptor,
+  resolveRoot,
+} from "./src/runtime/command.ts"
+import { VERSION } from "./src/runtime/version.ts"
 import { TerminalApp } from "./src/views/terminal-app.tsx"
 
-export const VERSION = "0.3.1"
+export { VERSION } from "./src/runtime/version.ts"
 
 const CommandApp = ({ args }: { args: string[] }) => {
   const root = useMemo(() => resolveRoot(args), [args])
+  const aiAdaptor = useMemo(() => resolveAiAdaptor(args), [args])
   const [response, setResponse] = useState<AxiosResponse | undefined>()
   const [error, setError] = useState<unknown>()
   const [isPending, setIsPending] = useState(false)
@@ -42,6 +48,7 @@ const CommandApp = ({ args }: { args: string[] }) => {
     isPending,
     root,
     version: VERSION,
+    aiAdaptor,
     requestDurationMs,
     onCommand: runCommand,
   })

@@ -80,14 +80,26 @@ Or run it with an explicit request root:
 r1q -r ./example/request
 ```
 
-If `-r` is not provided, `r1q` looks for a config file with a request resource
-root:
+You can also choose the AI adapter used by `@ai`:
+
+```bash
+r1q -ai claude
+```
+
+Supported AI adapters are `codex` and `claude`.
+
+If `-r` or `-ai` are not provided, `r1q` looks for a config file with a
+request resource root and AI adapter:
 
 ```json
 {
-  "root": "~/example-api-collection"
+  "root": "~/example-api-collection",
+  "ai": "codex"
 }
 ```
+
+The `ai` value can be `codex` or `claude`. A command-line `-ai` value takes
+precedence over `.r1qconfig.json`.
 
 Config lookup checks the current directory first:
 
