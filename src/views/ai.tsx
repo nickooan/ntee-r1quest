@@ -10,15 +10,24 @@ export type AiProps = {
   width: number
   height: number
   input: string
+  inputCursorX?: number
+  isCursorVisible?: boolean
   messages?: AiChatMessage[]
   scrollY?: number
   permissionMessage?: string
+  isPending?: boolean
+  pendingFrameIndex?: number
 }
 
 const borderColor = "#5a5a5a"
 const permissionModalBackgroundColor = "#1f1f1f"
+const pendingFrames = [".", "..", "..."]
 const paddingX = 1
 const paddingY = 1
+
+const clampInputCursor = (input: string, inputCursorX: number): number => {
+  return Math.min(Math.max(inputCursorX, 0), input.length)
+}
 
 export type AiLayout = {
   modalWidth: number
@@ -140,12 +149,28 @@ const buildVisibleMessageLines = (
   height: number,
   width: number,
   scrollY: number,
+  pendingFrameIndex?: number,
 ): Array<{ key: string; role: AiChatMessage["role"]; content: string }> => {
   const lines = buildAiMessageLines(messages, width)
-  const maxScrollY = Math.max(0, lines.length - height)
+  const nextLines =
+    pendingFrameIndex === undefined
+      ? lines
+      : [
+          ...lines,
+          {
+            key: `pending-${pendingFrameIndex}`,
+            role: "assistant" as const,
+            content:
+              `AI is thinking${pendingFrames[pendingFrameIndex % pendingFrames.length]}`.padStart(
+                width,
+                " ",
+              ),
+          },
+        ]
+  const maxScrollY = Math.max(0, nextLines.length - height)
   const safeScrollY = maxScrollY - Math.min(Math.max(scrollY, 0), maxScrollY)
 
-  return lines.slice(safeScrollY, safeScrollY + height)
+  return nextLines.slice(safeScrollY, safeScrollY + height)
 }
 
 const PermissionModal = ({
@@ -204,9 +229,13 @@ export const Ai = ({
   width,
   height,
   input,
+  inputCursorX = input.length,
+  isCursorVisible = true,
   messages = [],
   scrollY = 0,
   permissionMessage,
+  isPending = false,
+  pendingFrameIndex = 0,
 }: AiProps) => {
   const { modalWidth, modalHeight, left, top, contentWidth, contentHeight } =
     buildAiLayout(width, height)
@@ -215,9 +244,33 @@ export const Ai = ({
     contentHeight,
     contentWidth,
     scrollY,
+    isPending ? pendingFrameIndex : undefined,
   )
   const inputPrefix = "> "
-  const visibleInput = `${inputPrefix}${input}`.slice(0, contentWidth)
+  const inputContentWidth = Math.max(0, contentWidth - inputPrefix.length)
+  const safeInputCursorX = clampInputCursor(input, inputCursorX)
+  const visibleInputStart =
+    inputContentWidth <= 1
+      ? 0
+      : Math.min(
+          Math.max(0, safeInputCursorX - inputContentWidth + 1),
+          Math.max(0, input.length - inputContentWidth + 1),
+        )
+  const visibleInput = input.slice(
+    visibleInputStart,
+    visibleInputStart + inputContentWidth,
+  )
+  const visibleInputCursorX = clampInputCursor(
+    visibleInput,
+    safeInputCursorX - visibleInputStart,
+  )
+  const inputBeforeCursor = visibleInput.slice(0, visibleInputCursorX)
+  const inputAfterCursor = visibleInput.slice(
+    visibleInputCursorX,
+    Math.max(visibleInputCursorX, inputContentWidth - 1),
+  )
+  const inputLineLength =
+    inputPrefix.length + inputBeforeCursor.length + 1 + inputAfterCursor.length
 
   return (
     <Box
@@ -264,8 +317,10 @@ export const Ai = ({
       <Text>
         {" ".repeat(paddingX)}
         <Text color="cyan">{inputPrefix}</Text>
-        {input.slice(0, Math.max(0, contentWidth - inputPrefix.length))}
-        {" ".repeat(Math.max(0, contentWidth - visibleInput.length))}
+        {inputBeforeCursor}
+        <Text bold>{isCursorVisible ? "_" : " "}</Text>
+        {inputAfterCursor}
+        {" ".repeat(Math.max(0, contentWidth - inputLineLength))}
         {" ".repeat(paddingX)}
       </Text>
       {Array.from({ length: paddingY }).map((_, index) => (

@@ -1,4 +1,5 @@
 import type { Key } from "ink"
+import { isAppExitCommand } from "./mode.ts"
 
 export type AiChatMessage = {
   role: "user" | "assistant"
@@ -7,6 +8,7 @@ export type AiChatMessage = {
 
 export type AiModeState = {
   input: string
+  inputCursorX: number
   messages: AiChatMessage[]
   scrollY: number
 }
@@ -24,6 +26,7 @@ export type AiModeResult = {
 export const createAiModeState = (): AiModeState => {
   return {
     input: "",
+    inputCursorX: 0,
     messages: [],
     scrollY: 0,
   }
@@ -31,6 +34,10 @@ export const createAiModeState = (): AiModeState => {
 
 const clampScrollY = (scrollY: number, maxScrollY = 0): number => {
   return Math.min(Math.max(scrollY, 0), Math.max(0, maxScrollY))
+}
+
+const clampInputCursor = (input: string, inputCursorX: number): number => {
+  return Math.min(Math.max(inputCursorX, 0), input.length)
 }
 
 export const handleAiModeInput = (
@@ -58,11 +65,40 @@ export const handleAiModeInput = (
     }
   }
 
-  if (key.backspace || key.delete) {
+  if (key.leftArrow) {
     return {
       state: {
         ...state,
-        input: state.input.slice(0, -1),
+        inputCursorX: clampInputCursor(state.input, state.inputCursorX - 1),
+      },
+    }
+  }
+
+  if (key.rightArrow) {
+    return {
+      state: {
+        ...state,
+        inputCursorX: clampInputCursor(state.input, state.inputCursorX + 1),
+      },
+    }
+  }
+
+  if (key.backspace || key.delete) {
+    const inputCursorX = clampInputCursor(state.input, state.inputCursorX)
+
+    if (inputCursorX === 0) {
+      return { state }
+    }
+
+    const input = `${state.input.slice(0, inputCursorX - 1)}${state.input.slice(
+      inputCursorX,
+    )}`
+
+    return {
+      state: {
+        ...state,
+        input,
+        inputCursorX: inputCursorX - 1,
       },
     }
   }
@@ -75,15 +111,17 @@ export const handleAiModeInput = (
         state: {
           ...state,
           input: "",
+          inputCursorX: 0,
         },
       }
     }
 
-    if (trimmedInput === "@exit" || trimmedInput === "@quit") {
+    if (isAppExitCommand(trimmedInput)) {
       return {
         state: {
           ...state,
           input: "",
+          inputCursorX: 0,
         },
         shouldExitApp: true,
       }
@@ -92,6 +130,7 @@ export const handleAiModeInput = (
     return {
       state: {
         input: "",
+        inputCursorX: 0,
         scrollY: 0,
         messages: [
           ...state.messages,
@@ -109,10 +148,16 @@ export const handleAiModeInput = (
   }
 
   if (input) {
+    const inputCursorX = clampInputCursor(state.input, state.inputCursorX)
+    const nextInput = `${state.input.slice(0, inputCursorX)}${input}${state.input.slice(
+      inputCursorX,
+    )}`
+
     return {
       state: {
         ...state,
-        input: `${state.input}${input}`,
+        input: nextInput,
+        inputCursorX: inputCursorX + input.length,
       },
     }
   }

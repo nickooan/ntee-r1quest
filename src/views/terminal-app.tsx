@@ -1,10 +1,8 @@
-import { readdirSync, readFileSync, writeFileSync } from "node:fs"
-import { basename, relative, resolve, sep } from "node:path"
+import { writeFileSync } from "node:fs"
 import type { AxiosResponse } from "axios"
 import React, { useEffect, useRef, useState } from "react"
 import { Box, Text, render, useInput, useWindowSize } from "ink"
 import {
-  clampValue,
   createEditModeState,
   createAiModeState,
   findSearchMatches,
@@ -14,17 +12,16 @@ import {
   handleEditModeInput,
   handleSearchModeInput,
   handleViewModeInput,
+  isAppExitCommand,
   resolveModeCommand,
   serializeEditModeContent,
   type BaseModeState,
   type AiModeState,
   type EditModeState,
-  type SearchMatch,
   type SearchModeState,
   type ViewModeState,
   TerminalMode,
 } from "./key-helpers/index.ts"
-import { formatError, formatPending, formatResponse } from "./response.tsx"
 import { Ai, buildAiLayout, buildAiMessageLines } from "./ai.tsx"
 import { ViewEdit, buildViewEditLayout } from "./view-edit.tsx"
 import {
@@ -32,8 +29,37 @@ import {
   type AcpAdaptorConstructor,
   type AcpAdaptorName,
   type CodexAcpPermissionRequest,
-  type CodexAcpResponse,
 } from "../runtime/acp/index.ts"
+import {
+  buildExpandedDirectoryPaths,
+  buildFileTreeEntries,
+  readViewFile,
+  resolveHighlightedEntry,
+  resolveSidebarCommand,
+  type OpenViewFile,
+} from "../runtime/file-manager/index.ts"
+import {
+  commandBackgroundColor,
+  commandLineHeight,
+  defaultHeight,
+  defaultWidth,
+  editModeRequiresViewFileMessage,
+  headerHeight,
+  paneGap,
+  requestStatsHeight,
+} from "./terminal/constants.ts"
+import {
+  appendAcpResponse,
+  findPermissionOptionId,
+  formatAcpPermissionMessage,
+} from "./terminal/ai-session.ts"
+import { formatTerminalContent } from "./terminal/content.ts"
+import { resolveEditScroll } from "./terminal/edit-scroll.ts"
+import { ResponsePane } from "./terminal/response-pane.tsx"
+import { Sidebar } from "./terminal/sidebar.tsx"
+import { buildTerminalViewport, normalizeLines } from "./terminal/viewport.ts"
+
+export { buildTerminalViewport } from "./terminal/viewport.ts"
 
 export type TerminalAppProps = {
   response?: AxiosResponse
@@ -49,696 +75,7 @@ export type TerminalAppProps = {
   onExit?: () => void
 }
 
-type Viewport = {
-  lines: string[]
-  maxScrollX: number
-  maxScrollY: number
-  safeScrollX: number
-  safeScrollY: number
-}
-
-type OpenViewFile = {
-  fileName: string
-  path: string
-  content: string
-}
-
 type AcpAdapter = InstanceType<AcpAdaptorConstructor>
-
-const defaultHeight = 20
-const defaultWidth = 80
-const commandLineHeight = 1
-const headerHeight = 3
-const requestStatsHeight = 1
-const paneGap = 1
-const commandBackgroundColor = "#1f1f1f"
-const paneBorderColor = "#3a3a3a"
-const editModeRequiresViewFileMessage =
-  "please select a file in view mode then enter to @edit."
-const appExitCommands = new Set(["@exit", "@quit"])
-
-const formatAcpPermissionMessage = (
-  request: CodexAcpPermissionRequest,
-): string => {
-  return request.toolCall.title ?? "Allow AI agent action?"
-}
-
-const findPermissionOptionId = (
-  request: CodexAcpPermissionRequest,
-  decision: "allow" | "reject",
-): string | undefined => {
-  const option = request.options.find((permissionOption) => {
-    return decision === "allow"
-      ? permissionOption.kind.startsWith("allow")
-      : permissionOption.kind.startsWith("reject")
-  })
-
-  return option?.optionId
-}
-
-const appendAssistantResponse = (
-  state: AiModeState,
-  content: string,
-): AiModeState => {
-  if (!content) {
-    return state
-  }
-
-  const lastMessage = state.messages.at(-1)
-
-  if (lastMessage?.role === "assistant") {
-    return {
-      ...state,
-      scrollY: 0,
-      messages: [
-        ...state.messages.slice(0, -1),
-        {
-          role: "assistant",
-          content: `${lastMessage.content}${content}`,
-        },
-      ],
-    }
-  }
-
-  return {
-    ...state,
-    scrollY: 0,
-    messages: [
-      ...state.messages,
-      {
-        role: "assistant",
-        content,
-      },
-    ],
-  }
-}
-
-const appendAcpResponse = (
-  state: AiModeState,
-  response: CodexAcpResponse,
-): AiModeState => {
-  const { update } = response
-
-  if (
-    update.sessionUpdate === "agent_message_chunk" &&
-    update.content.type === "text"
-  ) {
-    return appendAssistantResponse(state, update.content.text)
-  }
-
-  if (update.sessionUpdate === "tool_call") {
-    return appendAssistantResponse(state, `\n[${update.title}]`)
-  }
-
-  if (update.sessionUpdate === "tool_call_update" && update.title) {
-    return appendAssistantResponse(state, `\n[${update.title}]`)
-  }
-
-  return state
-}
-
-export type FileTreeEntry = {
-  name: string
-  relativePath: string
-  commandValue: string
-  depth: number
-  type: "directory" | "request" | "file"
-  isExpanded: boolean
-}
-
-const normalizeLines = (content: string): string[] => {
-  return content.split("\n")
-}
-
-const sliceLine = (line: string, scrollX: number, width: number): string => {
-  return line.slice(scrollX, scrollX + width).padEnd(width, " ")
-}
-
-const isInsideRoot = (root: string, target: string): boolean => {
-  const relativeTarget = relative(root, target)
-
-  return (
-    relativeTarget === "" ||
-    (!relativeTarget.startsWith("..") && !relativeTarget.startsWith(sep))
-  )
-}
-
-export const buildFileTreeEntries = (
-  root: string | undefined,
-  expandedDirectoryPaths: ReadonlySet<string> = new Set(),
-): FileTreeEntry[] => {
-  if (!root) {
-    return []
-  }
-
-  const resolvedRoot = resolve(root)
-  const entries: FileTreeEntry[] = []
-
-  const appendDirectory = (directoryPath: string, depth: number) => {
-    const resolvedDirectory = resolve(resolvedRoot, directoryPath)
-
-    if (!isInsideRoot(resolvedRoot, resolvedDirectory)) {
-      return
-    }
-
-    try {
-      const directoryEntries = readdirSync(resolvedDirectory, {
-        withFileTypes: true,
-      }).sort((left, right) => {
-        if (left.isDirectory() !== right.isDirectory()) {
-          return left.isDirectory() ? -1 : 1
-        }
-
-        return left.name.localeCompare(right.name)
-      })
-
-      for (const entry of directoryEntries) {
-        const relativeEntryPath = directoryPath
-          ? `${directoryPath}/${entry.name}`
-          : entry.name
-
-        if (entry.isDirectory()) {
-          const isExpanded = expandedDirectoryPaths.has(relativeEntryPath)
-
-          entries.push({
-            name: entry.name,
-            relativePath: relativeEntryPath,
-            commandValue: `${relativeEntryPath}/`,
-            depth,
-            type: "directory",
-            isExpanded,
-          })
-
-          if (isExpanded) {
-            appendDirectory(relativeEntryPath, depth + 1)
-          }
-
-          continue
-        }
-
-        if (!entry.isFile()) {
-          continue
-        }
-
-        const isRequest = entry.name.endsWith(".nts")
-        const commandValue = isRequest
-          ? relativeEntryPath.slice(0, -".nts".length)
-          : relativeEntryPath
-
-        entries.push({
-          name: entry.name,
-          relativePath: relativeEntryPath,
-          commandValue,
-          depth,
-          type: isRequest ? "request" : "file",
-          isExpanded: false,
-        })
-      }
-    } catch {
-      return
-    }
-  }
-
-  appendDirectory("", 0)
-
-  return entries
-}
-
-export const findFileTreeMatchIndex = (
-  entries: FileTreeEntry[],
-  input: string,
-): number => {
-  const normalizedInput = input.trim().replaceAll("\\", "/").toLowerCase()
-
-  if (!normalizedInput || normalizedInput.startsWith("@")) {
-    return -1
-  }
-
-  const exactIndex = entries.findIndex((entry) => {
-    return (
-      entry.commandValue.toLowerCase() === normalizedInput ||
-      entry.name.toLowerCase() === normalizedInput
-    )
-  })
-
-  if (exactIndex !== -1) {
-    return exactIndex
-  }
-
-  const startsWithIndex = entries.findIndex((entry) => {
-    return (
-      entry.commandValue.toLowerCase().startsWith(normalizedInput) ||
-      entry.name.toLowerCase().startsWith(normalizedInput)
-    )
-  })
-
-  if (startsWithIndex !== -1) {
-    return startsWithIndex
-  }
-
-  return entries.findIndex((entry) => {
-    return (
-      entry.commandValue.toLowerCase().includes(normalizedInput) ||
-      entry.name.toLowerCase().includes(normalizedInput)
-    )
-  })
-}
-
-export const buildFileTreeViewport = (
-  entries: FileTreeEntry[],
-  height: number,
-  scrollY: number,
-  highlightedIndex: number,
-): {
-  entries: FileTreeEntry[]
-  maxScrollY: number
-  safeScrollY: number
-} => {
-  const maxScrollY = Math.max(0, entries.length - height)
-  const nextScrollY =
-    highlightedIndex === -1
-      ? scrollY
-      : highlightedIndex - Math.floor(Math.max(1, height) / 2)
-  const safeScrollY = clampValue(nextScrollY, 0, maxScrollY)
-  const visibleEntries = entries.slice(safeScrollY, safeScrollY + height)
-
-  return {
-    entries: visibleEntries,
-    maxScrollY,
-    safeScrollY,
-  }
-}
-
-const formatFileTreeEntryLabel = (
-  entry: FileTreeEntry,
-  width: number,
-): string => {
-  const indent = "  ".repeat(entry.depth)
-  const marker =
-    entry.type === "directory" ? (entry.isExpanded ? "↓ " : "→ ") : "  "
-  const label = `${indent}${marker}${entry.name}`
-
-  if (label.length > width) {
-    return label.slice(0, Math.max(0, width - 1)).padEnd(width, " ")
-  }
-
-  return label.padEnd(width, " ")
-}
-
-const formatFileTreeEntryParts = (
-  entry: FileTreeEntry,
-  width: number,
-): {
-  indent: string
-  marker: string
-  name: string
-  padding: string
-} => {
-  const label = formatFileTreeEntryLabel(entry, width)
-  const indent = "  ".repeat(entry.depth)
-  const marker =
-    entry.type === "directory" ? (entry.isExpanded ? "↓ " : "→ ") : "  "
-  const prefixLength = Math.min(label.length, indent.length + marker.length)
-
-  return {
-    indent: label.slice(0, Math.min(label.length, indent.length)),
-    marker: label.slice(indent.length, prefixLength),
-    name: label.slice(prefixLength).trimEnd(),
-    padding: " ".repeat(label.length - label.trimEnd().length),
-  }
-}
-
-export const buildExpandedDirectoryPaths = (
-  commandValue: string,
-): Set<string> => {
-  const expandedDirectoryPaths = new Set<string>()
-  const normalizedCommand = commandValue.trim().replaceAll("\\", "/")
-  const pathParts = normalizedCommand.split("/").filter(Boolean)
-  const directoryDepth = normalizedCommand.endsWith("/")
-    ? pathParts.length
-    : Math.max(0, pathParts.length - 1)
-
-  for (let index = 1; index <= directoryDepth; index += 1) {
-    expandedDirectoryPaths.add(pathParts.slice(0, index).join("/"))
-  }
-
-  return expandedDirectoryPaths
-}
-
-const resolveHighlightedEntry = (
-  entries: FileTreeEntry[],
-  input: string,
-): number => {
-  const matchedIndex = findFileTreeMatchIndex(entries, input)
-
-  if (matchedIndex !== -1) {
-    return matchedIndex
-  }
-
-  return -1
-}
-
-export const resolveSidebarCommand = (
-  inputCommand: string,
-  selectedCommand: string,
-): string => {
-  const trimmedInputCommand = inputCommand.trim()
-
-  if (!trimmedInputCommand || trimmedInputCommand.startsWith("@")) {
-    return selectedCommand
-  }
-
-  return inputCommand
-}
-
-const readViewFile = (
-  root: string | undefined,
-  entry: FileTreeEntry,
-): OpenViewFile | null => {
-  if (!root || entry.type === "directory") {
-    return null
-  }
-
-  const resolvedRoot = resolve(root)
-  const resolvedPath = resolve(resolvedRoot, entry.relativePath)
-
-  if (!isInsideRoot(resolvedRoot, resolvedPath)) {
-    return null
-  }
-
-  try {
-    return {
-      fileName: basename(entry.relativePath),
-      path: resolvedPath,
-      content: readFileSync(resolvedPath, "utf8"),
-    }
-  } catch (error) {
-    return {
-      fileName: basename(entry.relativePath),
-      path: resolvedPath,
-      content: error instanceof Error ? error.message : "Unable to read file.",
-    }
-  }
-}
-
-const resolveEditScroll = (
-  state: EditModeState,
-  width: number,
-  height: number,
-): Pick<ViewModeState, "scrollX" | "scrollY"> => {
-  const layout = buildViewEditLayout(width, height, state.lines.length)
-  let scrollX = state.cursorX < 0 ? 0 : state.cursorX
-  let scrollY = state.cursorY < 0 ? 0 : state.cursorY
-
-  if (state.cursorX >= layout.contentWidth) {
-    scrollX = state.cursorX - layout.contentWidth + 1
-  } else {
-    scrollX = 0
-  }
-
-  if (state.cursorY >= layout.contentHeight) {
-    scrollY = state.cursorY - layout.contentHeight + 1
-  } else {
-    scrollY = 0
-  }
-
-  return { scrollX, scrollY }
-}
-
-type SidebarProps = {
-  entries: FileTreeEntry[]
-  highlightedIndex: number
-  width: number
-  height: number
-}
-
-type PaneTitleProps = {
-  title: string
-  width: number
-}
-
-const PaneTitle = ({ title, width }: PaneTitleProps) => {
-  const label = ` ${title} `.slice(0, Math.max(0, width - 4))
-
-  return (
-    <Box position="absolute" top={-1} left={2}>
-      <Text color="white">{label}</Text>
-    </Box>
-  )
-}
-
-const Sidebar = ({
-  entries,
-  highlightedIndex,
-  width,
-  height,
-}: SidebarProps) => {
-  const viewportHeight = Math.max(1, height - 2)
-  const viewport = buildFileTreeViewport(
-    entries,
-    viewportHeight,
-    0,
-    highlightedIndex,
-  )
-
-  return (
-    <Box
-      flexDirection="column"
-      width={width}
-      height={height}
-      borderStyle="single"
-      borderColor={paneBorderColor}
-      position="relative"
-    >
-      <PaneTitle title="Collections" width={width} />
-      {viewport.entries.map((entry, index) => {
-        const entryIndex = viewport.safeScrollY + index
-        const isHighlighted = entryIndex === highlightedIndex
-        const labelParts = formatFileTreeEntryParts(
-          entry,
-          Math.max(1, width - 2),
-        )
-        const textColor = isHighlighted ? "black" : undefined
-        const backgroundColor = isHighlighted ? "yellow" : undefined
-        const dimColor = !isHighlighted
-
-        return (
-          <Text
-            key={entry.relativePath}
-            color={textColor}
-            backgroundColor={backgroundColor}
-            dimColor={dimColor}
-          >
-            <Text
-              color={textColor}
-              backgroundColor={backgroundColor}
-              dimColor={dimColor}
-            >
-              {labelParts.indent}
-            </Text>
-            <Text
-              color={textColor}
-              backgroundColor={backgroundColor}
-              dimColor={dimColor}
-              bold={entry.type === "directory"}
-            >
-              {labelParts.marker}
-            </Text>
-            <Text
-              color={textColor}
-              backgroundColor={backgroundColor}
-              dimColor={dimColor}
-            >
-              {labelParts.name}
-              {labelParts.padding}
-            </Text>
-          </Text>
-        )
-      })}
-      {Array.from({
-        length: Math.max(0, viewportHeight - viewport.entries.length),
-      }).map((_, index) => (
-        <Text key={`empty-tree-${index}`}>
-          {" ".repeat(Math.max(1, width - 2))}
-        </Text>
-      ))}
-    </Box>
-  )
-}
-
-type ResponsePaneProps = {
-  contentLines: string[]
-  viewport: Viewport
-  searchMatches: SearchMatch[]
-  focusedMatchIndex: number
-  width: number
-  height: number
-}
-
-const ResponsePane = ({
-  contentLines,
-  viewport,
-  searchMatches,
-  focusedMatchIndex,
-  width,
-  height,
-}: ResponsePaneProps) => {
-  const contentWidth = Math.max(1, width - 2)
-
-  return (
-    <Box
-      flexDirection="column"
-      width={width}
-      height={height}
-      borderStyle="single"
-      borderColor={paneBorderColor}
-      position="relative"
-    >
-      <PaneTitle title="Result" width={width} />
-      {viewport.lines.map((line, index) => (
-        <Box key={`${viewport.safeScrollY}-${index}`} width={contentWidth}>
-          <VisibleLine
-            line={contentLines[viewport.safeScrollY + index] ?? ""}
-            lineIndex={viewport.safeScrollY + index}
-            scrollX={viewport.safeScrollX}
-            width={contentWidth}
-            matches={searchMatches}
-            focusedMatchIndex={focusedMatchIndex}
-          />
-        </Box>
-      ))}
-    </Box>
-  )
-}
-
-const formatTerminalContent = ({
-  response,
-  error,
-  isPending,
-  frameIndex,
-}: Pick<TerminalAppProps, "response" | "error" | "isPending"> & {
-  frameIndex: number
-}): string => {
-  if (isPending) {
-    return formatPending(frameIndex)
-  }
-
-  if (error !== undefined) {
-    return formatError(error)
-  }
-
-  if (response) {
-    return formatResponse(response)
-  }
-
-  return ""
-}
-
-export const buildTerminalViewport = (
-  content: string,
-  width: number,
-  height: number,
-  scrollX: number,
-  scrollY: number,
-): Viewport => {
-  const lines = normalizeLines(content)
-  const maxLineWidth = lines.reduce(
-    (currentMax, line) => Math.max(currentMax, line.length),
-    0,
-  )
-  const maxScrollX = Math.max(0, maxLineWidth - width)
-  const maxScrollY = Math.max(0, lines.length - height)
-  const safeScrollX = clampValue(scrollX, 0, maxScrollX)
-  const safeScrollY = clampValue(scrollY, 0, maxScrollY)
-  const visibleLines = lines
-    .slice(safeScrollY, safeScrollY + height)
-    .map((line) => sliceLine(line, safeScrollX, width))
-
-  while (visibleLines.length < height) {
-    visibleLines.push(" ".repeat(width))
-  }
-
-  return {
-    lines: visibleLines,
-    maxScrollX,
-    maxScrollY,
-    safeScrollX,
-    safeScrollY,
-  }
-}
-
-type VisibleLineProps = {
-  line: string
-  lineIndex: number
-  scrollX: number
-  width: number
-  matches: SearchMatch[]
-  focusedMatchIndex: number
-}
-
-const VisibleLine = ({
-  line,
-  lineIndex,
-  scrollX,
-  width,
-  matches,
-  focusedMatchIndex,
-}: VisibleLineProps) => {
-  const visibleStart = scrollX
-  const visibleEnd = scrollX + width
-  const lineMatches = matches
-    .map((match, matchIndex) => ({
-      ...match,
-      matchIndex,
-    }))
-    .filter(
-      (match) =>
-        match.lineIndex === lineIndex &&
-        match.end > visibleStart &&
-        match.start < visibleEnd,
-    )
-    .sort((left, right) => left.start - right.start)
-  const children: React.ReactNode[] = []
-  let cursor = visibleStart
-
-  for (const match of lineMatches) {
-    const matchStart = Math.max(match.start, visibleStart)
-    const matchEnd = Math.min(match.end, visibleEnd)
-    const isFocusedMatch = match.matchIndex === focusedMatchIndex
-
-    if (matchStart > cursor) {
-      children.push(
-        <Text key={`text-${cursor}`} wrap="truncate-end">
-          {line.slice(cursor, matchStart)}
-        </Text>,
-      )
-    }
-
-    children.push(
-      <Text
-        key={`match-${match.matchIndex}-${matchStart}`}
-        color="black"
-        backgroundColor={isFocusedMatch ? "yellow" : "white"}
-        bold={isFocusedMatch}
-        underline={isFocusedMatch}
-      >
-        {line.slice(matchStart, matchEnd)}
-      </Text>,
-    )
-
-    cursor = matchEnd
-  }
-
-  if (cursor < visibleEnd) {
-    children.push(
-      <Text key={`text-${cursor}`} wrap="truncate-end">
-        {line.slice(cursor, visibleEnd).padEnd(visibleEnd - cursor, " ")}
-      </Text>,
-    )
-  }
-
-  return <>{children}</>
-}
 
 export const TerminalApp = ({
   response,
@@ -778,6 +115,7 @@ export const TerminalApp = ({
   })
   const [aiModeState, setAiModeState] =
     useState<AiModeState>(createAiModeState())
+  const [isAiPending, setIsAiPending] = useState(false)
   const [aiPermissionRequest, setAiPermissionRequest] =
     useState<CodexAcpPermissionRequest>()
   const [editModeState, setEditModeState] = useState<EditModeState | null>(null)
@@ -845,7 +183,9 @@ export const TerminalApp = ({
     Math.max(
       mode === TerminalMode.Edit
         ? (editModeState?.inputCursorX ?? inputValue.length)
-        : inputValue.length,
+        : mode === TerminalMode.Ai
+          ? aiModeState.inputCursorX
+          : inputValue.length,
       0,
     ),
     inputValue.length,
@@ -854,14 +194,13 @@ export const TerminalApp = ({
   const inputAfterCursor = inputValue.slice(commandInputCursorX)
   const promptValue = `@${mode} >`
   const aiLayout = buildAiLayout(width, height)
-  const aiMessageLineCount = buildAiMessageLines(
-    aiModeState.messages,
-    aiLayout.contentWidth,
-  ).length
+  const aiMessageLineCount =
+    buildAiMessageLines(aiModeState.messages, aiLayout.contentWidth).length +
+    (isAiPending ? 1 : 0)
   const aiMaxScrollY = Math.max(0, aiMessageLineCount - aiLayout.contentHeight)
 
   useEffect(() => {
-    if (!isPending) {
+    if (!isPending && !isAiPending) {
       return
     }
 
@@ -872,7 +211,7 @@ export const TerminalApp = ({
     return () => {
       clearInterval(interval)
     }
-  }, [isPending])
+  }, [isAiPending, isPending])
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -935,6 +274,7 @@ export const TerminalApp = ({
         }
 
         setLocalError(error)
+        setIsAiPending(false)
       },
       onExit: () => {
         if (aiAdapterRef.current !== adapter) {
@@ -943,6 +283,7 @@ export const TerminalApp = ({
 
         aiAdapterRef.current = undefined
         setAiPermissionRequest(undefined)
+        setIsAiPending(false)
         setMode(TerminalMode.Query)
       },
     })
@@ -953,6 +294,7 @@ export const TerminalApp = ({
       scrollY: 0,
     }))
     setAiPermissionRequest(undefined)
+    setIsAiPending(false)
     setLocalError(undefined)
     setMode(TerminalMode.Ai)
 
@@ -1045,9 +387,20 @@ export const TerminalApp = ({
       }
 
       if (submittedInput) {
-        void aiAdapterRef.current
-          ?.write(submittedInput)
+        setIsAiPending(true)
+        const writePromise = aiAdapterRef.current?.write(submittedInput)
+
+        if (!writePromise) {
+          setIsAiPending(false)
+          return
+        }
+
+        void writePromise
+          .then(() => {
+            setIsAiPending(false)
+          })
           .catch((error: unknown) => {
+            setIsAiPending(false)
             setLocalError(error)
           })
       }
@@ -1127,7 +480,7 @@ export const TerminalApp = ({
 
       if (
         result.selectedCommand !== undefined &&
-        appExitCommands.has(result.selectedCommand)
+        isAppExitCommand(result.selectedCommand)
       ) {
         exitApp()
         return
@@ -1201,7 +554,7 @@ export const TerminalApp = ({
 
       if (
         result.submittedQuery !== undefined &&
-        appExitCommands.has(result.submittedQuery)
+        isAppExitCommand(result.submittedQuery)
       ) {
         exitApp()
         return
@@ -1315,7 +668,7 @@ export const TerminalApp = ({
 
       if (
         result.selectedCommand !== undefined &&
-        appExitCommands.has(result.selectedCommand)
+        isAppExitCommand(result.selectedCommand)
       ) {
         exitApp()
         return
@@ -1424,7 +777,7 @@ export const TerminalApp = ({
     const nextMode =
       result.command === undefined ? null : resolveModeCommand(result.command)
 
-    if (result.command !== undefined && appExitCommands.has(result.command)) {
+    if (result.command !== undefined && isAppExitCommand(result.command)) {
       exitApp()
       return
     }
@@ -1545,8 +898,12 @@ export const TerminalApp = ({
           width={width}
           height={height}
           input={aiModeState.input}
+          inputCursorX={aiModeState.inputCursorX}
+          isCursorVisible={isCursorVisible}
           messages={aiModeState.messages}
           scrollY={aiModeState.scrollY}
+          isPending={isAiPending}
+          pendingFrameIndex={frameIndex}
           permissionMessage={
             aiPermissionRequest
               ? formatAcpPermissionMessage(aiPermissionRequest)

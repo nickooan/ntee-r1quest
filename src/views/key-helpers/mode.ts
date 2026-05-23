@@ -11,6 +11,11 @@ export const searchModeCommands = new Set(["@search", "@s"])
 export const viewModeCommands = new Set(["@view", "@v"])
 export const editModeCommands = new Set(["@edit", "@e"])
 export const aiModeCommands = new Set(["@ai", "@a"])
+export const appExitCommands = new Set(["@exit", "@quit"])
+
+export const isAppExitCommand = (command: string): boolean => {
+  return appExitCommands.has(command)
+}
 
 export const resolveModeCommand = (command: string): TerminalMode | null => {
   if (searchModeCommands.has(command)) {
