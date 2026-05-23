@@ -97,6 +97,7 @@ describe("ai mode key helpers", () => {
     )
 
     expect(submitResult.state.input).toBe("")
+    expect(submitResult.state.scrollY).toBe(0)
     expect(submitResult.state.messages).toEqual([
       {
         role: "user",
@@ -111,6 +112,45 @@ describe("ai mode key helpers", () => {
     )
 
     expect(exitResult.shouldExitAi).toBe(true)
+  })
+
+  test("handles app exit commands in ai mode", () => {
+    const exitResult = handleAiModeInput("", key({ return: true }), {
+      ...createAiModeState(),
+      input: "@exit",
+    })
+    const quitResult = handleAiModeInput("", key({ return: true }), {
+      ...createAiModeState(),
+      input: "@quit",
+    })
+
+    expect(exitResult.shouldExitApp).toBe(true)
+    expect(exitResult.state.input).toBe("")
+    expect(exitResult.state.messages).toEqual([])
+    expect(quitResult.shouldExitApp).toBe(true)
+  })
+
+  test("scrolls chat history with up and down arrows", () => {
+    const aiState = {
+      ...createAiModeState(),
+      scrollY: 2,
+    }
+
+    expect(
+      handleAiModeInput("", key({ upArrow: true }), aiState, {
+        maxScrollY: 5,
+      }).state.scrollY,
+    ).toBe(3)
+    expect(
+      handleAiModeInput("", key({ downArrow: true }), aiState, {
+        maxScrollY: 5,
+      }).state.scrollY,
+    ).toBe(1)
+    expect(
+      handleAiModeInput("", key({ upArrow: true }), aiState, {
+        maxScrollY: 0,
+      }).state.scrollY,
+    ).toBe(0)
   })
 })
 

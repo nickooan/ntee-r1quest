@@ -163,9 +163,7 @@ describe("Codex ACP adapter integration", () => {
     expect(spawnMock).toHaveBeenCalledWith(
       process.execPath,
       [
-        expect.stringContaining(
-          "@zed-industries/codex-acp/bin/codex-acp.js",
-        ),
+        expect.stringContaining("@zed-industries/codex-acp/bin/codex-acp.js"),
         "--example",
       ],
       expect.objectContaining({
@@ -283,5 +281,28 @@ describe("Codex ACP adapter integration", () => {
       },
     })
     expect(codex.currentPermissionRequest).toBeUndefined()
+  })
+
+  test("notifies when the Codex ACP process exits", async () => {
+    const onExit =
+      jest.fn<
+        (exit: { code: number | null; signal: NodeJS.Signals | null }) => void
+      >()
+    const childProcess = createMockProcess()
+
+    spawnMock.mockReturnValue(childProcess)
+
+    const codex = initCodexAcp({
+      onExit,
+    })
+
+    await codex.run()
+
+    childProcess.emit("exit", 0, null)
+
+    expect(onExit).toHaveBeenCalledWith({
+      code: 0,
+      signal: null,
+    })
   })
 })

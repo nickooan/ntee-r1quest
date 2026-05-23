@@ -79,8 +79,15 @@ export type CodexAcpAdapterOptions = {
   onResponse?: (response: CodexAcpResponse) => void | Promise<void>
   onPermissionRequest?: (
     request: CodexAcpPermissionRequest,
-  ) => CodexAcpPermissionDecision | void | Promise<CodexAcpPermissionDecision | void>
+  ) =>
+    | CodexAcpPermissionDecision
+    | void
+    | Promise<CodexAcpPermissionDecision | void>
   onError?: (error: unknown) => void
+  onExit?: (exit: {
+    code: number | null
+    signal: NodeJS.Signals | null
+  }) => void
 }
 
 type PendingPermission = {
@@ -127,6 +134,7 @@ export class CodexAcpAdapter {
   private readonly onResponse?: CodexAcpAdapterOptions["onResponse"]
   private readonly onPermissionRequest?: CodexAcpAdapterOptions["onPermissionRequest"]
   private readonly onError?: CodexAcpAdapterOptions["onError"]
+  private readonly onExit?: CodexAcpAdapterOptions["onExit"]
   private process?: ChildProcessWithoutNullStreams
   private connection?: ClientSideConnection
   private sessionId?: string
@@ -146,6 +154,7 @@ export class CodexAcpAdapter {
     this.onResponse = options.onResponse
     this.onPermissionRequest = options.onPermissionRequest
     this.onError = options.onError
+    this.onExit = options.onExit
   }
 
   get isRunning(): boolean {
@@ -189,6 +198,8 @@ export class CodexAcpAdapter {
           ),
         )
       }
+
+      this.onExit?.({ code, signal })
     })
     childProcess.stderr.on("data", (chunk: Buffer) => {
       const message = chunk.toString().trim()
@@ -345,7 +356,9 @@ export class CodexAcpAdapter {
     decision: CodexAcpPermissionDecision,
   ): Promise<void> {
     if (!this.pendingPermission) {
-      return Promise.reject(new Error("No Codex ACP permission request is pending."))
+      return Promise.reject(
+        new Error("No Codex ACP permission request is pending."),
+      )
     }
 
     this.pendingPermission.resolve(toPermissionResponse(decision))

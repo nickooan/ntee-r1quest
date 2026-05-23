@@ -11,9 +11,12 @@ export type AiProps = {
   height: number
   input: string
   messages?: AiChatMessage[]
+  scrollY?: number
+  permissionMessage?: string
 }
 
 const borderColor = "#5a5a5a"
+const permissionModalBackgroundColor = "#1f1f1f"
 const paddingX = 1
 const paddingY = 1
 
@@ -47,24 +50,172 @@ export const buildAiLayout = (width: number, height: number): AiLayout => {
   }
 }
 
-const formatMessageLine = (
-  message: AiChatMessage,
-  width: number,
-): { label: string; content: string } => {
-  const label = message.role === "user" ? "You" : "AI"
-  const prefix = `${label}: `
-  const content = `${prefix}${message.content}`.slice(0, width)
+const splitMessageContent = (content: string): string[] => {
+  return content.split("\n").flatMap((line) => {
+    if (line.length === 0) {
+      return [""]
+    }
 
-  return {
-    label,
-    content: content.padEnd(width, " "),
-  }
+    return line
+  })
 }
 
-export const Ai = ({ width, height, input, messages = [] }: AiProps) => {
+const wrapLine = (line: string, width: number): string[] => {
+  if (line.length === 0) {
+    return [""]
+  }
+
+  const chunks: string[] = []
+
+  for (let index = 0; index < line.length; index += width) {
+    chunks.push(line.slice(index, index + width))
+  }
+
+  return chunks
+}
+
+const wrapLines = (lines: string[], width: number): string[] => {
+  return lines.flatMap((line) => wrapLine(line, width))
+}
+
+const buildMessageLines = (message: AiChatMessage, width: number): string[] => {
+  const lines = splitMessageContent(message.content)
+  const prefix = "USER: "
+  const suffix = " :AI"
+  const contentWidth = Math.max(1, width - prefix.length)
+
+  if (message.role === "user") {
+    return wrapLines(lines, contentWidth).map((line, index) => {
+      return `${index === 0 ? prefix : " ".repeat(prefix.length)}${line}`.padEnd(
+        width,
+        " ",
+      )
+    })
+  }
+
+  const title = " AI Response "
+  const assistantContentWidth = Math.max(1, width - suffix.length)
+  const visibleLines = wrapLines(lines, assistantContentWidth)
+  const responseWidth = Math.min(
+    width,
+    Math.max(
+      title.length + 4,
+      ...visibleLines.map((line, index) => {
+        return line.length + (index === 0 ? suffix.length : 0)
+      }),
+    ),
+  )
+  const ruleWidth = Math.max(0, responseWidth - title.length)
+  const leftRuleWidth = Math.floor(ruleWidth / 2)
+  const rightRuleWidth = ruleWidth - leftRuleWidth
+  const titleLine =
+    `${"-".repeat(leftRuleWidth)}${title}${"-".repeat(rightRuleWidth)}`.padStart(
+      width,
+      " ",
+    )
+  const responseLines = visibleLines.map((line, index) => {
+    const content = `${line}${index === 0 ? suffix : ""}`
+
+    return content.padStart(responseWidth, " ").padStart(width, " ")
+  })
+
+  return [" ".repeat(width), titleLine, ...responseLines, " ".repeat(width)]
+}
+
+export const buildAiMessageLines = (
+  messages: AiChatMessage[],
+  width: number,
+): Array<{ key: string; role: AiChatMessage["role"]; content: string }> => {
+  return messages.flatMap((message, messageIndex) => {
+    return buildMessageLines(message, width).map((content, lineIndex) => ({
+      key: `${messageIndex}-${lineIndex}-${message.role}-${message.content}`,
+      role: message.role,
+      content,
+    }))
+  })
+}
+
+const buildVisibleMessageLines = (
+  messages: AiChatMessage[],
+  height: number,
+  width: number,
+  scrollY: number,
+): Array<{ key: string; role: AiChatMessage["role"]; content: string }> => {
+  const lines = buildAiMessageLines(messages, width)
+  const maxScrollY = Math.max(0, lines.length - height)
+  const safeScrollY = maxScrollY - Math.min(Math.max(scrollY, 0), maxScrollY)
+
+  return lines.slice(safeScrollY, safeScrollY + height)
+}
+
+const PermissionModal = ({
+  width,
+  height,
+  message,
+}: {
+  width: number
+  height: number
+  message: string
+}) => {
+  const modalWidth = Math.max(20, Math.min(width - 4, 56))
+  const modalHeight = 7
+  const left = Math.max(0, Math.floor((width - modalWidth) / 2))
+  const top = Math.max(0, Math.floor((height - modalHeight) / 2))
+  const contentWidth = Math.max(1, modalWidth - 4)
+
+  return (
+    <Box
+      position="absolute"
+      left={left}
+      top={top}
+      width={modalWidth}
+      height={modalHeight}
+      borderStyle="single"
+      borderColor="yellow"
+      backgroundColor={permissionModalBackgroundColor}
+      flexDirection="column"
+      paddingX={1}
+    >
+      <Text bold backgroundColor={permissionModalBackgroundColor}>
+        {"Permission request".padEnd(contentWidth, " ")}
+      </Text>
+      <Text backgroundColor={permissionModalBackgroundColor}>
+        {message.slice(0, contentWidth).padEnd(contentWidth, " ")}
+      </Text>
+      <Text backgroundColor={permissionModalBackgroundColor}>
+        {" ".repeat(contentWidth)}
+      </Text>
+      <Text backgroundColor={permissionModalBackgroundColor}>
+        <Text color="green" backgroundColor={permissionModalBackgroundColor}>
+          {"Y"}
+        </Text>
+        {" Yes    "}
+        <Text color="red" backgroundColor={permissionModalBackgroundColor}>
+          {"N"}
+        </Text>
+        {" No"}
+        {" ".repeat(Math.max(0, contentWidth - "Y Yes    N No".length))}
+      </Text>
+    </Box>
+  )
+}
+
+export const Ai = ({
+  width,
+  height,
+  input,
+  messages = [],
+  scrollY = 0,
+  permissionMessage,
+}: AiProps) => {
   const { modalWidth, modalHeight, left, top, contentWidth, contentHeight } =
     buildAiLayout(width, height)
-  const visibleMessages = messages.slice(-contentHeight)
+  const visibleMessages = buildVisibleMessageLines(
+    messages,
+    contentHeight,
+    contentWidth,
+    scrollY,
+  )
   const inputPrefix = "> "
   const visibleInput = `${inputPrefix}${input}`.slice(0, contentWidth)
 
@@ -96,17 +247,13 @@ export const Ai = ({ width, height, input, messages = [] }: AiProps) => {
           {" ".repeat(Math.max(1, modalWidth - 2))}
         </Text>
       ))}
-      {visibleMessages.map((message, index) => {
-        const line = formatMessageLine(message, contentWidth)
-
-        return (
-          <Text key={`${index}-${message.role}-${message.content}`}>
-            {" ".repeat(paddingX)}
-            <Text bold={message.role === "user"}>{line.content}</Text>
-            {" ".repeat(paddingX)}
-          </Text>
-        )
-      })}
+      {visibleMessages.map((line) => (
+        <Text key={line.key}>
+          {" ".repeat(paddingX)}
+          <Text bold={line.role === "user"}>{line.content}</Text>
+          {" ".repeat(paddingX)}
+        </Text>
+      ))}
       {Array.from({
         length: Math.max(0, contentHeight - visibleMessages.length),
       }).map((_, index) => (
@@ -126,6 +273,13 @@ export const Ai = ({ width, height, input, messages = [] }: AiProps) => {
           {" ".repeat(Math.max(1, modalWidth - 2))}
         </Text>
       ))}
+      {permissionMessage && (
+        <PermissionModal
+          width={modalWidth}
+          height={modalHeight}
+          message={permissionMessage}
+        />
+      )}
     </Box>
   )
 }
