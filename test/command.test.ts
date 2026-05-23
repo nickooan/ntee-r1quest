@@ -9,7 +9,12 @@ import {
 import { join } from "node:path"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
-import { execute, parseArguments, resolveRoot } from "../src/runtime/command.ts"
+import {
+  execute,
+  parseArguments,
+  resolveAiAdaptor,
+  resolveRoot,
+} from "../src/runtime/command.ts"
 
 const server = setupServer()
 
@@ -28,8 +33,11 @@ describe("command runtime", () => {
     server.close()
   })
 
-  test("parses the root argument and ignores request file arguments", () => {
-    expect(parseArguments(["get", "-r", "./requests"])).toEqual({
+  test("parses root and ai arguments and ignores request file arguments", () => {
+    expect(
+      parseArguments(["get", "-r", "./requests", "-ai", "claude"]),
+    ).toEqual({
+      ai: "claude",
       root: "./requests",
     })
   })
@@ -108,5 +116,43 @@ describe("command runtime", () => {
     } finally {
       process.chdir(originalWorkingDirectory)
     }
+  })
+
+  test("uses .r1qconfig.json ai adaptor from the current directory", () => {
+    const originalWorkingDirectory = process.cwd()
+    const configWorkingDirectory = join(
+      originalWorkingDirectory,
+      "test/config-cwd",
+    )
+
+    process.chdir(configWorkingDirectory)
+
+    try {
+      expect(resolveAiAdaptor()).toBe("claude")
+    } finally {
+      process.chdir(originalWorkingDirectory)
+    }
+  })
+
+  test("uses -ai before .r1qconfig.json ai adaptor", () => {
+    const originalWorkingDirectory = process.cwd()
+    const configWorkingDirectory = join(
+      originalWorkingDirectory,
+      "test/config-cwd",
+    )
+
+    process.chdir(configWorkingDirectory)
+
+    try {
+      expect(resolveAiAdaptor(["-ai", "codex"])).toBe("codex")
+    } finally {
+      process.chdir(originalWorkingDirectory)
+    }
+  })
+
+  test("raises when ai adaptor is not supported", () => {
+    expect(() => {
+      resolveAiAdaptor(["-ai", "unsupported"])
+    }).toThrow('ACP adaptor "unsupported" is not supported.')
   })
 })

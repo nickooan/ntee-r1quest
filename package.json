@@ -26,7 +26,8 @@
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --runInBand",
     "typecheck": "tsc -p tsconfig.json",
     "pack:dry-run": "npm run build && npm pack --dry-run",
-    "clean": "node ./bin/scripts/clean-dist.mjs"
+    "clean": "node ./bin/scripts/clean-dist.mjs",
+    "version:bump": "node ./bin/scripts/bump-version.mjs"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

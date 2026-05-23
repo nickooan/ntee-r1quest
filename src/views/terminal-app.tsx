@@ -29,8 +29,8 @@ import { Ai, buildAiLayout, buildAiMessageLines } from "./ai.tsx"
 import { ViewEdit, buildViewEditLayout } from "./view-edit.tsx"
 import {
   getAdaptor,
+  type AcpAdaptorConstructor,
   type AcpAdaptorName,
-  type CodexAcpAdapter,
   type CodexAcpPermissionRequest,
   type CodexAcpResponse,
 } from "../runtime/acp/index.ts"
@@ -62,6 +62,8 @@ type OpenViewFile = {
   path: string
   content: string
 }
+
+type AcpAdapter = InstanceType<AcpAdaptorConstructor>
 
 const defaultHeight = 20
 const defaultWidth = 80
@@ -782,7 +784,7 @@ export const TerminalApp = ({
   const [openViewFile, setOpenViewFile] = useState<OpenViewFile | null>(null)
   const [localError, setLocalError] = useState<unknown>()
   const [selectedCommand, setSelectedCommand] = useState("")
-  const aiAdapterRef = useRef<CodexAcpAdapter | undefined>(undefined)
+  const aiAdapterRef = useRef<AcpAdapter | undefined>(undefined)
   const height = fixedHeight ?? rows ?? defaultHeight
   const width = fixedWidth ?? columns ?? defaultWidth
   const commandInput =

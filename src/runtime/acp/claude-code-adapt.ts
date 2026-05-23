@@ -1,31 +1,9 @@
 /**
- * Example:
+ * ACP adapter for Claude Code via @agentclientprotocol/claude-agent-acp.
  *
- * const codex = initCodexAcp({
- *   cwd: process.cwd(),
- *   env: {
- *     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
- *   },
- *   onResponse: ({ update }) => {
- *     // handle agent_message_chunk, tool_call, plan, etc.
- *   },
- *   onPermissionRequest: (request) => {
- *     // return a decision immediately, or return void and answer later via write()
- *   },
- *   onError: (error) => {
- *     // surface in UI
- *   },
- * })
- *
- * await codex.run()
- * await codex.write("help me inspect this request")
- * await codex.write({
- *   type: "permission",
- *   decision: {
- *     type: "selected",
- *     optionId: "approved",
- *   },
- * })
+ * Public API intentionally mirrors codex-adapt.ts so callers can switch
+ * adapters through getAdaptor without changing session, prompt, permission, or
+ * lifecycle handling.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { Readable, Writable } from "node:stream"
@@ -44,14 +22,14 @@ import {
 } from "@agentclientprotocol/sdk"
 import { APP_NAME, VERSION } from "../version.ts"
 
-export type CodexAcpResponse = {
+export type ClaudeCodeAcpResponse = {
   sessionId: string
   update: SessionUpdate
 }
 
-export type CodexAcpPermissionRequest = RequestPermissionRequest
+export type ClaudeCodeAcpPermissionRequest = RequestPermissionRequest
 
-export type CodexAcpPermissionDecision =
+export type ClaudeCodeAcpPermissionDecision =
   | {
       type: "selected"
       optionId: string
@@ -60,7 +38,7 @@ export type CodexAcpPermissionDecision =
       type: "cancelled"
     }
 
-export type CodexAcpWriteInput =
+export type ClaudeCodeAcpWriteInput =
   | string
   | {
       type: "prompt"
@@ -68,22 +46,22 @@ export type CodexAcpWriteInput =
     }
   | {
       type: "permission"
-      decision: CodexAcpPermissionDecision
+      decision: ClaudeCodeAcpPermissionDecision
     }
 
-export type CodexAcpAdapterOptions = {
+export type ClaudeCodeAcpAdapterOptions = {
   cwd?: string
   args?: string[]
   env?: NodeJS.ProcessEnv
   clientName?: string
   clientVersion?: string
-  onResponse?: (response: CodexAcpResponse) => void | Promise<void>
+  onResponse?: (response: ClaudeCodeAcpResponse) => void | Promise<void>
   onPermissionRequest?: (
-    request: CodexAcpPermissionRequest,
+    request: ClaudeCodeAcpPermissionRequest,
   ) =>
-    | CodexAcpPermissionDecision
+    | ClaudeCodeAcpPermissionDecision
     | void
-    | Promise<CodexAcpPermissionDecision | void>
+    | Promise<ClaudeCodeAcpPermissionDecision | void>
   onError?: (error: unknown) => void
   onExit?: (exit: {
     code: number | null
@@ -100,7 +78,7 @@ const defaultClientName = APP_NAME
 const defaultClientVersion = VERSION
 
 const toPermissionResponse = (
-  decision: CodexAcpPermissionDecision,
+  decision: ClaudeCodeAcpPermissionDecision,
 ): RequestPermissionResponse => {
   if (decision.type === "cancelled") {
     return {
@@ -126,16 +104,16 @@ const createCancelledPermissionResponse = (): RequestPermissionResponse => {
   }
 }
 
-export class CodexAcpAdapter {
+export class ClaudeCodeAcpAdapter {
   private readonly cwd: string
   private readonly args: string[]
   private readonly env: NodeJS.ProcessEnv
   private readonly clientName: string
   private readonly clientVersion: string
-  private readonly onResponse?: CodexAcpAdapterOptions["onResponse"]
-  private readonly onPermissionRequest?: CodexAcpAdapterOptions["onPermissionRequest"]
-  private readonly onError?: CodexAcpAdapterOptions["onError"]
-  private readonly onExit?: CodexAcpAdapterOptions["onExit"]
+  private readonly onResponse?: ClaudeCodeAcpAdapterOptions["onResponse"]
+  private readonly onPermissionRequest?: ClaudeCodeAcpAdapterOptions["onPermissionRequest"]
+  private readonly onError?: ClaudeCodeAcpAdapterOptions["onError"]
+  private readonly onExit?: ClaudeCodeAcpAdapterOptions["onExit"]
   private process?: ChildProcessWithoutNullStreams
   private connection?: ClientSideConnection
   private sessionId?: string
@@ -143,7 +121,7 @@ export class CodexAcpAdapter {
   private promptQueue: Promise<PromptResponse | void> = Promise.resolve()
   private isStopping = false
 
-  constructor(options: CodexAcpAdapterOptions = {}) {
+  constructor(options: ClaudeCodeAcpAdapterOptions = {}) {
     this.cwd = options.cwd ?? process.cwd()
     this.args = options.args ?? []
     this.env = {
@@ -166,7 +144,7 @@ export class CodexAcpAdapter {
     return this.sessionId
   }
 
-  get currentPermissionRequest(): CodexAcpPermissionRequest | undefined {
+  get currentPermissionRequest(): ClaudeCodeAcpPermissionRequest | undefined {
     return this.pendingPermission?.request
   }
 
@@ -175,14 +153,19 @@ export class CodexAcpAdapter {
       return this
     }
 
-    const codexAcpPath = fileURLToPath(
-      import.meta.resolve("@zed-industries/codex-acp/bin/codex-acp.js"),
+    const claudeAcpPath = fileURLToPath(
+      import.meta
+        .resolve("@agentclientprotocol/claude-agent-acp/dist/index.js"),
     )
-    const childProcess = spawn(process.execPath, [codexAcpPath, ...this.args], {
-      cwd: this.cwd,
-      env: this.env,
-      stdio: "pipe",
-    })
+    const childProcess = spawn(
+      process.execPath,
+      [claudeAcpPath, ...this.args],
+      {
+        cwd: this.cwd,
+        env: this.env,
+        stdio: "pipe",
+      },
+    )
 
     this.isStopping = false
     this.process = childProcess
@@ -193,7 +176,7 @@ export class CodexAcpAdapter {
       if (!this.isStopping && code !== 0) {
         this.reportError(
           new Error(
-            `Codex ACP exited${code === null ? "" : ` with code ${code}`}${
+            `Claude Code ACP exited${code === null ? "" : ` with code ${code}`}${
               signal ? ` and signal ${signal}` : ""
             }.`,
           ),
@@ -253,7 +236,7 @@ export class CodexAcpAdapter {
     }
   }
 
-  async write(input: CodexAcpWriteInput): Promise<PromptResponse | void> {
+  async write(input: ClaudeCodeAcpWriteInput): Promise<PromptResponse | void> {
     if (typeof input === "string") {
       return this.enqueuePrompt(input)
     }
@@ -293,7 +276,7 @@ export class CodexAcpAdapter {
     const trimmedText = text.trim()
 
     if (!trimmedText) {
-      throw new Error("Cannot send an empty prompt to Codex ACP.")
+      throw new Error("Cannot send an empty prompt to Claude Code ACP.")
     }
 
     if (!this.connection || !this.sessionId) {
@@ -301,7 +284,7 @@ export class CodexAcpAdapter {
     }
 
     if (!this.connection || !this.sessionId) {
-      throw new Error("Codex ACP session is not initialized.")
+      throw new Error("Claude Code ACP session is not initialized.")
     }
 
     const prompt: ContentBlock[] = [
@@ -354,11 +337,11 @@ export class CodexAcpAdapter {
   }
 
   private resolvePermission(
-    decision: CodexAcpPermissionDecision,
+    decision: ClaudeCodeAcpPermissionDecision,
   ): Promise<void> {
     if (!this.pendingPermission) {
       return Promise.reject(
-        new Error("No Codex ACP permission request is pending."),
+        new Error("No Claude Code ACP permission request is pending."),
       )
     }
 
@@ -378,8 +361,8 @@ export class CodexAcpAdapter {
   }
 }
 
-export const initCodexAcp = (
-  options: CodexAcpAdapterOptions = {},
-): CodexAcpAdapter => {
-  return new CodexAcpAdapter(options)
+export const initClaudeCodeAcp = (
+  options: ClaudeCodeAcpAdapterOptions = {},
+): ClaudeCodeAcpAdapter => {
+  return new ClaudeCodeAcpAdapter(options)
 }
