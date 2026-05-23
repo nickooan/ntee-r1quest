@@ -115,6 +115,7 @@ export const TerminalApp = ({
   })
   const [aiModeState, setAiModeState] =
     useState<AiModeState>(createAiModeState())
+  const [isAiPending, setIsAiPending] = useState(false)
   const [aiPermissionRequest, setAiPermissionRequest] =
     useState<CodexAcpPermissionRequest>()
   const [editModeState, setEditModeState] = useState<EditModeState | null>(null)
@@ -182,7 +183,9 @@ export const TerminalApp = ({
     Math.max(
       mode === TerminalMode.Edit
         ? (editModeState?.inputCursorX ?? inputValue.length)
-        : inputValue.length,
+        : mode === TerminalMode.Ai
+          ? aiModeState.inputCursorX
+          : inputValue.length,
       0,
     ),
     inputValue.length,
@@ -191,14 +194,13 @@ export const TerminalApp = ({
   const inputAfterCursor = inputValue.slice(commandInputCursorX)
   const promptValue = `@${mode} >`
   const aiLayout = buildAiLayout(width, height)
-  const aiMessageLineCount = buildAiMessageLines(
-    aiModeState.messages,
-    aiLayout.contentWidth,
-  ).length
+  const aiMessageLineCount =
+    buildAiMessageLines(aiModeState.messages, aiLayout.contentWidth).length +
+    (isAiPending ? 1 : 0)
   const aiMaxScrollY = Math.max(0, aiMessageLineCount - aiLayout.contentHeight)
 
   useEffect(() => {
-    if (!isPending) {
+    if (!isPending && !isAiPending) {
       return
     }
 
@@ -209,7 +211,7 @@ export const TerminalApp = ({
     return () => {
       clearInterval(interval)
     }
-  }, [isPending])
+  }, [isAiPending, isPending])
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -272,6 +274,7 @@ export const TerminalApp = ({
         }
 
         setLocalError(error)
+        setIsAiPending(false)
       },
       onExit: () => {
         if (aiAdapterRef.current !== adapter) {
@@ -280,6 +283,7 @@ export const TerminalApp = ({
 
         aiAdapterRef.current = undefined
         setAiPermissionRequest(undefined)
+        setIsAiPending(false)
         setMode(TerminalMode.Query)
       },
     })
@@ -290,6 +294,7 @@ export const TerminalApp = ({
       scrollY: 0,
     }))
     setAiPermissionRequest(undefined)
+    setIsAiPending(false)
     setLocalError(undefined)
     setMode(TerminalMode.Ai)
 
@@ -382,9 +387,20 @@ export const TerminalApp = ({
       }
 
       if (submittedInput) {
-        void aiAdapterRef.current
-          ?.write(submittedInput)
+        setIsAiPending(true)
+        const writePromise = aiAdapterRef.current?.write(submittedInput)
+
+        if (!writePromise) {
+          setIsAiPending(false)
+          return
+        }
+
+        void writePromise
+          .then(() => {
+            setIsAiPending(false)
+          })
           .catch((error: unknown) => {
+            setIsAiPending(false)
             setLocalError(error)
           })
       }
@@ -882,8 +898,12 @@ export const TerminalApp = ({
           width={width}
           height={height}
           input={aiModeState.input}
+          inputCursorX={aiModeState.inputCursorX}
+          isCursorVisible={isCursorVisible}
           messages={aiModeState.messages}
           scrollY={aiModeState.scrollY}
+          isPending={isAiPending}
+          pendingFrameIndex={frameIndex}
           permissionMessage={
             aiPermissionRequest
               ? formatAcpPermissionMessage(aiPermissionRequest)

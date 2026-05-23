@@ -92,6 +92,7 @@ describe("ai mode key helpers", () => {
     )
 
     expect(typedResult.state.input).toBe("hello")
+    expect(typedResult.state.inputCursorX).toBe(5)
 
     const submitResult = handleAiModeInput(
       "",
@@ -100,6 +101,7 @@ describe("ai mode key helpers", () => {
     )
 
     expect(submitResult.state.input).toBe("")
+    expect(submitResult.state.inputCursorX).toBe(0)
     expect(submitResult.state.scrollY).toBe(0)
     expect(submitResult.state.messages).toEqual([
       {
@@ -115,6 +117,31 @@ describe("ai mode key helpers", () => {
     )
 
     expect(exitResult.shouldExitAi).toBe(true)
+  })
+
+  test("edits input at the cursor", () => {
+    const typedResult = handleAiModeInput(
+      "hello",
+      defaultKey,
+      createAiModeState(),
+    )
+    const movedResult = handleAiModeInput(
+      "",
+      key({ leftArrow: true }),
+      typedResult.state,
+    )
+    const insertedResult = handleAiModeInput("!", defaultKey, movedResult.state)
+    const backspaceResult = handleAiModeInput(
+      "",
+      key({ backspace: true }),
+      insertedResult.state,
+    )
+
+    expect(movedResult.state.inputCursorX).toBe(4)
+    expect(insertedResult.state.input).toBe("hell!o")
+    expect(insertedResult.state.inputCursorX).toBe(5)
+    expect(backspaceResult.state.input).toBe("hello")
+    expect(backspaceResult.state.inputCursorX).toBe(4)
   })
 
   test("handles app exit commands in ai mode", () => {
