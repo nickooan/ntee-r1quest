@@ -6,8 +6,8 @@ import {
   buildExpandedDirectoryPaths,
   resolveSidebarCommand,
   findFileTreeMatchIndex,
-  buildTerminalViewport,
-} from "../src/views/terminal-app.tsx"
+} from "../src/runtime/file-manager/index.ts"
+import { buildTerminalViewport } from "../src/views/terminal-app.tsx"
 
 describe("terminal app view", () => {
   test("builds a fixed viewport from scroll offsets", () => {

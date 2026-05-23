@@ -1,5 +1,4 @@
-import { readdirSync, readFileSync, writeFileSync } from "node:fs"
-import { basename, relative, resolve, sep } from "node:path"
+import { writeFileSync } from "node:fs"
 import type { AxiosResponse } from "axios"
 import React, { useEffect, useRef, useState } from "react"
 import { Box, Text, render, useInput, useWindowSize } from "ink"
@@ -34,6 +33,17 @@ import {
   type CodexAcpPermissionRequest,
   type CodexAcpResponse,
 } from "../runtime/acp/index.ts"
+import {
+  buildExpandedDirectoryPaths,
+  buildFileTreeEntries,
+  buildFileTreeViewport,
+  formatFileTreeEntryParts,
+  readViewFile,
+  resolveHighlightedEntry,
+  resolveSidebarCommand,
+  type FileTreeEntry,
+  type OpenViewFile,
+} from "../runtime/file-manager/index.ts"
 
 export type TerminalAppProps = {
   response?: AxiosResponse
@@ -55,12 +65,6 @@ type Viewport = {
   maxScrollY: number
   safeScrollX: number
   safeScrollY: number
-}
-
-type OpenViewFile = {
-  fileName: string
-  path: string
-  content: string
 }
 
 type AcpAdapter = InstanceType<AcpAdaptorConstructor>
@@ -157,288 +161,12 @@ const appendAcpResponse = (
   return state
 }
 
-export type FileTreeEntry = {
-  name: string
-  relativePath: string
-  commandValue: string
-  depth: number
-  type: "directory" | "request" | "file"
-  isExpanded: boolean
-}
-
 const normalizeLines = (content: string): string[] => {
   return content.split("\n")
 }
 
 const sliceLine = (line: string, scrollX: number, width: number): string => {
   return line.slice(scrollX, scrollX + width).padEnd(width, " ")
-}
-
-const isInsideRoot = (root: string, target: string): boolean => {
-  const relativeTarget = relative(root, target)
-
-  return (
-    relativeTarget === "" ||
-    (!relativeTarget.startsWith("..") && !relativeTarget.startsWith(sep))
-  )
-}
-
-export const buildFileTreeEntries = (
-  root: string | undefined,
-  expandedDirectoryPaths: ReadonlySet<string> = new Set(),
-): FileTreeEntry[] => {
-  if (!root) {
-    return []
-  }
-
-  const resolvedRoot = resolve(root)
-  const entries: FileTreeEntry[] = []
-
-  const appendDirectory = (directoryPath: string, depth: number) => {
-    const resolvedDirectory = resolve(resolvedRoot, directoryPath)
-
-    if (!isInsideRoot(resolvedRoot, resolvedDirectory)) {
-      return
-    }
-
-    try {
-      const directoryEntries = readdirSync(resolvedDirectory, {
-        withFileTypes: true,
-      }).sort((left, right) => {
-        if (left.isDirectory() !== right.isDirectory()) {
-          return left.isDirectory() ? -1 : 1
-        }
-
-        return left.name.localeCompare(right.name)
-      })
-
-      for (const entry of directoryEntries) {
-        const relativeEntryPath = directoryPath
-          ? `${directoryPath}/${entry.name}`
-          : entry.name
-
-        if (entry.isDirectory()) {
-          const isExpanded = expandedDirectoryPaths.has(relativeEntryPath)
-
-          entries.push({
-            name: entry.name,
-            relativePath: relativeEntryPath,
-            commandValue: `${relativeEntryPath}/`,
-            depth,
-            type: "directory",
-            isExpanded,
-          })
-
-          if (isExpanded) {
-            appendDirectory(relativeEntryPath, depth + 1)
-          }
-
-          continue
-        }
-
-        if (!entry.isFile()) {
-          continue
-        }
-
-        const isRequest = entry.name.endsWith(".nts")
-        const commandValue = isRequest
-          ? relativeEntryPath.slice(0, -".nts".length)
-          : relativeEntryPath
-
-        entries.push({
-          name: entry.name,
-          relativePath: relativeEntryPath,
-          commandValue,
-          depth,
-          type: isRequest ? "request" : "file",
-          isExpanded: false,
-        })
-      }
-    } catch {
-      return
-    }
-  }
-
-  appendDirectory("", 0)
-
-  return entries
-}
-
-export const findFileTreeMatchIndex = (
-  entries: FileTreeEntry[],
-  input: string,
-): number => {
-  const normalizedInput = input.trim().replaceAll("\\", "/").toLowerCase()
-
-  if (!normalizedInput || normalizedInput.startsWith("@")) {
-    return -1
-  }
-
-  const exactIndex = entries.findIndex((entry) => {
-    return (
-      entry.commandValue.toLowerCase() === normalizedInput ||
-      entry.name.toLowerCase() === normalizedInput
-    )
-  })
-
-  if (exactIndex !== -1) {
-    return exactIndex
-  }
-
-  const startsWithIndex = entries.findIndex((entry) => {
-    return (
-      entry.commandValue.toLowerCase().startsWith(normalizedInput) ||
-      entry.name.toLowerCase().startsWith(normalizedInput)
-    )
-  })
-
-  if (startsWithIndex !== -1) {
-    return startsWithIndex
-  }
-
-  return entries.findIndex((entry) => {
-    return (
-      entry.commandValue.toLowerCase().includes(normalizedInput) ||
-      entry.name.toLowerCase().includes(normalizedInput)
-    )
-  })
-}
-
-export const buildFileTreeViewport = (
-  entries: FileTreeEntry[],
-  height: number,
-  scrollY: number,
-  highlightedIndex: number,
-): {
-  entries: FileTreeEntry[]
-  maxScrollY: number
-  safeScrollY: number
-} => {
-  const maxScrollY = Math.max(0, entries.length - height)
-  const nextScrollY =
-    highlightedIndex === -1
-      ? scrollY
-      : highlightedIndex - Math.floor(Math.max(1, height) / 2)
-  const safeScrollY = clampValue(nextScrollY, 0, maxScrollY)
-  const visibleEntries = entries.slice(safeScrollY, safeScrollY + height)
-
-  return {
-    entries: visibleEntries,
-    maxScrollY,
-    safeScrollY,
-  }
-}
-
-const formatFileTreeEntryLabel = (
-  entry: FileTreeEntry,
-  width: number,
-): string => {
-  const indent = "  ".repeat(entry.depth)
-  const marker =
-    entry.type === "directory" ? (entry.isExpanded ? "↓ " : "→ ") : "  "
-  const label = `${indent}${marker}${entry.name}`
-
-  if (label.length > width) {
-    return label.slice(0, Math.max(0, width - 1)).padEnd(width, " ")
-  }
-
-  return label.padEnd(width, " ")
-}
-
-const formatFileTreeEntryParts = (
-  entry: FileTreeEntry,
-  width: number,
-): {
-  indent: string
-  marker: string
-  name: string
-  padding: string
-} => {
-  const label = formatFileTreeEntryLabel(entry, width)
-  const indent = "  ".repeat(entry.depth)
-  const marker =
-    entry.type === "directory" ? (entry.isExpanded ? "↓ " : "→ ") : "  "
-  const prefixLength = Math.min(label.length, indent.length + marker.length)
-
-  return {
-    indent: label.slice(0, Math.min(label.length, indent.length)),
-    marker: label.slice(indent.length, prefixLength),
-    name: label.slice(prefixLength).trimEnd(),
-    padding: " ".repeat(label.length - label.trimEnd().length),
-  }
-}
-
-export const buildExpandedDirectoryPaths = (
-  commandValue: string,
-): Set<string> => {
-  const expandedDirectoryPaths = new Set<string>()
-  const normalizedCommand = commandValue.trim().replaceAll("\\", "/")
-  const pathParts = normalizedCommand.split("/").filter(Boolean)
-  const directoryDepth = normalizedCommand.endsWith("/")
-    ? pathParts.length
-    : Math.max(0, pathParts.length - 1)
-
-  for (let index = 1; index <= directoryDepth; index += 1) {
-    expandedDirectoryPaths.add(pathParts.slice(0, index).join("/"))
-  }
-
-  return expandedDirectoryPaths
-}
-
-const resolveHighlightedEntry = (
-  entries: FileTreeEntry[],
-  input: string,
-): number => {
-  const matchedIndex = findFileTreeMatchIndex(entries, input)
-
-  if (matchedIndex !== -1) {
-    return matchedIndex
-  }
-
-  return -1
-}
-
-export const resolveSidebarCommand = (
-  inputCommand: string,
-  selectedCommand: string,
-): string => {
-  const trimmedInputCommand = inputCommand.trim()
-
-  if (!trimmedInputCommand || trimmedInputCommand.startsWith("@")) {
-    return selectedCommand
-  }
-
-  return inputCommand
-}
-
-const readViewFile = (
-  root: string | undefined,
-  entry: FileTreeEntry,
-): OpenViewFile | null => {
-  if (!root || entry.type === "directory") {
-    return null
-  }
-
-  const resolvedRoot = resolve(root)
-  const resolvedPath = resolve(resolvedRoot, entry.relativePath)
-
-  if (!isInsideRoot(resolvedRoot, resolvedPath)) {
-    return null
-  }
-
-  try {
-    return {
-      fileName: basename(entry.relativePath),
-      path: resolvedPath,
-      content: readFileSync(resolvedPath, "utf8"),
-    }
-  } catch (error) {
-    return {
-      fileName: basename(entry.relativePath),
-      path: resolvedPath,
-      content: error instanceof Error ? error.message : "Unable to read file.",
-    }
-  }
 }
 
 const resolveEditScroll = (
