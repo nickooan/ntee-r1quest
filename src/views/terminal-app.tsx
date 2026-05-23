@@ -6,8 +6,10 @@ import { Box, Text, render, useInput, useWindowSize } from "ink"
 import {
   clampValue,
   createEditModeState,
+  createAiModeState,
   findSearchMatches,
   focusSearchMatch,
+  handleAiModeInput,
   handleBaseModeInput,
   handleEditModeInput,
   handleSearchModeInput,
@@ -15,6 +17,7 @@ import {
   resolveModeCommand,
   serializeEditModeContent,
   type BaseModeState,
+  type AiModeState,
   type EditModeState,
   type SearchMatch,
   type SearchModeState,
@@ -22,6 +25,7 @@ import {
   TerminalMode,
 } from "./key-helpers/index.ts"
 import { formatError, formatPending, formatResponse } from "./response.tsx"
+import { Ai } from "./ai.tsx"
 import { ViewEdit, buildViewEditLayout } from "./view-edit.tsx"
 
 export type TerminalAppProps = {
@@ -676,6 +680,8 @@ export const TerminalApp = ({
     scrollX: 0,
     scrollY: 0,
   })
+  const [aiModeState, setAiModeState] =
+    useState<AiModeState>(createAiModeState())
   const [editModeState, setEditModeState] = useState<EditModeState | null>(null)
   const [openViewFile, setOpenViewFile] = useState<OpenViewFile | null>(null)
   const [localError, setLocalError] = useState<unknown>()
@@ -729,11 +735,13 @@ export const TerminalApp = ({
   const inputValue =
     mode === TerminalMode.Search
       ? searchModeState.input
-      : mode === TerminalMode.Edit
-        ? (editModeState?.input ?? "")
-        : mode === TerminalMode.View
-          ? viewModeState.command
-          : baseModeState.command
+      : mode === TerminalMode.Ai
+        ? aiModeState.input
+        : mode === TerminalMode.Edit
+          ? (editModeState?.input ?? "")
+          : mode === TerminalMode.View
+            ? viewModeState.command
+            : baseModeState.command
   const commandInputCursorX = Math.min(
     Math.max(
       mode === TerminalMode.Edit
@@ -772,6 +780,19 @@ export const TerminalApp = ({
   }, [])
 
   useInput((input, key) => {
+    if (mode === TerminalMode.Ai) {
+      const result = handleAiModeInput(input, key, aiModeState)
+
+      if (result.shouldExitAi) {
+        setMode(TerminalMode.Query)
+        setAiModeState(createAiModeState())
+        return
+      }
+
+      setAiModeState(result.state)
+      return
+    }
+
     if (openViewFile) {
       if (mode === TerminalMode.Edit && editModeState) {
         const result = handleEditModeInput(input, key, editModeState)
@@ -867,6 +888,16 @@ export const TerminalApp = ({
         return
       }
 
+      if (nextMode === TerminalMode.Ai) {
+        setMode(TerminalMode.Ai)
+        setAiModeState(createAiModeState())
+        setViewModeState({
+          ...result.state,
+          command: "",
+        })
+        return
+      }
+
       if (nextMode === TerminalMode.View) {
         setMode(TerminalMode.View)
         setViewModeState({
@@ -926,6 +957,18 @@ export const TerminalApp = ({
         setSearchModeState({
           scrollX: result.state.scrollX,
           scrollY: result.state.scrollY,
+          input: "",
+          query: "",
+          focusedMatchIndex: 0,
+        })
+        return
+      }
+
+      if (nextMode === TerminalMode.Ai) {
+        setMode(TerminalMode.Ai)
+        setAiModeState(createAiModeState())
+        setSearchModeState({
+          ...result.state,
           input: "",
           query: "",
           focusedMatchIndex: 0,
@@ -1013,6 +1056,17 @@ export const TerminalApp = ({
           query: "",
           focusedMatchIndex: 0,
         })
+        setViewModeState({
+          command: "",
+          scrollX: 0,
+          scrollY: 0,
+        })
+        return
+      }
+
+      if (nextMode === TerminalMode.Ai) {
+        setMode(TerminalMode.Ai)
+        setAiModeState(createAiModeState())
         setViewModeState({
           command: "",
           scrollX: 0,
@@ -1111,6 +1165,13 @@ export const TerminalApp = ({
       return
     }
 
+    if (nextMode === TerminalMode.Ai) {
+      setMode(TerminalMode.Ai)
+      setAiModeState(createAiModeState())
+      setBaseModeState(result.state)
+      return
+    }
+
     if (nextMode === TerminalMode.Edit) {
       setLocalError(new Error(editModeRequiresViewFileMessage))
       setBaseModeState(result.state)
@@ -1190,6 +1251,14 @@ export const TerminalApp = ({
           input={editModeState?.input}
           isSavePromptOpen={editModeState?.isSavePromptOpen}
           selectedSaveAction={editModeState?.selectedSaveAction}
+        />
+      )}
+      {mode === TerminalMode.Ai && (
+        <Ai
+          width={width}
+          height={height}
+          input={aiModeState.input}
+          messages={aiModeState.messages}
         />
       )}
     </Box>

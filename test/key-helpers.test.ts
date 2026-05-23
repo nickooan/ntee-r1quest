@@ -2,7 +2,9 @@ import { describe, expect, test } from "@jest/globals"
 import type { Key } from "ink"
 import {
   createEditModeState,
+  createAiModeState,
   findSearchMatches,
+  handleAiModeInput,
   handleEditModeInput,
   handleBaseModeInput,
   handleSearchModeInput,
@@ -73,6 +75,42 @@ describe("mode commands", () => {
     expect(resolveModeCommand("@v")).toBe(TerminalMode.View)
     expect(resolveModeCommand("@edit")).toBe(TerminalMode.Edit)
     expect(resolveModeCommand("@e")).toBe(TerminalMode.Edit)
+    expect(resolveModeCommand("@ai")).toBe(TerminalMode.Ai)
+    expect(resolveModeCommand("@a")).toBe(TerminalMode.Ai)
+  })
+})
+
+describe("ai mode key helpers", () => {
+  test("handles input, submit, and exit", () => {
+    const typedResult = handleAiModeInput(
+      "hello",
+      defaultKey,
+      createAiModeState(),
+    )
+
+    expect(typedResult.state.input).toBe("hello")
+
+    const submitResult = handleAiModeInput(
+      "",
+      key({ return: true }),
+      typedResult.state,
+    )
+
+    expect(submitResult.state.input).toBe("")
+    expect(submitResult.state.messages).toEqual([
+      {
+        role: "user",
+        content: "hello",
+      },
+    ])
+
+    const exitResult = handleAiModeInput(
+      "",
+      key({ escape: true }),
+      submitResult.state,
+    )
+
+    expect(exitResult.shouldExitAi).toBe(true)
   })
 })
 
