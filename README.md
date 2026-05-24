@@ -42,7 +42,8 @@ Currently supported terminal AI agents are:
 - `claude` for Claude Code
 
 If `-ai` is not provided, `ntee-r1quest` reads the `ai` value from
-`.r1qconfig.json`. If neither is provided, it uses `codex` by default.
+`.r1qconfig.json`. If neither is provided, `@ai` shows an error in Result and
+asks you to update config or restart with `-ai codex` or `-ai claude`.
 
 ## Usage
 
@@ -130,7 +131,8 @@ request resource root and AI adapter:
 ```
 
 The `ai` value can be `codex` or `claude`. A command-line `-ai` value takes
-precedence over `.r1qconfig.json`.
+precedence over `.r1qconfig.json`. If no AI adapter is declared, `@ai` shows an
+error in Result instead of choosing one implicitly.
 
 Config lookup checks the current directory first:
 

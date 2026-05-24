@@ -25,6 +25,7 @@ import {
 import { Ai, buildAiLayout, buildAiMessageLines } from "./ai.tsx"
 import {
   getAdaptor,
+  listAdaptors,
   type AcpAdaptorConstructor,
   type AcpAdaptorName,
   type CodexAcpPermissionRequest,
@@ -104,7 +105,7 @@ export const TerminalApp = ({
   requestDurationMs,
   height: fixedHeight,
   width: fixedWidth,
-  aiAdaptor = "codex",
+  aiAdaptor,
   onCommand,
   onExit = () => {
     process.exit(0)
@@ -298,6 +299,17 @@ export const TerminalApp = ({
   }, [])
 
   const startAiMode = () => {
+    if (!aiAdaptor) {
+      const supportedAdaptors = listAdaptors().join(" or -ai ")
+
+      setLocalError(
+        new Error(
+          `AI agent undeclared. Update .r1qconfig.json with an "ai" value or start the app with -ai ${supportedAdaptors}.`,
+        ),
+      )
+      return
+    }
+
     if (aiAdapterRef.current) {
       setAiModeState((currentState) => ({
         ...currentState,

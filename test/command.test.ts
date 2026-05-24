@@ -150,6 +150,10 @@ describe("command runtime", () => {
     }
   })
 
+  test("does not default to an ai adaptor when none is declared", () => {
+    expect(resolveAiAdaptor()).toBeUndefined()
+  })
+
   test("raises when ai adaptor is not supported", () => {
     expect(() => {
       resolveAiAdaptor(["-ai", "unsupported"])

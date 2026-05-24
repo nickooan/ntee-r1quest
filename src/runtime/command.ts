@@ -122,9 +122,15 @@ export const resolveRoot = (args: string[] = []): string => {
     : resolve(baseWorkingDirectory, expandHomeDirectory(inputRoot))
 }
 
-export const resolveAiAdaptor = (args: string[] = []): AcpAdaptorName => {
+export const resolveAiAdaptor = (
+  args: string[] = [],
+): AcpAdaptorName | undefined => {
   const parsedArgs = parseArguments(args)
-  const inputAiAdaptor = parsedArgs.ai ?? readConfigAiAdaptor() ?? "codex"
+  const inputAiAdaptor = parsedArgs.ai ?? readConfigAiAdaptor()
+
+  if (!inputAiAdaptor) {
+    return undefined
+  }
 
   return resolveAdaptorName(inputAiAdaptor)
 }
