@@ -69,6 +69,7 @@ FONT = {
     "]": ["01110", "00010", "00010", "00010", "00010", "00010", "01110"],
     "_": ["00000", "00000", "00000", "00000", "00000", "00000", "11111"],
     "{": ["00010", "00100", "00100", "01000", "00100", "00100", "00010"],
+    "|": ["00100", "00100", "00100", "00100", "00100", "00100", "00100"],
     "}": ["01000", "00100", "00100", "00010", "00100", "00100", "01000"],
 }
 
@@ -184,28 +185,72 @@ def draw_modal(frame, modal):
         draw_text(frame, sx + 88, sy + 42, "NO", COLORS["fg"])
 
 
+def draw_save_prompt(frame, x, y):
+    w = 150
+    h = 70
+    rect(frame, x - 4, y - 4, w + 8, h + 8, COLORS["bg"])
+    draw_box(frame, x, y, w, h, color=COLORS["fg"])
+    draw_text(frame, x + 36, y + 18, "SAVE IT?", COLORS["fg"])
+    draw_text(frame, x + 30, y + 42, "YES", COLORS["black"], COLORS["fg"])
+    draw_text(frame, x + 88, y + 42, "NO", COLORS["fg"])
+
+
+def draw_ai_overlay(frame):
+    x = 78
+    y = 62
+    w = 470
+    h = 220
+    rect(frame, x - 6, y - 6, w + 12, h + 12, COLORS["bg"])
+    draw_box(frame, x, y, w, h, color=COLORS["dim"])
+    draw_text(frame, x - 10, y - 8, "ESC", COLORS["fg"], COLORS["dim"])
+    draw_text(frame, x + 202, y - 8, " AI CHAT ", COLORS["fg"], COLORS["bg"])
+    draw_rows(
+        frame,
+        x + 16,
+        y + 24,
+        [
+            "USER: ADD A QUICK HEADER",
+            "",
+            "------------- AI RESPONSE -------------",
+            "OPENED REQUEST/FOLDER-1/GET-POST.",
+            "ADD:",
+            "HEADER ACCEPT, APPLICATION/JSON",
+            "",
+            "ESC HIDES CHAT; SESSION CONTINUES.",
+            ("> APPLY CHANGE_", COLORS["cyan"], None),
+        ],
+        34,
+    )
+
+
 def draw_app(scene):
     frame = blank_frame()
     rect(frame, 0, 0, WIDTH, HEIGHT, COLORS["bg"])
     rect(frame, 0, 0, WIDTH, 28, COLORS["bar"])
     draw_text(frame, 18, 9, "NTEE R1QUEST", COLORS["green"])
     draw_text(frame, 18, 42, ">_ NTEE R1QUEST", COLORS["fg"])
-    draw_text(frame, 18, 62, "VER: 0.3.0", COLORS["green"])
+    draw_text(frame, 18, 62, "VER: 0.5.0", COLORS["green"])
     draw_text(frame, 18, 82, "TIME SPEND 183 MS,", COLORS["dim"])
 
     left_x = 18
     pane_y = 104
-    left_w = 142
-    right_x = 176
-    right_w = 426
+    left_w = 168
+    right_x = 202
+    right_w = 400
     pane_h = 172
     draw_box(frame, left_x, pane_y, left_w, pane_h, "COLLECTIONS")
-    draw_box(frame, right_x, pane_y, right_w, pane_h, "RESULT")
-    draw_rows(frame, left_x + 10, pane_y + 18, scene["collections"], 10)
-    draw_rows(frame, right_x + 10, pane_y + 18, scene["result"], 32)
+    draw_box(frame, right_x, pane_y, right_w, pane_h, scene.get("title", "RESULT"))
+    draw_rows(frame, left_x + 10, pane_y + 18, scene["collections"], 12)
+    draw_rows(frame, right_x + 10, pane_y + 18, scene["result"], 30)
+
+    if scene.get("save"):
+        draw_save_prompt(frame, right_x + 126, pane_y + 58)
 
     rect(frame, 0, HEIGHT - 28, WIDTH, 28, COLORS["bar"])
     draw_text(frame, 18, HEIGHT - 20, scene["prompt"], COLORS["green"])
+
+    if scene.get("ai"):
+        draw_ai_overlay(frame)
 
     if scene.get("modal"):
         draw_modal(frame, scene["modal"])
@@ -279,26 +324,30 @@ def write_gif(path, frames, delay=90):
 SCENES = [
     {
         "collections": [
-            ("  EXAMPLE.NTS", COLORS["black"], COLORS["yellow"]),
-            "  EXAMPLE-UP",
-            "> FOLDER-1",
-            "> FOLDER-2",
+            "> DATA",
+            "> FILES",
+            ("V REQUEST", COLORS["black"], COLORS["yellow"]),
+            "    EXAMPLE",
+            "  > FOLDER-1",
+            "  > FOLDER-2",
         ],
         "result": [
             "READY.",
             "SELECT A REQUEST FROM COLLECTIONS.",
             "",
-            "ARROWS SCROLL RESULT.",
-            "@S SEARCHES RESPONSE TEXT.",
+            "SHIFT+UP/DOWN SELECTS FILES.",
+            "ENTER EXPANDS A DIRECTORY.",
         ],
-        "prompt": "@QUERY >EXAMPLE_",
+        "prompt": "@QUERY >REQUEST/FOLDER-2/_",
     },
     {
         "collections": [
-            ("  EXAMPLE.NTS", COLORS["black"], COLORS["yellow"]),
-            "  EXAMPLE-UP",
-            "> FOLDER-1",
-            "> FOLDER-2",
+            "> DATA",
+            "> FILES",
+            "V REQUEST",
+            ("    EXAMPLE", COLORS["black"], COLORS["yellow"]),
+            "  > FOLDER-1",
+            "  > FOLDER-2",
         ],
         "result": [
             "RESPONSE OF GET /TODOS/1",
@@ -310,16 +359,18 @@ SCENES = [
             "BODY",
             '{ "USERID": 1, "ID": 1 }',
         ],
-        "prompt": "@QUERY >@S_",
+        "prompt": "@QUERY >EXAMPLE_",
     },
     {
         "collections": [
-            "  EXAMPLE.NTS",
-            "  EXAMPLE-UP",
-            ("V FOLDER-1", COLORS["black"], COLORS["yellow"]),
-            "    GET-POST.NTS",
-            "> FOLDER-2",
+            "> DATA",
+            "> FILES",
+            "V REQUEST",
+            "    EXAMPLE",
+            ("  V FOLDER-1", COLORS["black"], COLORS["yellow"]),
+            "      GET-POST",
         ],
+        "title": "SEARCHING",
         "result": [
             "RESPONSE OF GET /TODOS/1",
             "200 OK",
@@ -334,56 +385,71 @@ SCENES = [
     },
     {
         "collections": [
-            "  EXAMPLE.NTS",
-            "  EXAMPLE-UP",
-            ("V FOLDER-1", COLORS["black"], COLORS["yellow"]),
-            "    GET-POST.NTS",
-            "> FOLDER-2",
+            "> DATA",
+            "> FILES",
+            "V REQUEST",
+            "    EXAMPLE",
+            "  V FOLDER-1",
+            ("      GET-POST", COLORS["black"], COLORS["yellow"]),
         ],
+        "title": "REVIEWING",
         "result": [
-            "VIEW MODE OPENS REQUEST FILES.",
-            "ESC CLOSES THE MODAL.",
-            "@EDIT ENABLES EDITING.",
+            "1 | REF ../../DATA/EXAMPLE.NTD",
+            "2 |",
+            ("3 | URL \"@I(HOST)/POSTS/1\"", COLORS["yellow"], None),
+            ("4 | TYPE GET", COLORS["cyan"], None),
+            "5 |",
+            "6 | HEADER ACCEPT, @I(CONTENT)",
+            "",
+            "ESC FOLDS TO PARENT DIRECTORY.",
         ],
         "prompt": "@VIEW >FOLDER-1/GET-POST_",
-        "modal": {
-            "title": "GET-POST.NTS",
-            "lines": [
-                ("1 | REF ../../DATA/EXAMPLE.NTD", COLORS["fg"], None),
-                ("2 |", COLORS["dim"], None),
-                ("3 | URL \"@I(HOST)/POSTS/1\"", COLORS["yellow"], None),
-                ("4 | TYPE GET", COLORS["cyan"], None),
-                ("5 |", COLORS["dim"], None),
-                ("6 | HEADER ACCEPT, @I(CONTENT)", COLORS["fg"], None),
-            ],
-        },
     },
     {
         "collections": [
-            "  EXAMPLE.NTS",
-            "  EXAMPLE-UP",
-            ("V FOLDER-1", COLORS["black"], COLORS["yellow"]),
-            "    GET-POST.NTS",
-            "> FOLDER-2",
+            "> DATA",
+            "> FILES",
+            "V REQUEST",
+            "    EXAMPLE",
+            "  V FOLDER-1",
+            ("      GET-POST", COLORS["black"], COLORS["yellow"]),
         ],
+        "title": "EDITING",
         "result": [
-            "EDIT MODE KEEPS A COPY UNTIL SAVE.",
-            "INPUT IS BUFFERED AT CURSOR.",
-            "ENTER APPLIES REPLACEMENT.",
+            "1 | REF ../../DATA/EXAMPLE.NTD",
+            "2 |",
+            ("3 | URL \"@I(HOST)/POSTS/1\"", COLORS["yellow"], None),
+            ("4 | TYPE GET", COLORS["cyan"], None),
+            "5 |",
+            "6 | HEADER ACCEPT, @I(CONTENT)",
+            "",
+            "ESC OPENS SAVE PROMPT.",
         ],
         "prompt": "@EDIT >POSTS_",
-        "modal": {
-            "title": "GET-POST.NTS (EDITING)",
-            "lines": [
-                ("1 | REF ../../DATA/EXAMPLE.NTD", COLORS["fg"], None),
-                ("2 |", COLORS["dim"], None),
-                ("3 | URL \"@I(HOST)/POSTS/1\"", COLORS["yellow"], None),
-                ("4 | TYPE GET", COLORS["cyan"], None),
-                ("5 |", COLORS["dim"], None),
-                ("6 | HEADER ACCEPT, @I(CONTENT)", COLORS["fg"], None),
-            ],
-            "save": True,
-        },
+        "save": True,
+    },
+    {
+        "collections": [
+            "> DATA",
+            "> FILES",
+            "V REQUEST",
+            "    EXAMPLE",
+            "  V FOLDER-1",
+            ("      GET-POST", COLORS["black"], COLORS["yellow"]),
+        ],
+        "title": "EDITING",
+        "result": [
+            "1 | REF ../../DATA/EXAMPLE.NTD",
+            "2 |",
+            ("3 | URL \"@I(HOST)/POSTS/1\"", COLORS["yellow"], None),
+            ("4 | TYPE GET", COLORS["cyan"], None),
+            "5 |",
+            "6 | HEADER ACCEPT, @I(CONTENT)",
+            "",
+            "AI IS FOR QUICK LOCAL ACTIONS.",
+        ],
+        "prompt": "@AI >APPLY CHANGE_",
+        "ai": True,
     },
 ]
 
