@@ -116,16 +116,19 @@ export const TerminalApp = ({
     scrollX: 0,
     scrollY: 0,
     command: "",
+    commandCursorX: 0,
   })
   const [searchModeState, setSearchModeState] = useState<SearchModeState>({
     scrollX: 0,
     scrollY: 0,
     input: "",
+    inputCursorX: 0,
     query: "",
     focusedMatchIndex: 0,
   })
   const [viewModeState, setViewModeState] = useState<ViewModeState>({
     command: "",
+    commandCursorX: 0,
     scrollX: 0,
     scrollY: 0,
   })
@@ -230,7 +233,13 @@ export const TerminalApp = ({
         ? (editModeState?.inputCursorX ?? inputValue.length)
         : mode === TerminalMode.Ai
           ? aiModeState.inputCursorX
-          : inputValue.length,
+          : mode === TerminalMode.Search
+            ? (searchModeState.inputCursorX ?? inputValue.length)
+            : mode === TerminalMode.View
+              ? (viewModeState.commandCursorX ?? inputValue.length)
+              : mode === TerminalMode.Query
+                ? (baseModeState.commandCursorX ?? inputValue.length)
+                : inputValue.length,
       0,
     ),
     inputValue.length,
@@ -514,6 +523,41 @@ export const TerminalApp = ({
         return
       }
 
+      const isModeCommandInput = viewModeState.command.trim().startsWith("@")
+      const isViewCommandInput =
+        viewModeState.command.trim() !== "" && !isModeCommandInput
+      const highlightedEntry = isViewCommandInput
+        ? fileTreeEntries[highlightedEntryIndex]
+        : undefined
+
+      if (!isModeCommandInput && highlightedEntry && key.return) {
+        if (highlightedEntry.type === "directory") {
+          setSelectedCommand(highlightedEntry.commandValue)
+          setViewModeState({
+            ...viewModeState,
+            command: highlightedEntry.commandValue,
+            commandCursorX: highlightedEntry.commandValue.length,
+          })
+          return
+        }
+
+        const nextOpenViewFile = readViewFile(root, highlightedEntry)
+
+        if (nextOpenViewFile) {
+          setSelectedCommand(highlightedEntry.commandValue)
+          setEditModeState(null)
+          setViewModeState({
+            command: "",
+            commandCursorX: 0,
+            scrollX: 0,
+            scrollY: 0,
+          })
+          setOpenViewFile(nextOpenViewFile)
+        }
+
+        return
+      }
+
       const viewLines = openViewFile.content.split("\n")
       const viewLayout = buildFilePaneLayout(
         responsePaneWidth,
@@ -740,6 +784,7 @@ export const TerminalApp = ({
           setViewModeState({
             ...viewModeState,
             command: highlightedEntry.commandValue,
+            commandCursorX: highlightedEntry.commandValue.length,
           })
           return
         }
@@ -847,6 +892,7 @@ export const TerminalApp = ({
         setBaseModeState({
           ...baseModeState,
           command: highlightedEntry.commandValue,
+          commandCursorX: highlightedEntry.commandValue.length,
         })
         return
       }
@@ -865,6 +911,7 @@ export const TerminalApp = ({
       setBaseModeState({
         ...baseModeState,
         command: highlightedEntry.commandValue,
+        commandCursorX: highlightedEntry.commandValue.length,
       })
       return
     }

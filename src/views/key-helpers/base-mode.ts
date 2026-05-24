@@ -4,6 +4,7 @@ export type BaseModeState = {
   scrollX: number
   scrollY: number
   command: string
+  commandCursorX?: number
 }
 
 export type BaseModeLimits = {
@@ -32,6 +33,10 @@ export const clampBaseModeScroll = (
   }
 }
 
+const clampInputCursor = (input: string, inputCursorX: number): number => {
+  return Math.min(Math.max(inputCursorX, 0), input.length)
+}
+
 export const handleBaseModeInput = (
   input: string,
   key: Key,
@@ -52,6 +57,30 @@ export const handleBaseModeInput = (
       state: {
         ...state,
         scrollY: clampValue(state.scrollY + 1, 0, limits.maxScrollY),
+      },
+    }
+  }
+
+  if (key.shift && key.leftArrow) {
+    return {
+      state: {
+        ...state,
+        commandCursorX: clampInputCursor(
+          state.command,
+          (state.commandCursorX ?? state.command.length) - 1,
+        ),
+      },
+    }
+  }
+
+  if (key.shift && key.rightArrow) {
+    return {
+      state: {
+        ...state,
+        commandCursorX: clampInputCursor(
+          state.command,
+          (state.commandCursorX ?? state.command.length) + 1,
+        ),
       },
     }
   }
@@ -121,10 +150,24 @@ export const handleBaseModeInput = (
   }
 
   if (key.backspace || key.delete) {
+    const commandCursorX = clampInputCursor(
+      state.command,
+      state.commandCursorX ?? state.command.length,
+    )
+
+    if (commandCursorX === 0) {
+      return { state }
+    }
+
+    const command = `${state.command.slice(0, commandCursorX - 1)}${state.command.slice(
+      commandCursorX,
+    )}`
+
     return {
       state: {
         ...state,
-        command: state.command.slice(0, -1),
+        command,
+        commandCursorX: commandCursorX - 1,
       },
     }
   }
@@ -134,6 +177,7 @@ export const handleBaseModeInput = (
       state: {
         ...state,
         command: "",
+        commandCursorX: 0,
       },
       command: state.command,
     }
@@ -146,10 +190,19 @@ export const handleBaseModeInput = (
   }
 
   if (input) {
+    const commandCursorX = clampInputCursor(
+      state.command,
+      state.commandCursorX ?? state.command.length,
+    )
+    const command = `${state.command.slice(0, commandCursorX)}${input}${state.command.slice(
+      commandCursorX,
+    )}`
+
     return {
       state: {
         ...state,
-        command: `${state.command}${input}`,
+        command,
+        commandCursorX: commandCursorX + input.length,
       },
     }
   }

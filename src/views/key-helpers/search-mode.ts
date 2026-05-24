@@ -11,6 +11,7 @@ export type SearchModeState = {
   scrollX: number
   scrollY: number
   input: string
+  inputCursorX?: number
   query: string
   focusedMatchIndex: number
 }
@@ -32,6 +33,10 @@ const getHorizontalScrollStep = (viewWidth: number): number => {
 }
 
 const searchMatchTopPadding = 2
+
+const clampInputCursor = (input: string, inputCursorX: number): number => {
+  return Math.min(Math.max(inputCursorX, 0), input.length)
+}
 
 const escapeRegExp = (value: string): string => {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -157,6 +162,30 @@ export const handleSearchModeInput = (
   limits: SearchModeLimits,
   matches: SearchMatch[],
 ): SearchModeResult => {
+  if (key.shift && key.leftArrow) {
+    return {
+      state: {
+        ...state,
+        inputCursorX: clampInputCursor(
+          state.input,
+          (state.inputCursorX ?? state.input.length) - 1,
+        ),
+      },
+    }
+  }
+
+  if (key.shift && key.rightArrow) {
+    return {
+      state: {
+        ...state,
+        inputCursorX: clampInputCursor(
+          state.input,
+          (state.inputCursorX ?? state.input.length) + 1,
+        ),
+      },
+    }
+  }
+
   if (key.leftArrow) {
     return {
       state: {
@@ -253,10 +282,24 @@ export const handleSearchModeInput = (
   }
 
   if (key.backspace || key.delete) {
+    const inputCursorX = clampInputCursor(
+      state.input,
+      state.inputCursorX ?? state.input.length,
+    )
+
+    if (inputCursorX === 0) {
+      return { state }
+    }
+
+    const input = `${state.input.slice(0, inputCursorX - 1)}${state.input.slice(
+      inputCursorX,
+    )}`
+
     return {
       state: {
         ...state,
-        input: state.input.slice(0, -1),
+        input,
+        inputCursorX: inputCursorX - 1,
       },
     }
   }
@@ -266,6 +309,7 @@ export const handleSearchModeInput = (
       state: {
         ...state,
         input: "",
+        inputCursorX: 0,
         query: state.input,
         focusedMatchIndex: 0,
       },
@@ -280,10 +324,19 @@ export const handleSearchModeInput = (
   }
 
   if (input) {
+    const inputCursorX = clampInputCursor(
+      state.input,
+      state.inputCursorX ?? state.input.length,
+    )
+    const nextInput = `${state.input.slice(0, inputCursorX)}${input}${state.input.slice(
+      inputCursorX,
+    )}`
+
     return {
       state: {
         ...state,
-        input: `${state.input}${input}`,
+        input: nextInput,
+        inputCursorX: inputCursorX + input.length,
       },
     }
   }
