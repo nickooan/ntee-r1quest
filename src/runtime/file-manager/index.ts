@@ -7,6 +7,7 @@ export {
   buildFileTreeViewport,
   findFileTreeMatchIndex,
   resolveHighlightedEntry,
+  resolveNextFileTreeSelectionIndex,
 } from "./tree.ts"
 export type { FileTreeEntry, OpenViewFile } from "./types.ts"
 export { readViewFile } from "./view-file.ts"

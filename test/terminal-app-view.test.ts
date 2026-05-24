@@ -6,6 +6,7 @@ import {
   buildExpandedDirectoryPaths,
   resolveSidebarCommand,
   findFileTreeMatchIndex,
+  resolveNextFileTreeSelectionIndex,
 } from "../src/runtime/file-manager/index.ts"
 import { buildTerminalViewport } from "../src/views/terminal-app.tsx"
 import { buildFilePaneLayout } from "../src/views/terminal/file-content.tsx"
@@ -131,5 +132,23 @@ describe("terminal app view", () => {
 
     expect(viewport.safeScrollY).toBe(8)
     expect(viewport.entries[2]?.name).toBe("item-10")
+  })
+
+  test("moves keyboard selection through file tree entries", () => {
+    const entries = Array.from({ length: 3 }, (_, index) => ({
+      name: `item-${index}`,
+      relativePath: `item-${index}`,
+      commandValue: `item-${index}`,
+      depth: 0,
+      type: "file" as const,
+      isExpanded: false,
+    }))
+
+    expect(resolveNextFileTreeSelectionIndex(entries, -1, 1)).toBe(0)
+    expect(resolveNextFileTreeSelectionIndex(entries, -1, -1)).toBe(2)
+    expect(resolveNextFileTreeSelectionIndex(entries, 1, 1)).toBe(2)
+    expect(resolveNextFileTreeSelectionIndex(entries, 1, -1)).toBe(0)
+    expect(resolveNextFileTreeSelectionIndex(entries, 2, 1)).toBe(2)
+    expect(resolveNextFileTreeSelectionIndex([], -1, 1)).toBe(-1)
   })
 })

@@ -16,6 +16,7 @@ export type ViewModeLimits = {
 export type ViewModeResult = {
   state: ViewModeState
   selectedCommand?: string
+  fileTreeSelectionDirection?: -1 | 1
 }
 
 const clampInputCursor = (input: string, inputCursorX: number): number => {
@@ -28,6 +29,13 @@ export const handleViewModeInput = (
   state: ViewModeState,
   limits?: ViewModeLimits,
 ): ViewModeResult => {
+  if (key.shift && (key.upArrow || key.downArrow)) {
+    return {
+      state,
+      fileTreeSelectionDirection: key.downArrow ? 1 : -1,
+    }
+  }
+
   if (limits && key.upArrow) {
     return {
       state: {

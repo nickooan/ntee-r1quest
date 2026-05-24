@@ -178,3 +178,19 @@ export const resolveHighlightedEntry = (
 
   return -1
 }
+
+export const resolveNextFileTreeSelectionIndex = (
+  entries: FileTreeEntry[],
+  highlightedIndex: number,
+  direction: -1 | 1,
+): number => {
+  if (entries.length === 0) {
+    return -1
+  }
+
+  if (highlightedIndex === -1) {
+    return direction === 1 ? 0 : entries.length - 1
+  }
+
+  return Math.min(Math.max(highlightedIndex + direction, 0), entries.length - 1)
+}

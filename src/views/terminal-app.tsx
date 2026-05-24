@@ -34,6 +34,7 @@ import {
   buildFileTreeEntries,
   readViewFile,
   resolveHighlightedEntry,
+  resolveNextFileTreeSelectionIndex,
   resolveSidebarCommand,
   type OpenViewFile,
 } from "../runtime/file-manager/index.ts"
@@ -141,6 +142,7 @@ export const TerminalApp = ({
   const [openViewFile, setOpenViewFile] = useState<OpenViewFile | null>(null)
   const [localError, setLocalError] = useState<unknown>()
   const [selectedCommand, setSelectedCommand] = useState("")
+  const [keyboardSelectedCommand, setKeyboardSelectedCommand] = useState("")
   const aiAdapterRef = useRef<AcpAdapter | undefined>(undefined)
   const height = fixedHeight ?? rows ?? defaultHeight
   const width = fixedWidth ?? columns ?? defaultWidth
@@ -149,6 +151,7 @@ export const TerminalApp = ({
       ? viewModeState.command
       : queryModeState.command
   const sidebarCommand = resolveSidebarCommand(commandInput, selectedCommand)
+  const highlightedSidebarCommand = keyboardSelectedCommand || sidebarCommand
   const expandedPathsForInput = buildExpandedDirectoryPaths(sidebarCommand)
   const fileTreeEntries = buildFileTreeEntries(root, expandedPathsForInput)
   const sidebarWidth = Math.min(
@@ -164,7 +167,7 @@ export const TerminalApp = ({
   const responseContentHeight = Math.max(1, viewHeight - 2)
   const highlightedEntryIndex = resolveHighlightedEntry(
     fileTreeEntries,
-    sidebarCommand,
+    highlightedSidebarCommand,
   )
   const responseContent = formatTerminalContent({
     response,
@@ -400,6 +403,27 @@ export const TerminalApp = ({
       })
   }
 
+  const moveSidebarSelection = (direction: -1 | 1): boolean => {
+    if (fileTreeEntries.length === 0) {
+      return false
+    }
+
+    const nextIndex = resolveNextFileTreeSelectionIndex(
+      fileTreeEntries,
+      highlightedEntryIndex,
+      direction,
+    )
+    const nextEntry = fileTreeEntries[nextIndex]
+
+    if (!nextEntry) {
+      return false
+    }
+
+    setKeyboardSelectedCommand(nextEntry.commandValue)
+
+    return true
+  }
+
   useInput((input, key) => {
     if (mode === TerminalMode.Ai) {
       if (key.escape) {
@@ -526,11 +550,16 @@ export const TerminalApp = ({
       const isModeCommandInput = viewModeState.command.trim().startsWith("@")
       const isViewCommandInput =
         viewModeState.command.trim() !== "" && !isModeCommandInput
-      const highlightedEntry = isViewCommandInput
-        ? fileTreeEntries[highlightedEntryIndex]
-        : undefined
+      const isKeyboardSelectionInput =
+        viewModeState.command.trim() === "" && keyboardSelectedCommand !== ""
+      const highlightedEntry =
+        isViewCommandInput || isKeyboardSelectionInput
+          ? fileTreeEntries[highlightedEntryIndex]
+          : undefined
 
       if (!isModeCommandInput && highlightedEntry && key.return) {
+        setKeyboardSelectedCommand("")
+
         if (highlightedEntry.type === "directory") {
           setSelectedCommand(highlightedEntry.commandValue)
           setViewModeState({
@@ -573,6 +602,14 @@ export const TerminalApp = ({
         maxScrollY: Math.max(0, viewLines.length - viewLayout.contentHeight),
         viewHeight: viewLayout.contentHeight,
       })
+
+      if (result.fileTreeSelectionDirection) {
+        moveSidebarSelection(result.fileTreeSelectionDirection)
+        return
+      }
+
+      setKeyboardSelectedCommand("")
+
       const nextMode =
         result.selectedCommand === undefined
           ? null
@@ -774,11 +811,16 @@ export const TerminalApp = ({
       const isModeCommandInput = viewModeState.command.trim().startsWith("@")
       const isViewCommandInput =
         viewModeState.command.trim() !== "" && !isModeCommandInput
-      const highlightedEntry = isViewCommandInput
-        ? fileTreeEntries[highlightedEntryIndex]
-        : undefined
+      const isKeyboardSelectionInput =
+        viewModeState.command.trim() === "" && keyboardSelectedCommand !== ""
+      const highlightedEntry =
+        isViewCommandInput || isKeyboardSelectionInput
+          ? fileTreeEntries[highlightedEntryIndex]
+          : undefined
 
       if (!isModeCommandInput && highlightedEntry && key.return) {
+        setKeyboardSelectedCommand("")
+
         if (highlightedEntry.type === "directory") {
           setSelectedCommand(highlightedEntry.commandValue)
           setViewModeState({
@@ -806,6 +848,14 @@ export const TerminalApp = ({
       }
 
       const result = handleViewModeInput(input, key, viewModeState)
+
+      if (result.fileTreeSelectionDirection) {
+        moveSidebarSelection(result.fileTreeSelectionDirection)
+        return
+      }
+
+      setKeyboardSelectedCommand("")
+
       const nextMode =
         result.selectedCommand === undefined
           ? null
@@ -882,11 +932,16 @@ export const TerminalApp = ({
     const isModeCommandInput = queryModeState.command.trim().startsWith("@")
     const isQueryCommandInput =
       queryModeState.command.trim() !== "" && !isModeCommandInput
-    const highlightedEntry = isQueryCommandInput
-      ? fileTreeEntries[highlightedEntryIndex]
-      : undefined
+    const isKeyboardSelectionInput =
+      queryModeState.command.trim() === "" && keyboardSelectedCommand !== ""
+    const highlightedEntry =
+      isQueryCommandInput || isKeyboardSelectionInput
+        ? fileTreeEntries[highlightedEntryIndex]
+        : undefined
 
     if (!isModeCommandInput && highlightedEntry && key.return) {
+      setKeyboardSelectedCommand("")
+
       if (highlightedEntry.type === "directory") {
         setSelectedCommand(highlightedEntry.commandValue)
         setQueryModeState({
@@ -921,6 +976,14 @@ export const TerminalApp = ({
       maxScrollY: viewport.maxScrollY,
       viewHeight: responseContentHeight,
     })
+
+    if (result.fileTreeSelectionDirection) {
+      moveSidebarSelection(result.fileTreeSelectionDirection)
+      return
+    }
+
+    setKeyboardSelectedCommand("")
+
     const nextMode =
       result.command === undefined ? null : resolveModeCommand(result.command)
 

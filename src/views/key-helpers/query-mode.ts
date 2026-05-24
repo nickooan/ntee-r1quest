@@ -16,6 +16,7 @@ export type QueryModeLimits = {
 export type QueryModeResult = {
   state: QueryModeState
   command?: string
+  fileTreeSelectionDirection?: -1 | 1
 }
 
 export const clampValue = (value: number, min: number, max: number): number => {
@@ -43,6 +44,13 @@ export const handleQueryModeInput = (
   state: QueryModeState,
   limits: QueryModeLimits,
 ): QueryModeResult => {
+  if (key.shift && (key.upArrow || key.downArrow)) {
+    return {
+      state,
+      fileTreeSelectionDirection: key.downArrow ? 1 : -1,
+    }
+  }
+
   if (key.upArrow) {
     return {
       state: {

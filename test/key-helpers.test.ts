@@ -240,6 +240,19 @@ describe("view mode key helpers", () => {
     ).toBe(3)
   })
 
+  test("reports file tree selection movement", () => {
+    const viewState = { command: "", commandCursorX: 0, scrollX: 2, scrollY: 3 }
+
+    expect(
+      handleViewModeInput("", key({ shift: true, downArrow: true }), viewState)
+        .fileTreeSelectionDirection,
+    ).toBe(1)
+    expect(
+      handleViewModeInput("", key({ shift: true, upArrow: true }), viewState)
+        .fileTreeSelectionDirection,
+    ).toBe(-1)
+  })
+
   test("edits view command input at the cursor", () => {
     const viewState = {
       command: "folder/request",
@@ -480,6 +493,25 @@ describe("query mode key helpers", () => {
 
     expect(result.command).toBe("get")
     expect(result.state.command).toBe("")
+  })
+
+  test("reports file tree selection movement", () => {
+    expect(
+      handleQueryModeInput(
+        "",
+        key({ shift: true, downArrow: true }),
+        state,
+        limits,
+      ).fileTreeSelectionDirection,
+    ).toBe(1)
+    expect(
+      handleQueryModeInput(
+        "",
+        key({ shift: true, upArrow: true }),
+        state,
+        limits,
+      ).fileTreeSelectionDirection,
+    ).toBe(-1)
   })
 
   test("edits command input at the cursor", () => {
