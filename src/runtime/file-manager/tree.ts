@@ -176,6 +176,20 @@ export const resolveHighlightedEntry = (
     return matchedIndex
   }
 
+  const normalizedInput = input.trim().replaceAll("\\", "/")
+  const pathParts = normalizedInput.split("/").filter(Boolean)
+
+  for (let index = pathParts.length - 1; index > 0; index -= 1) {
+    const parentCommand = `${pathParts.slice(0, index).join("/")}/`
+    const parentIndex = entries.findIndex((entry) => {
+      return entry.type === "directory" && entry.commandValue === parentCommand
+    })
+
+    if (parentIndex !== -1) {
+      return parentIndex
+    }
+  }
+
   return -1
 }
 

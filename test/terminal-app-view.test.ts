@@ -5,7 +5,9 @@ import {
   buildFileTreeViewport,
   buildExpandedDirectoryPaths,
   resolveSidebarCommand,
+  resolveParentDirectoryCommand,
   findFileTreeMatchIndex,
+  resolveHighlightedEntry,
   resolveNextFileTreeSelectionIndex,
 } from "../src/runtime/file-manager/index.ts"
 import { buildTerminalViewport } from "../src/views/terminal-app.tsx"
@@ -80,12 +82,30 @@ describe("terminal app view", () => {
     expect(resolveSidebarCommand("get", "nested/get")).toBe("get")
   })
 
+  test("resolves parent directory commands for folded view navigation", () => {
+    expect(resolveParentDirectoryCommand("a/b/c/")).toBe("a/b/")
+    expect(resolveParentDirectoryCommand("a/b/c")).toBe("a/b/")
+    expect(resolveParentDirectoryCommand("a/")).toBe("")
+    expect(resolveParentDirectoryCommand("")).toBeUndefined()
+  })
+
   test("matches file tree entries from command input", () => {
     const root = join(process.cwd(), "test/data")
     const entries = buildFileTreeEntries(root, new Set(["nested"]))
 
     expect(entries[findFileTreeMatchIndex(entries, "nested/g")]).toMatchObject({
       commandValue: "nested/get",
+    })
+  })
+
+  test("falls back to the closest parent directory highlight for unmatched child input", () => {
+    const root = join(process.cwd(), "test/data")
+    const entries = buildFileTreeEntries(root, new Set(["nested"]))
+
+    expect(
+      entries[resolveHighlightedEntry(entries, "nested/missing")],
+    ).toMatchObject({
+      commandValue: "nested/",
     })
   })
 

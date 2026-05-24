@@ -17,6 +17,7 @@ export type ViewModeResult = {
   state: ViewModeState
   selectedCommand?: string
   fileTreeSelectionDirection?: -1 | 1
+  shouldMoveToParentDirectory?: boolean
 }
 
 const clampInputCursor = (input: string, inputCursorX: number): number => {
@@ -164,7 +165,14 @@ export const handleViewModeInput = (
     }
   }
 
-  if (key.ctrl || key.meta || key.escape || key.tab) {
+  if (key.escape) {
+    return {
+      state,
+      shouldMoveToParentDirectory: true,
+    }
+  }
+
+  if (key.ctrl || key.meta || key.tab) {
     return {
       state,
     }

@@ -35,6 +35,7 @@ import {
   readViewFile,
   resolveHighlightedEntry,
   resolveNextFileTreeSelectionIndex,
+  resolveParentDirectoryCommand,
   resolveSidebarCommand,
   type OpenViewFile,
 } from "../runtime/file-manager/index.ts"
@@ -424,6 +425,46 @@ export const TerminalApp = ({
     return true
   }
 
+  const moveToParentDirectory = (): boolean => {
+    const currentCommand = viewModeState.command || selectedCommand
+    const parentCommand = resolveParentDirectoryCommand(currentCommand)
+
+    if (parentCommand === undefined) {
+      return false
+    }
+
+    setKeyboardSelectedCommand("")
+    setSelectedCommand(parentCommand)
+    setViewModeState({
+      ...viewModeState,
+      command: parentCommand,
+      commandCursorX: parentCommand.length,
+      scrollX: 0,
+      scrollY: 0,
+    })
+
+    return true
+  }
+
+  const moveQueryToParentDirectory = (): boolean => {
+    const currentCommand = queryModeState.command || selectedCommand
+    const parentCommand = resolveParentDirectoryCommand(currentCommand)
+
+    if (parentCommand === undefined) {
+      return false
+    }
+
+    setKeyboardSelectedCommand("")
+    setSelectedCommand(parentCommand)
+    setQueryModeState({
+      ...queryModeState,
+      command: parentCommand,
+      commandCursorX: parentCommand.length,
+    })
+
+    return true
+  }
+
   useInput((input, key) => {
     if (mode === TerminalMode.Ai) {
       if (key.escape) {
@@ -537,6 +578,10 @@ export const TerminalApp = ({
       }
 
       if (key.escape) {
+        if (moveToParentDirectory()) {
+          return
+        }
+
         setOpenViewFile(null)
         setViewModeState({
           ...viewModeState,
@@ -606,6 +651,12 @@ export const TerminalApp = ({
       if (result.fileTreeSelectionDirection) {
         moveSidebarSelection(result.fileTreeSelectionDirection)
         return
+      }
+
+      if (result.shouldMoveToParentDirectory) {
+        if (moveToParentDirectory()) {
+          return
+        }
       }
 
       setKeyboardSelectedCommand("")
@@ -854,6 +905,12 @@ export const TerminalApp = ({
         return
       }
 
+      if (result.shouldMoveToParentDirectory) {
+        if (moveToParentDirectory()) {
+          return
+        }
+      }
+
       setKeyboardSelectedCommand("")
 
       const nextMode =
@@ -980,6 +1037,12 @@ export const TerminalApp = ({
     if (result.fileTreeSelectionDirection) {
       moveSidebarSelection(result.fileTreeSelectionDirection)
       return
+    }
+
+    if (result.shouldMoveToParentDirectory) {
+      if (moveQueryToParentDirectory()) {
+        return
+      }
     }
 
     setKeyboardSelectedCommand("")

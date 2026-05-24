@@ -17,6 +17,7 @@ export type QueryModeResult = {
   state: QueryModeState
   command?: string
   fileTreeSelectionDirection?: -1 | 1
+  shouldMoveToParentDirectory?: boolean
 }
 
 export const clampValue = (value: number, min: number, max: number): number => {
@@ -191,7 +192,14 @@ export const handleQueryModeInput = (
     }
   }
 
-  if (key.ctrl || key.meta || key.escape || key.tab) {
+  if (key.escape) {
+    return {
+      state,
+      shouldMoveToParentDirectory: true,
+    }
+  }
+
+  if (key.ctrl || key.meta || key.tab) {
     return {
       state,
     }

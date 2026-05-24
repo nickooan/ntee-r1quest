@@ -209,9 +209,14 @@ describe("view mode key helpers", () => {
     )
 
     expect(submitResult.selectedCommand).toBe("example")
-    expect(
-      handleViewModeInput("", key({ escape: true }), viewState).state,
-    ).toEqual(viewState)
+    const escapeResult = handleViewModeInput(
+      "",
+      key({ escape: true }),
+      viewState,
+    )
+
+    expect(escapeResult.state).toEqual(viewState)
+    expect(escapeResult.shouldMoveToParentDirectory).toBe(true)
   })
 
   test("handles reviewing pane scrolling", () => {
@@ -493,6 +498,18 @@ describe("query mode key helpers", () => {
 
     expect(result.command).toBe("get")
     expect(result.state.command).toBe("")
+  })
+
+  test("reports parent directory movement", () => {
+    const result = handleQueryModeInput(
+      "",
+      key({ escape: true }),
+      state,
+      limits,
+    )
+
+    expect(result.state).toEqual(state)
+    expect(result.shouldMoveToParentDirectory).toBe(true)
   })
 
   test("reports file tree selection movement", () => {

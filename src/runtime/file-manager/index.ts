@@ -1,4 +1,7 @@
-export { resolveSidebarCommand } from "./command.ts"
+export {
+  resolveParentDirectoryCommand,
+  resolveSidebarCommand,
+} from "./command.ts"
 export { formatFileTreeEntryLabel, formatFileTreeEntryParts } from "./format.ts"
 export { isInsideRoot } from "./path.ts"
 export {
