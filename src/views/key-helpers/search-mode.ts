@@ -1,5 +1,5 @@
 import type { Key } from "ink"
-import { clampValue } from "./base-mode.ts"
+import { clampValue } from "./query-mode.ts"
 
 export type SearchMatch = {
   lineIndex: number

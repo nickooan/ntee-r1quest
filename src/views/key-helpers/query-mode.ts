@@ -1,20 +1,20 @@
 import type { Key } from "ink"
 
-export type BaseModeState = {
+export type QueryModeState = {
   scrollX: number
   scrollY: number
   command: string
   commandCursorX?: number
 }
 
-export type BaseModeLimits = {
+export type QueryModeLimits = {
   maxScrollX: number
   maxScrollY: number
   viewHeight: number
 }
 
-export type BaseModeResult = {
-  state: BaseModeState
+export type QueryModeResult = {
+  state: QueryModeState
   command?: string
 }
 
@@ -22,10 +22,10 @@ export const clampValue = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max)
 }
 
-export const clampBaseModeScroll = (
-  state: BaseModeState,
-  limits: BaseModeLimits,
-): BaseModeState => {
+export const clampQueryModeScroll = (
+  state: QueryModeState,
+  limits: QueryModeLimits,
+): QueryModeState => {
   return {
     ...state,
     scrollX: clampValue(state.scrollX, 0, limits.maxScrollX),
@@ -37,12 +37,12 @@ const clampInputCursor = (input: string, inputCursorX: number): number => {
   return Math.min(Math.max(inputCursorX, 0), input.length)
 }
 
-export const handleBaseModeInput = (
+export const handleQueryModeInput = (
   input: string,
   key: Key,
-  state: BaseModeState,
-  limits: BaseModeLimits,
-): BaseModeResult => {
+  state: QueryModeState,
+  limits: QueryModeLimits,
+): QueryModeResult => {
   if (key.upArrow) {
     return {
       state: {

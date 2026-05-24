@@ -8,14 +8,14 @@ import {
   findSearchMatches,
   focusSearchMatch,
   handleAiModeInput,
-  handleBaseModeInput,
+  handleQueryModeInput,
   handleEditModeInput,
   handleSearchModeInput,
   handleViewModeInput,
   isAppExitCommand,
   resolveModeCommand,
   serializeEditModeContent,
-  type BaseModeState,
+  type QueryModeState,
   type AiModeState,
   type EditModeState,
   type SearchModeState,
@@ -112,7 +112,7 @@ export const TerminalApp = ({
   const [frameIndex, setFrameIndex] = useState(0)
   const [isCursorVisible, setIsCursorVisible] = useState(true)
   const [mode, setMode] = useState(TerminalMode.Query)
-  const [baseModeState, setBaseModeState] = useState<BaseModeState>({
+  const [queryModeState, setQueryModeState] = useState<QueryModeState>({
     scrollX: 0,
     scrollY: 0,
     command: "",
@@ -147,7 +147,7 @@ export const TerminalApp = ({
   const commandInput =
     mode === TerminalMode.View || mode === TerminalMode.Edit
       ? viewModeState.command
-      : baseModeState.command
+      : queryModeState.command
   const sidebarCommand = resolveSidebarCommand(commandInput, selectedCommand)
   const expandedPathsForInput = buildExpandedDirectoryPaths(sidebarCommand)
   const fileTreeEntries = buildFileTreeEntries(root, expandedPathsForInput)
@@ -199,13 +199,13 @@ export const TerminalApp = ({
       ? searchModeState.scrollX
       : openViewFile
         ? viewModeState.scrollX
-        : baseModeState.scrollX
+        : queryModeState.scrollX
   const contentScrollY =
     mode === TerminalMode.Search
       ? searchModeState.scrollY
       : openViewFile
         ? viewModeState.scrollY
-        : baseModeState.scrollY
+        : queryModeState.scrollY
   const viewport = buildTerminalViewport(
     content,
     responseContentWidth,
@@ -226,7 +226,7 @@ export const TerminalApp = ({
           ? (editModeState?.input ?? "")
           : mode === TerminalMode.View
             ? viewModeState.command
-            : baseModeState.command
+            : queryModeState.command
   const commandInputCursorX = Math.min(
     Math.max(
       mode === TerminalMode.Edit
@@ -238,7 +238,7 @@ export const TerminalApp = ({
             : mode === TerminalMode.View
               ? (viewModeState.commandCursorX ?? inputValue.length)
               : mode === TerminalMode.Query
-                ? (baseModeState.commandCursorX ?? inputValue.length)
+                ? (queryModeState.commandCursorX ?? inputValue.length)
                 : inputValue.length,
       0,
     ),
@@ -681,8 +681,8 @@ export const TerminalApp = ({
         setMode(TerminalMode.Query)
         setOpenViewFile(null)
         setEditModeState(null)
-        setBaseModeState({
-          ...baseModeState,
+        setQueryModeState({
+          ...queryModeState,
           scrollX: result.state.scrollX,
           scrollY: result.state.scrollY,
         })
@@ -832,8 +832,8 @@ export const TerminalApp = ({
       if (nextMode === TerminalMode.Search) {
         setMode(TerminalMode.Search)
         setSearchModeState({
-          scrollX: baseModeState.scrollX,
-          scrollY: baseModeState.scrollY,
+          scrollX: queryModeState.scrollX,
+          scrollY: queryModeState.scrollY,
           input: "",
           query: "",
           focusedMatchIndex: 0,
@@ -879,9 +879,9 @@ export const TerminalApp = ({
       return
     }
 
-    const isModeCommandInput = baseModeState.command.trim().startsWith("@")
+    const isModeCommandInput = queryModeState.command.trim().startsWith("@")
     const isQueryCommandInput =
-      baseModeState.command.trim() !== "" && !isModeCommandInput
+      queryModeState.command.trim() !== "" && !isModeCommandInput
     const highlightedEntry = isQueryCommandInput
       ? fileTreeEntries[highlightedEntryIndex]
       : undefined
@@ -889,8 +889,8 @@ export const TerminalApp = ({
     if (!isModeCommandInput && highlightedEntry && key.return) {
       if (highlightedEntry.type === "directory") {
         setSelectedCommand(highlightedEntry.commandValue)
-        setBaseModeState({
-          ...baseModeState,
+        setQueryModeState({
+          ...queryModeState,
           command: highlightedEntry.commandValue,
           commandCursorX: highlightedEntry.commandValue.length,
         })
@@ -899,8 +899,8 @@ export const TerminalApp = ({
 
       if (highlightedEntry.type === "request") {
         setSelectedCommand(highlightedEntry.commandValue)
-        setBaseModeState({
-          ...baseModeState,
+        setQueryModeState({
+          ...queryModeState,
           command: "",
         })
         onCommand?.(highlightedEntry.commandValue)
@@ -908,15 +908,15 @@ export const TerminalApp = ({
       }
 
       setSelectedCommand(highlightedEntry.commandValue)
-      setBaseModeState({
-        ...baseModeState,
+      setQueryModeState({
+        ...queryModeState,
         command: highlightedEntry.commandValue,
         commandCursorX: highlightedEntry.commandValue.length,
       })
       return
     }
 
-    const result = handleBaseModeInput(input, key, baseModeState, {
+    const result = handleQueryModeInput(input, key, queryModeState, {
       maxScrollX: viewport.maxScrollX,
       maxScrollY: viewport.maxScrollY,
       viewHeight: responseContentHeight,
@@ -938,7 +938,7 @@ export const TerminalApp = ({
         query: "",
         focusedMatchIndex: 0,
       })
-      setBaseModeState(result.state)
+      setQueryModeState(result.state)
       return
     }
 
@@ -949,23 +949,23 @@ export const TerminalApp = ({
         scrollX: 0,
         scrollY: 0,
       })
-      setBaseModeState(result.state)
+      setQueryModeState(result.state)
       return
     }
 
     if (nextMode === TerminalMode.Ai) {
       startAiMode()
-      setBaseModeState(result.state)
+      setQueryModeState(result.state)
       return
     }
 
     if (nextMode === TerminalMode.Edit) {
       setLocalError(new Error(editModeRequiresViewFileMessage))
-      setBaseModeState(result.state)
+      setQueryModeState(result.state)
       return
     }
 
-    setBaseModeState(result.state)
+    setQueryModeState(result.state)
 
     if (result.command !== undefined && nextMode === null) {
       if (result.command.trim()) {

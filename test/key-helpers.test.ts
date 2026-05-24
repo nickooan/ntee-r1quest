@@ -6,15 +6,15 @@ import {
   findSearchMatches,
   handleAiModeInput,
   handleEditModeInput,
-  handleBaseModeInput,
+  handleQueryModeInput,
   handleSearchModeInput,
   handleViewModeInput,
   isAppExitCommand,
   serializeEditModeContent,
   resolveModeCommand,
   TerminalMode,
-  type BaseModeLimits,
-  type BaseModeState,
+  type QueryModeLimits,
+  type QueryModeState,
   type SearchModeState,
 } from "../src/views/key-helpers/index.ts"
 
@@ -41,14 +41,14 @@ const defaultKey: Key = {
   numLock: false,
 }
 
-const state: BaseModeState = {
+const state: QueryModeState = {
   scrollX: 2,
   scrollY: 3,
   command: "get",
   commandCursorX: 3,
 }
 
-const limits: BaseModeLimits = {
+const limits: QueryModeLimits = {
   maxScrollX: 5,
   maxScrollY: 10,
   viewHeight: 4,
@@ -405,28 +405,28 @@ describe("edit mode key helpers", () => {
   })
 })
 
-describe("base mode key helpers", () => {
+describe("query mode key helpers", () => {
   test("handles vertical and horizontal scroll keys", () => {
     expect(
-      handleBaseModeInput("", key({ upArrow: true }), state, limits).state,
+      handleQueryModeInput("", key({ upArrow: true }), state, limits).state,
     ).toEqual({
       ...state,
       scrollY: 2,
     })
     expect(
-      handleBaseModeInput("", key({ downArrow: true }), state, limits).state,
+      handleQueryModeInput("", key({ downArrow: true }), state, limits).state,
     ).toEqual({
       ...state,
       scrollY: 4,
     })
     expect(
-      handleBaseModeInput("", key({ leftArrow: true }), state, limits).state,
+      handleQueryModeInput("", key({ leftArrow: true }), state, limits).state,
     ).toEqual({
       ...state,
       scrollX: 1,
     })
     expect(
-      handleBaseModeInput("", key({ rightArrow: true }), state, limits).state,
+      handleQueryModeInput("", key({ rightArrow: true }), state, limits).state,
     ).toEqual({
       ...state,
       scrollX: 3,
@@ -435,26 +435,26 @@ describe("base mode key helpers", () => {
 
   test("handles page and boundary scroll keys", () => {
     expect(
-      handleBaseModeInput("", key({ pageUp: true }), state, limits).state,
+      handleQueryModeInput("", key({ pageUp: true }), state, limits).state,
     ).toEqual({
       ...state,
       scrollY: 0,
     })
     expect(
-      handleBaseModeInput("", key({ pageDown: true }), state, limits).state,
+      handleQueryModeInput("", key({ pageDown: true }), state, limits).state,
     ).toEqual({
       ...state,
       scrollY: 7,
     })
     expect(
-      handleBaseModeInput("", key({ home: true }), state, limits).state,
+      handleQueryModeInput("", key({ home: true }), state, limits).state,
     ).toEqual({
       ...state,
       scrollX: 0,
       scrollY: 0,
     })
     expect(
-      handleBaseModeInput("", key({ end: true }), state, limits).state,
+      handleQueryModeInput("", key({ end: true }), state, limits).state,
     ).toEqual({
       ...state,
       scrollX: 5,
@@ -464,33 +464,38 @@ describe("base mode key helpers", () => {
 
   test("handles command input editing and submit", () => {
     expect(
-      handleBaseModeInput("x", defaultKey, state, limits).state.command,
+      handleQueryModeInput("x", defaultKey, state, limits).state.command,
     ).toBe("getx")
     expect(
-      handleBaseModeInput("", key({ backspace: true }), state, limits).state
+      handleQueryModeInput("", key({ backspace: true }), state, limits).state
         .command,
     ).toBe("ge")
 
-    const result = handleBaseModeInput("", key({ return: true }), state, limits)
+    const result = handleQueryModeInput(
+      "",
+      key({ return: true }),
+      state,
+      limits,
+    )
 
     expect(result.command).toBe("get")
     expect(result.state.command).toBe("")
   })
 
   test("edits command input at the cursor", () => {
-    const movedResult = handleBaseModeInput(
+    const movedResult = handleQueryModeInput(
       "",
       key({ shift: true, leftArrow: true }),
       state,
       limits,
     )
-    const insertedResult = handleBaseModeInput(
+    const insertedResult = handleQueryModeInput(
       "!",
       defaultKey,
       movedResult.state,
       limits,
     )
-    const removedResult = handleBaseModeInput(
+    const removedResult = handleQueryModeInput(
       "",
       key({ backspace: true }),
       insertedResult.state,

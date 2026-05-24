@@ -1,11 +1,11 @@
 export {
-  clampBaseModeScroll,
+  clampQueryModeScroll,
   clampValue,
-  handleBaseModeInput,
-  type BaseModeLimits,
-  type BaseModeResult,
-  type BaseModeState,
-} from "./base-mode.ts"
+  handleQueryModeInput,
+  type QueryModeLimits,
+  type QueryModeResult,
+  type QueryModeState,
+} from "./query-mode.ts"
 export {
   createSearchRegex,
   findSearchMatches,
