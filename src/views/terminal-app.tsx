@@ -8,14 +8,14 @@ import {
   findSearchMatches,
   focusSearchMatch,
   handleAiModeInput,
-  handleBaseModeInput,
+  handleQueryModeInput,
   handleEditModeInput,
   handleSearchModeInput,
   handleViewModeInput,
   isAppExitCommand,
   resolveModeCommand,
   serializeEditModeContent,
-  type BaseModeState,
+  type QueryModeState,
   type AiModeState,
   type EditModeState,
   type SearchModeState,
@@ -23,7 +23,6 @@ import {
   TerminalMode,
 } from "./key-helpers/index.ts"
 import { Ai, buildAiLayout, buildAiMessageLines } from "./ai.tsx"
-import { ViewEdit, buildViewEditLayout } from "./view-edit.tsx"
 import {
   getAdaptor,
   type AcpAdaptorConstructor,
@@ -35,6 +34,8 @@ import {
   buildFileTreeEntries,
   readViewFile,
   resolveHighlightedEntry,
+  resolveNextFileTreeSelectionIndex,
+  resolveParentDirectoryCommand,
   resolveSidebarCommand,
   type OpenViewFile,
 } from "../runtime/file-manager/index.ts"
@@ -55,6 +56,7 @@ import {
 } from "./terminal/ai-session.ts"
 import { formatTerminalContent } from "./terminal/content.ts"
 import { resolveEditScroll } from "./terminal/edit-scroll.ts"
+import { buildFilePaneLayout } from "./terminal/file-content.tsx"
 import { ResponsePane } from "./terminal/response-pane.tsx"
 import { Sidebar } from "./terminal/sidebar.tsx"
 import { buildTerminalViewport, normalizeLines } from "./terminal/viewport.ts"
@@ -77,6 +79,22 @@ export type TerminalAppProps = {
 
 type AcpAdapter = InstanceType<AcpAdaptorConstructor>
 
+const resolveResponsePaneTitle = (mode: TerminalMode): string => {
+  if (mode === TerminalMode.View) {
+    return "Reviewing"
+  }
+
+  if (mode === TerminalMode.Edit) {
+    return "Editing"
+  }
+
+  if (mode === TerminalMode.Search) {
+    return "Searching"
+  }
+
+  return "Result"
+}
+
 export const TerminalApp = ({
   response,
   error,
@@ -96,20 +114,23 @@ export const TerminalApp = ({
   const [frameIndex, setFrameIndex] = useState(0)
   const [isCursorVisible, setIsCursorVisible] = useState(true)
   const [mode, setMode] = useState(TerminalMode.Query)
-  const [baseModeState, setBaseModeState] = useState<BaseModeState>({
+  const [queryModeState, setQueryModeState] = useState<QueryModeState>({
     scrollX: 0,
     scrollY: 0,
     command: "",
+    commandCursorX: 0,
   })
   const [searchModeState, setSearchModeState] = useState<SearchModeState>({
     scrollX: 0,
     scrollY: 0,
     input: "",
+    inputCursorX: 0,
     query: "",
     focusedMatchIndex: 0,
   })
   const [viewModeState, setViewModeState] = useState<ViewModeState>({
     command: "",
+    commandCursorX: 0,
     scrollX: 0,
     scrollY: 0,
   })
@@ -122,14 +143,16 @@ export const TerminalApp = ({
   const [openViewFile, setOpenViewFile] = useState<OpenViewFile | null>(null)
   const [localError, setLocalError] = useState<unknown>()
   const [selectedCommand, setSelectedCommand] = useState("")
+  const [keyboardSelectedCommand, setKeyboardSelectedCommand] = useState("")
   const aiAdapterRef = useRef<AcpAdapter | undefined>(undefined)
   const height = fixedHeight ?? rows ?? defaultHeight
   const width = fixedWidth ?? columns ?? defaultWidth
   const commandInput =
     mode === TerminalMode.View || mode === TerminalMode.Edit
       ? viewModeState.command
-      : baseModeState.command
+      : queryModeState.command
   const sidebarCommand = resolveSidebarCommand(commandInput, selectedCommand)
+  const highlightedSidebarCommand = keyboardSelectedCommand || sidebarCommand
   const expandedPathsForInput = buildExpandedDirectoryPaths(sidebarCommand)
   const fileTreeEntries = buildFileTreeEntries(root, expandedPathsForInput)
   const sidebarWidth = Math.min(
@@ -145,30 +168,59 @@ export const TerminalApp = ({
   const responseContentHeight = Math.max(1, viewHeight - 2)
   const highlightedEntryIndex = resolveHighlightedEntry(
     fileTreeEntries,
-    sidebarCommand,
+    highlightedSidebarCommand,
   )
-  const content = formatTerminalContent({
+  const responseContent = formatTerminalContent({
     response,
     error: localError ?? error,
     isPending,
     frameIndex,
   })
+  const openFileContent =
+    openViewFile && mode === TerminalMode.Edit && editModeState
+      ? serializeEditModeContent(editModeState)
+      : openViewFile?.content
+  const content = openFileContent ?? responseContent
+  const contentLines = normalizeLines(content)
+  const filePaneLayout = openViewFile
+    ? buildFilePaneLayout(responsePaneWidth, viewHeight, contentLines.length)
+    : null
+  const activeContentWidth =
+    filePaneLayout?.contentWidth ?? responseContentWidth
+  const activeContentHeight =
+    filePaneLayout?.contentHeight ?? responseContentHeight
+  const activeMaxLineWidth = contentLines.reduce(
+    (currentMax, line) => Math.max(currentMax, line.length),
+    0,
+  )
+  const activeMaxScrollX = Math.max(0, activeMaxLineWidth - activeContentWidth)
+  const activeMaxScrollY = Math.max(
+    0,
+    contentLines.length - activeContentHeight,
+  )
+  const contentScrollX =
+    mode === TerminalMode.Search
+      ? searchModeState.scrollX
+      : openViewFile
+        ? viewModeState.scrollX
+        : queryModeState.scrollX
+  const contentScrollY =
+    mode === TerminalMode.Search
+      ? searchModeState.scrollY
+      : openViewFile
+        ? viewModeState.scrollY
+        : queryModeState.scrollY
   const viewport = buildTerminalViewport(
     content,
     responseContentWidth,
     responseContentHeight,
-    mode === TerminalMode.Search
-      ? searchModeState.scrollX
-      : baseModeState.scrollX,
-    mode === TerminalMode.Search
-      ? searchModeState.scrollY
-      : baseModeState.scrollY,
+    contentScrollX,
+    contentScrollY,
   )
   const searchMatches =
     mode === TerminalMode.Search
       ? findSearchMatches(content, searchModeState.query)
       : []
-  const contentLines = normalizeLines(content)
   const inputValue =
     mode === TerminalMode.Search
       ? searchModeState.input
@@ -178,14 +230,20 @@ export const TerminalApp = ({
           ? (editModeState?.input ?? "")
           : mode === TerminalMode.View
             ? viewModeState.command
-            : baseModeState.command
+            : queryModeState.command
   const commandInputCursorX = Math.min(
     Math.max(
       mode === TerminalMode.Edit
         ? (editModeState?.inputCursorX ?? inputValue.length)
         : mode === TerminalMode.Ai
           ? aiModeState.inputCursorX
-          : inputValue.length,
+          : mode === TerminalMode.Search
+            ? (searchModeState.inputCursorX ?? inputValue.length)
+            : mode === TerminalMode.View
+              ? (viewModeState.commandCursorX ?? inputValue.length)
+              : mode === TerminalMode.Query
+                ? (queryModeState.commandCursorX ?? inputValue.length)
+                : inputValue.length,
       0,
     ),
     inputValue.length,
@@ -346,6 +404,67 @@ export const TerminalApp = ({
       })
   }
 
+  const moveSidebarSelection = (direction: -1 | 1): boolean => {
+    if (fileTreeEntries.length === 0) {
+      return false
+    }
+
+    const nextIndex = resolveNextFileTreeSelectionIndex(
+      fileTreeEntries,
+      highlightedEntryIndex,
+      direction,
+    )
+    const nextEntry = fileTreeEntries[nextIndex]
+
+    if (!nextEntry) {
+      return false
+    }
+
+    setKeyboardSelectedCommand(nextEntry.commandValue)
+
+    return true
+  }
+
+  const moveToParentDirectory = (): boolean => {
+    const currentCommand = viewModeState.command || selectedCommand
+    const parentCommand = resolveParentDirectoryCommand(currentCommand)
+
+    if (parentCommand === undefined) {
+      return false
+    }
+
+    setKeyboardSelectedCommand("")
+    setSelectedCommand(parentCommand)
+    setViewModeState({
+      ...viewModeState,
+      command: parentCommand,
+      commandCursorX: parentCommand.length,
+      scrollX: 0,
+      scrollY: 0,
+    })
+
+    return true
+  }
+
+  const moveQueryToParentDirectory = (): boolean => {
+    const currentCommand = queryModeState.command || selectedCommand
+    const parentCommand = resolveParentDirectoryCommand(currentCommand)
+
+    if (parentCommand === undefined) {
+      return false
+    }
+
+    setKeyboardSelectedCommand("")
+    setSelectedCommand(parentCommand)
+    setQueryModeState({
+      ...queryModeState,
+      command: parentCommand,
+      commandCursorX: parentCommand.length,
+    })
+
+    return true
+  }
+
   useInput((input, key) => {
     if (mode === TerminalMode.Ai) {
       if (key.escape) {
@@ -408,7 +527,10 @@ export const TerminalApp = ({
       return
     }
 
-    if (openViewFile) {
+    if (
+      openViewFile &&
+      (mode === TerminalMode.View || mode === TerminalMode.Edit)
+    ) {
       if (mode === TerminalMode.Edit && editModeState) {
         const result = handleEditModeInput(input, key, editModeState)
 
@@ -439,7 +561,11 @@ export const TerminalApp = ({
           return
         }
 
-        const nextScroll = resolveEditScroll(result.state, width, height)
+        const nextScroll = resolveEditScroll(
+          result.state,
+          responsePaneWidth,
+          viewHeight,
+        )
 
         setEditModeState(result.state)
         setViewModeState({
@@ -452,6 +578,10 @@ export const TerminalApp = ({
       }
 
       if (key.escape) {
+        if (moveToParentDirectory()) {
+          return
+        }
+
         setOpenViewFile(null)
         setViewModeState({
           ...viewModeState,
@@ -462,8 +592,52 @@ export const TerminalApp = ({
         return
       }
 
+      const isModeCommandInput = viewModeState.command.trim().startsWith("@")
+      const isViewCommandInput =
+        viewModeState.command.trim() !== "" && !isModeCommandInput
+      const isKeyboardSelectionInput =
+        viewModeState.command.trim() === "" && keyboardSelectedCommand !== ""
+      const highlightedEntry =
+        isViewCommandInput || isKeyboardSelectionInput
+          ? fileTreeEntries[highlightedEntryIndex]
+          : undefined
+
+      if (!isModeCommandInput && highlightedEntry && key.return) {
+        setKeyboardSelectedCommand("")
+
+        if (highlightedEntry.type === "directory") {
+          setSelectedCommand(highlightedEntry.commandValue)
+          setViewModeState({
+            ...viewModeState,
+            command: highlightedEntry.commandValue,
+            commandCursorX: highlightedEntry.commandValue.length,
+          })
+          return
+        }
+
+        const nextOpenViewFile = readViewFile(root, highlightedEntry)
+
+        if (nextOpenViewFile) {
+          setSelectedCommand(highlightedEntry.commandValue)
+          setEditModeState(null)
+          setViewModeState({
+            command: "",
+            commandCursorX: 0,
+            scrollX: 0,
+            scrollY: 0,
+          })
+          setOpenViewFile(nextOpenViewFile)
+        }
+
+        return
+      }
+
       const viewLines = openViewFile.content.split("\n")
-      const viewLayout = buildViewEditLayout(width, height, viewLines.length)
+      const viewLayout = buildFilePaneLayout(
+        responsePaneWidth,
+        viewHeight,
+        viewLines.length,
+      )
       const maxLineWidth = viewLines.reduce(
         (currentMax, line) => Math.max(currentMax, line.length),
         0,
@@ -473,6 +647,20 @@ export const TerminalApp = ({
         maxScrollY: Math.max(0, viewLines.length - viewLayout.contentHeight),
         viewHeight: viewLayout.contentHeight,
       })
+
+      if (result.fileTreeSelectionDirection) {
+        moveSidebarSelection(result.fileTreeSelectionDirection)
+        return
+      }
+
+      if (result.shouldMoveToParentDirectory) {
+        if (moveToParentDirectory()) {
+          return
+        }
+      }
+
+      setKeyboardSelectedCommand("")
+
       const nextMode =
         result.selectedCommand === undefined
           ? null
@@ -503,10 +691,27 @@ export const TerminalApp = ({
       if (nextMode === TerminalMode.Query) {
         setMode(TerminalMode.Query)
         setOpenViewFile(null)
+        setEditModeState(null)
         setViewModeState({
           command: "",
           scrollX: 0,
           scrollY: 0,
+        })
+        return
+      }
+
+      if (nextMode === TerminalMode.Search) {
+        setMode(TerminalMode.Search)
+        setSearchModeState({
+          scrollX: result.state.scrollX,
+          scrollY: result.state.scrollY,
+          input: "",
+          query: "",
+          focusedMatchIndex: 0,
+        })
+        setViewModeState({
+          ...result.state,
+          command: "",
         })
         return
       }
@@ -535,10 +740,10 @@ export const TerminalApp = ({
 
     if (mode === TerminalMode.Search) {
       const limits = {
-        maxScrollX: viewport.maxScrollX,
-        maxScrollY: viewport.maxScrollY,
-        viewWidth: responseContentWidth,
-        viewHeight: responseContentHeight,
+        maxScrollX: activeMaxScrollX,
+        maxScrollY: activeMaxScrollY,
+        viewWidth: activeContentWidth,
+        viewHeight: activeContentHeight,
       }
       const result = handleSearchModeInput(
         input,
@@ -562,8 +767,10 @@ export const TerminalApp = ({
 
       if (nextMode === TerminalMode.Query) {
         setMode(TerminalMode.Query)
-        setBaseModeState({
-          ...baseModeState,
+        setOpenViewFile(null)
+        setEditModeState(null)
+        setQueryModeState({
+          ...queryModeState,
           scrollX: result.state.scrollX,
           scrollY: result.state.scrollY,
         })
@@ -581,8 +788,8 @@ export const TerminalApp = ({
         setMode(TerminalMode.View)
         setViewModeState({
           command: "",
-          scrollX: 0,
-          scrollY: 0,
+          scrollX: openViewFile ? result.state.scrollX : 0,
+          scrollY: openViewFile ? result.state.scrollY : 0,
         })
         setSearchModeState({
           scrollX: result.state.scrollX,
@@ -606,6 +813,31 @@ export const TerminalApp = ({
       }
 
       if (nextMode === TerminalMode.Edit) {
+        if (openViewFile) {
+          const focusedMatch = searchMatches[searchModeState.focusedMatchIndex]
+          const nextEditModeState = {
+            ...createEditModeState(openViewFile.content),
+            cursorX: focusedMatch?.start ?? result.state.scrollX,
+            cursorY: focusedMatch?.lineIndex ?? result.state.scrollY,
+          }
+
+          setMode(TerminalMode.Edit)
+          setEditModeState(nextEditModeState)
+          setViewModeState({
+            command: "",
+            scrollX: result.state.scrollX,
+            scrollY: result.state.scrollY,
+          })
+          setSearchModeState({
+            ...result.state,
+            input: "",
+            query: "",
+            focusedMatchIndex: 0,
+          })
+          setLocalError(undefined)
+          return
+        }
+
         setLocalError(new Error(editModeRequiresViewFileMessage))
         setSearchModeState({
           ...result.state,
@@ -630,16 +862,22 @@ export const TerminalApp = ({
       const isModeCommandInput = viewModeState.command.trim().startsWith("@")
       const isViewCommandInput =
         viewModeState.command.trim() !== "" && !isModeCommandInput
-      const highlightedEntry = isViewCommandInput
-        ? fileTreeEntries[highlightedEntryIndex]
-        : undefined
+      const isKeyboardSelectionInput =
+        viewModeState.command.trim() === "" && keyboardSelectedCommand !== ""
+      const highlightedEntry =
+        isViewCommandInput || isKeyboardSelectionInput
+          ? fileTreeEntries[highlightedEntryIndex]
+          : undefined
 
       if (!isModeCommandInput && highlightedEntry && key.return) {
+        setKeyboardSelectedCommand("")
+
         if (highlightedEntry.type === "directory") {
           setSelectedCommand(highlightedEntry.commandValue)
           setViewModeState({
             ...viewModeState,
             command: highlightedEntry.commandValue,
+            commandCursorX: highlightedEntry.commandValue.length,
           })
           return
         }
@@ -661,6 +899,20 @@ export const TerminalApp = ({
       }
 
       const result = handleViewModeInput(input, key, viewModeState)
+
+      if (result.fileTreeSelectionDirection) {
+        moveSidebarSelection(result.fileTreeSelectionDirection)
+        return
+      }
+
+      if (result.shouldMoveToParentDirectory) {
+        if (moveToParentDirectory()) {
+          return
+        }
+      }
+
+      setKeyboardSelectedCommand("")
+
       const nextMode =
         result.selectedCommand === undefined
           ? null
@@ -687,8 +939,8 @@ export const TerminalApp = ({
       if (nextMode === TerminalMode.Search) {
         setMode(TerminalMode.Search)
         setSearchModeState({
-          scrollX: baseModeState.scrollX,
-          scrollY: baseModeState.scrollY,
+          scrollX: queryModeState.scrollX,
+          scrollY: queryModeState.scrollY,
           input: "",
           query: "",
           focusedMatchIndex: 0,
@@ -734,27 +986,33 @@ export const TerminalApp = ({
       return
     }
 
-    const isModeCommandInput = baseModeState.command.trim().startsWith("@")
+    const isModeCommandInput = queryModeState.command.trim().startsWith("@")
     const isQueryCommandInput =
-      baseModeState.command.trim() !== "" && !isModeCommandInput
-    const highlightedEntry = isQueryCommandInput
-      ? fileTreeEntries[highlightedEntryIndex]
-      : undefined
+      queryModeState.command.trim() !== "" && !isModeCommandInput
+    const isKeyboardSelectionInput =
+      queryModeState.command.trim() === "" && keyboardSelectedCommand !== ""
+    const highlightedEntry =
+      isQueryCommandInput || isKeyboardSelectionInput
+        ? fileTreeEntries[highlightedEntryIndex]
+        : undefined
 
     if (!isModeCommandInput && highlightedEntry && key.return) {
+      setKeyboardSelectedCommand("")
+
       if (highlightedEntry.type === "directory") {
         setSelectedCommand(highlightedEntry.commandValue)
-        setBaseModeState({
-          ...baseModeState,
+        setQueryModeState({
+          ...queryModeState,
           command: highlightedEntry.commandValue,
+          commandCursorX: highlightedEntry.commandValue.length,
         })
         return
       }
 
       if (highlightedEntry.type === "request") {
         setSelectedCommand(highlightedEntry.commandValue)
-        setBaseModeState({
-          ...baseModeState,
+        setQueryModeState({
+          ...queryModeState,
           command: "",
         })
         onCommand?.(highlightedEntry.commandValue)
@@ -762,18 +1020,33 @@ export const TerminalApp = ({
       }
 
       setSelectedCommand(highlightedEntry.commandValue)
-      setBaseModeState({
-        ...baseModeState,
+      setQueryModeState({
+        ...queryModeState,
         command: highlightedEntry.commandValue,
+        commandCursorX: highlightedEntry.commandValue.length,
       })
       return
     }
 
-    const result = handleBaseModeInput(input, key, baseModeState, {
+    const result = handleQueryModeInput(input, key, queryModeState, {
       maxScrollX: viewport.maxScrollX,
       maxScrollY: viewport.maxScrollY,
       viewHeight: responseContentHeight,
     })
+
+    if (result.fileTreeSelectionDirection) {
+      moveSidebarSelection(result.fileTreeSelectionDirection)
+      return
+    }
+
+    if (result.shouldMoveToParentDirectory) {
+      if (moveQueryToParentDirectory()) {
+        return
+      }
+    }
+
+    setKeyboardSelectedCommand("")
+
     const nextMode =
       result.command === undefined ? null : resolveModeCommand(result.command)
 
@@ -791,7 +1064,7 @@ export const TerminalApp = ({
         query: "",
         focusedMatchIndex: 0,
       })
-      setBaseModeState(result.state)
+      setQueryModeState(result.state)
       return
     }
 
@@ -802,23 +1075,23 @@ export const TerminalApp = ({
         scrollX: 0,
         scrollY: 0,
       })
-      setBaseModeState(result.state)
+      setQueryModeState(result.state)
       return
     }
 
     if (nextMode === TerminalMode.Ai) {
       startAiMode()
-      setBaseModeState(result.state)
+      setQueryModeState(result.state)
       return
     }
 
     if (nextMode === TerminalMode.Edit) {
       setLocalError(new Error(editModeRequiresViewFileMessage))
-      setBaseModeState(result.state)
+      setQueryModeState(result.state)
       return
     }
 
-    setBaseModeState(result.state)
+    setQueryModeState(result.state)
 
     if (result.command !== undefined && nextMode === null) {
       if (result.command.trim()) {
@@ -851,12 +1124,29 @@ export const TerminalApp = ({
           height={viewHeight}
         />
         <ResponsePane
+          title={resolveResponsePaneTitle(mode)}
           contentLines={contentLines}
           viewport={viewport}
           searchMatches={searchMatches}
           focusedMatchIndex={searchModeState.focusedMatchIndex}
           width={responsePaneWidth}
           height={viewHeight}
+          fileContent={
+            openViewFile && openFileContent
+              ? {
+                  fileName: openViewFile.fileName,
+                  content: openFileContent,
+                  scrollX: contentScrollX,
+                  scrollY: contentScrollY,
+                  isEditing: mode === TerminalMode.Edit,
+                  cursorX: editModeState?.cursorX,
+                  cursorY: editModeState?.cursorY,
+                  input: editModeState?.input,
+                  isSavePromptOpen: editModeState?.isSavePromptOpen,
+                  selectedSaveAction: editModeState?.selectedSaveAction,
+                }
+              : undefined
+          }
         />
       </Box>
       <Box
@@ -873,26 +1163,6 @@ export const TerminalApp = ({
         </Text>
         <Text backgroundColor={commandBackgroundColor}>{inputAfterCursor}</Text>
       </Box>
-      {openViewFile && (
-        <ViewEdit
-          fileName={openViewFile.fileName}
-          content={
-            mode === TerminalMode.Edit && editModeState
-              ? serializeEditModeContent(editModeState)
-              : openViewFile.content
-          }
-          width={width}
-          height={height}
-          scrollX={viewModeState.scrollX}
-          scrollY={viewModeState.scrollY}
-          isEditing={mode === TerminalMode.Edit}
-          cursorX={editModeState?.cursorX}
-          cursorY={editModeState?.cursorY}
-          input={editModeState?.input}
-          isSavePromptOpen={editModeState?.isSavePromptOpen}
-          selectedSaveAction={editModeState?.selectedSaveAction}
-        />
-      )}
       {mode === TerminalMode.Ai && (
         <Ai
           width={width}

@@ -6,15 +6,15 @@ import {
   findSearchMatches,
   handleAiModeInput,
   handleEditModeInput,
-  handleBaseModeInput,
+  handleQueryModeInput,
   handleSearchModeInput,
   handleViewModeInput,
   isAppExitCommand,
   serializeEditModeContent,
   resolveModeCommand,
   TerminalMode,
-  type BaseModeLimits,
-  type BaseModeState,
+  type QueryModeLimits,
+  type QueryModeState,
   type SearchModeState,
 } from "../src/views/key-helpers/index.ts"
 
@@ -41,13 +41,14 @@ const defaultKey: Key = {
   numLock: false,
 }
 
-const state: BaseModeState = {
+const state: QueryModeState = {
   scrollX: 2,
   scrollY: 3,
   command: "get",
+  commandCursorX: 3,
 }
 
-const limits: BaseModeLimits = {
+const limits: QueryModeLimits = {
   maxScrollX: 5,
   maxScrollY: 10,
   viewHeight: 4,
@@ -186,7 +187,12 @@ describe("ai mode key helpers", () => {
 
 describe("view mode key helpers", () => {
   test("handles input editing and submit", () => {
-    const viewState = { command: "example", scrollX: 0, scrollY: 0 }
+    const viewState = {
+      command: "example",
+      commandCursorX: 7,
+      scrollX: 0,
+      scrollY: 0,
+    }
 
     expect(handleViewModeInput("x", defaultKey, viewState).state.command).toBe(
       "examplex",
@@ -203,13 +209,18 @@ describe("view mode key helpers", () => {
     )
 
     expect(submitResult.selectedCommand).toBe("example")
-    expect(
-      handleViewModeInput("", key({ escape: true }), viewState).state,
-    ).toEqual(viewState)
+    const escapeResult = handleViewModeInput(
+      "",
+      key({ escape: true }),
+      viewState,
+    )
+
+    expect(escapeResult.state).toEqual(viewState)
+    expect(escapeResult.shouldMoveToParentDirectory).toBe(true)
   })
 
-  test("handles view modal scrolling", () => {
-    const viewState = { command: "", scrollX: 2, scrollY: 3 }
+  test("handles reviewing pane scrolling", () => {
+    const viewState = { command: "", commandCursorX: 0, scrollX: 2, scrollY: 3 }
     const viewLimits = {
       maxScrollX: 5,
       maxScrollY: 10,
@@ -232,6 +243,49 @@ describe("view mode key helpers", () => {
       handleViewModeInput("", key({ rightArrow: true }), viewState, viewLimits)
         .state.scrollX,
     ).toBe(3)
+  })
+
+  test("reports file tree selection movement", () => {
+    const viewState = { command: "", commandCursorX: 0, scrollX: 2, scrollY: 3 }
+
+    expect(
+      handleViewModeInput("", key({ shift: true, downArrow: true }), viewState)
+        .fileTreeSelectionDirection,
+    ).toBe(1)
+    expect(
+      handleViewModeInput("", key({ shift: true, upArrow: true }), viewState)
+        .fileTreeSelectionDirection,
+    ).toBe(-1)
+  })
+
+  test("edits view command input at the cursor", () => {
+    const viewState = {
+      command: "folder/request",
+      commandCursorX: 14,
+      scrollX: 0,
+      scrollY: 0,
+    }
+    const movedResult = handleViewModeInput(
+      "",
+      key({ shift: true, leftArrow: true }),
+      viewState,
+    )
+    const insertedResult = handleViewModeInput(
+      "-x",
+      defaultKey,
+      movedResult.state,
+    )
+    const removedResult = handleViewModeInput(
+      "",
+      key({ backspace: true }),
+      insertedResult.state,
+    )
+
+    expect(movedResult.state.commandCursorX).toBe(13)
+    expect(insertedResult.state.command).toBe("folder/reques-xt")
+    expect(insertedResult.state.commandCursorX).toBe(15)
+    expect(removedResult.state.command).toBe("folder/reques-t")
+    expect(removedResult.state.commandCursorX).toBe(14)
   })
 })
 
@@ -369,28 +423,28 @@ describe("edit mode key helpers", () => {
   })
 })
 
-describe("base mode key helpers", () => {
+describe("query mode key helpers", () => {
   test("handles vertical and horizontal scroll keys", () => {
     expect(
-      handleBaseModeInput("", key({ upArrow: true }), state, limits).state,
+      handleQueryModeInput("", key({ upArrow: true }), state, limits).state,
     ).toEqual({
       ...state,
       scrollY: 2,
     })
     expect(
-      handleBaseModeInput("", key({ downArrow: true }), state, limits).state,
+      handleQueryModeInput("", key({ downArrow: true }), state, limits).state,
     ).toEqual({
       ...state,
       scrollY: 4,
     })
     expect(
-      handleBaseModeInput("", key({ leftArrow: true }), state, limits).state,
+      handleQueryModeInput("", key({ leftArrow: true }), state, limits).state,
     ).toEqual({
       ...state,
       scrollX: 1,
     })
     expect(
-      handleBaseModeInput("", key({ rightArrow: true }), state, limits).state,
+      handleQueryModeInput("", key({ rightArrow: true }), state, limits).state,
     ).toEqual({
       ...state,
       scrollX: 3,
@@ -399,26 +453,26 @@ describe("base mode key helpers", () => {
 
   test("handles page and boundary scroll keys", () => {
     expect(
-      handleBaseModeInput("", key({ pageUp: true }), state, limits).state,
+      handleQueryModeInput("", key({ pageUp: true }), state, limits).state,
     ).toEqual({
       ...state,
       scrollY: 0,
     })
     expect(
-      handleBaseModeInput("", key({ pageDown: true }), state, limits).state,
+      handleQueryModeInput("", key({ pageDown: true }), state, limits).state,
     ).toEqual({
       ...state,
       scrollY: 7,
     })
     expect(
-      handleBaseModeInput("", key({ home: true }), state, limits).state,
+      handleQueryModeInput("", key({ home: true }), state, limits).state,
     ).toEqual({
       ...state,
       scrollX: 0,
       scrollY: 0,
     })
     expect(
-      handleBaseModeInput("", key({ end: true }), state, limits).state,
+      handleQueryModeInput("", key({ end: true }), state, limits).state,
     ).toEqual({
       ...state,
       scrollX: 5,
@@ -428,17 +482,80 @@ describe("base mode key helpers", () => {
 
   test("handles command input editing and submit", () => {
     expect(
-      handleBaseModeInput("x", defaultKey, state, limits).state.command,
+      handleQueryModeInput("x", defaultKey, state, limits).state.command,
     ).toBe("getx")
     expect(
-      handleBaseModeInput("", key({ backspace: true }), state, limits).state
+      handleQueryModeInput("", key({ backspace: true }), state, limits).state
         .command,
     ).toBe("ge")
 
-    const result = handleBaseModeInput("", key({ return: true }), state, limits)
+    const result = handleQueryModeInput(
+      "",
+      key({ return: true }),
+      state,
+      limits,
+    )
 
     expect(result.command).toBe("get")
     expect(result.state.command).toBe("")
+  })
+
+  test("reports parent directory movement", () => {
+    const result = handleQueryModeInput(
+      "",
+      key({ escape: true }),
+      state,
+      limits,
+    )
+
+    expect(result.state).toEqual(state)
+    expect(result.shouldMoveToParentDirectory).toBe(true)
+  })
+
+  test("reports file tree selection movement", () => {
+    expect(
+      handleQueryModeInput(
+        "",
+        key({ shift: true, downArrow: true }),
+        state,
+        limits,
+      ).fileTreeSelectionDirection,
+    ).toBe(1)
+    expect(
+      handleQueryModeInput(
+        "",
+        key({ shift: true, upArrow: true }),
+        state,
+        limits,
+      ).fileTreeSelectionDirection,
+    ).toBe(-1)
+  })
+
+  test("edits command input at the cursor", () => {
+    const movedResult = handleQueryModeInput(
+      "",
+      key({ shift: true, leftArrow: true }),
+      state,
+      limits,
+    )
+    const insertedResult = handleQueryModeInput(
+      "!",
+      defaultKey,
+      movedResult.state,
+      limits,
+    )
+    const removedResult = handleQueryModeInput(
+      "",
+      key({ backspace: true }),
+      insertedResult.state,
+      limits,
+    )
+
+    expect(movedResult.state.commandCursorX).toBe(2)
+    expect(insertedResult.state.command).toBe("ge!t")
+    expect(insertedResult.state.commandCursorX).toBe(3)
+    expect(removedResult.state.command).toBe("get")
+    expect(removedResult.state.commandCursorX).toBe(2)
   })
 })
 
@@ -448,6 +565,7 @@ describe("search mode key helpers", () => {
       scrollX: 8,
       scrollY: 0,
       input: "",
+      inputCursorX: 0,
       query: "abc",
       focusedMatchIndex: 0,
     }
@@ -503,6 +621,7 @@ describe("search mode key helpers", () => {
       scrollX: 0,
       scrollY: 0,
       input: "",
+      inputCursorX: 0,
       query: "abc",
       focusedMatchIndex: 0,
     }
@@ -536,6 +655,7 @@ describe("search mode key helpers", () => {
       scrollX: 0,
       scrollY: 0,
       input: "",
+      inputCursorX: 0,
       query: "abc",
       focusedMatchIndex: 0,
     }
@@ -561,6 +681,7 @@ describe("search mode key helpers", () => {
       scrollX: 0,
       scrollY: 0,
       input: "",
+      inputCursorX: 0,
       query: "abc",
       focusedMatchIndex: 0,
     }
@@ -583,6 +704,7 @@ describe("search mode key helpers", () => {
       scrollX: 0,
       scrollY: 0,
       input: "",
+      inputCursorX: 0,
       query: "abc",
       focusedMatchIndex: 0,
     }
@@ -605,6 +727,7 @@ describe("search mode key helpers", () => {
       scrollX: 11,
       scrollY: 0,
       input: "",
+      inputCursorX: 0,
       query: "abc",
       focusedMatchIndex: 1,
     }
@@ -627,6 +750,7 @@ describe("search mode key helpers", () => {
       scrollX: 11,
       scrollY: 0,
       input: "",
+      inputCursorX: 0,
       query: "abc",
       focusedMatchIndex: 1,
     }
@@ -649,6 +773,7 @@ describe("search mode key helpers", () => {
       scrollX: 0,
       scrollY: 0,
       input: "",
+      inputCursorX: 0,
       query: "old",
       focusedMatchIndex: 0,
     }
@@ -677,6 +802,45 @@ describe("search mode key helpers", () => {
 
     expect(submitResult.submittedQuery).toBe("new")
     expect(submitResult.state.input).toBe("")
+    expect(submitResult.state.inputCursorX).toBe(0)
     expect(submitResult.state.query).toBe("new")
+  })
+
+  test("edits search input at the cursor", () => {
+    const searchState: SearchModeState = {
+      scrollX: 0,
+      scrollY: 0,
+      input: "abc",
+      inputCursorX: 3,
+      query: "",
+      focusedMatchIndex: 0,
+    }
+    const movedResult = handleSearchModeInput(
+      "",
+      key({ shift: true, leftArrow: true }),
+      searchState,
+      searchLimits,
+      [],
+    )
+    const insertedResult = handleSearchModeInput(
+      "X",
+      defaultKey,
+      movedResult.state,
+      searchLimits,
+      [],
+    )
+    const removedResult = handleSearchModeInput(
+      "",
+      key({ backspace: true }),
+      insertedResult.state,
+      searchLimits,
+      [],
+    )
+
+    expect(movedResult.state.inputCursorX).toBe(2)
+    expect(insertedResult.state.input).toBe("abXc")
+    expect(insertedResult.state.inputCursorX).toBe(3)
+    expect(removedResult.state.input).toBe("abc")
+    expect(removedResult.state.inputCursorX).toBe(2)
   })
 })

@@ -5,9 +5,13 @@ import {
   buildFileTreeViewport,
   buildExpandedDirectoryPaths,
   resolveSidebarCommand,
+  resolveParentDirectoryCommand,
   findFileTreeMatchIndex,
+  resolveHighlightedEntry,
+  resolveNextFileTreeSelectionIndex,
 } from "../src/runtime/file-manager/index.ts"
 import { buildTerminalViewport } from "../src/views/terminal-app.tsx"
+import { buildFilePaneLayout } from "../src/views/terminal/file-content.tsx"
 
 describe("terminal app view", () => {
   test("builds a fixed viewport from scroll offsets", () => {
@@ -30,6 +34,14 @@ describe("terminal app view", () => {
     expect(viewport.lines).toEqual(["ok  ", "    ", "    "])
     expect(viewport.maxScrollX).toBe(0)
     expect(viewport.maxScrollY).toBe(0)
+  })
+
+  test("builds file content layout for the result pane", () => {
+    expect(buildFilePaneLayout(40, 10, 120)).toEqual({
+      contentWidth: 31,
+      contentHeight: 8,
+      lineNumberWidth: 3,
+    })
   })
 
   test("builds a root file tree", () => {
@@ -70,12 +82,30 @@ describe("terminal app view", () => {
     expect(resolveSidebarCommand("get", "nested/get")).toBe("get")
   })
 
+  test("resolves parent directory commands for folded view navigation", () => {
+    expect(resolveParentDirectoryCommand("a/b/c/")).toBe("a/b/")
+    expect(resolveParentDirectoryCommand("a/b/c")).toBe("a/b/")
+    expect(resolveParentDirectoryCommand("a/")).toBe("")
+    expect(resolveParentDirectoryCommand("")).toBeUndefined()
+  })
+
   test("matches file tree entries from command input", () => {
     const root = join(process.cwd(), "test/data")
     const entries = buildFileTreeEntries(root, new Set(["nested"]))
 
     expect(entries[findFileTreeMatchIndex(entries, "nested/g")]).toMatchObject({
       commandValue: "nested/get",
+    })
+  })
+
+  test("falls back to the closest parent directory highlight for unmatched child input", () => {
+    const root = join(process.cwd(), "test/data")
+    const entries = buildFileTreeEntries(root, new Set(["nested"]))
+
+    expect(
+      entries[resolveHighlightedEntry(entries, "nested/missing")],
+    ).toMatchObject({
+      commandValue: "nested/",
     })
   })
 
@@ -122,5 +152,23 @@ describe("terminal app view", () => {
 
     expect(viewport.safeScrollY).toBe(8)
     expect(viewport.entries[2]?.name).toBe("item-10")
+  })
+
+  test("moves keyboard selection through file tree entries", () => {
+    const entries = Array.from({ length: 3 }, (_, index) => ({
+      name: `item-${index}`,
+      relativePath: `item-${index}`,
+      commandValue: `item-${index}`,
+      depth: 0,
+      type: "file" as const,
+      isExpanded: false,
+    }))
+
+    expect(resolveNextFileTreeSelectionIndex(entries, -1, 1)).toBe(0)
+    expect(resolveNextFileTreeSelectionIndex(entries, -1, -1)).toBe(2)
+    expect(resolveNextFileTreeSelectionIndex(entries, 1, 1)).toBe(2)
+    expect(resolveNextFileTreeSelectionIndex(entries, 1, -1)).toBe(0)
+    expect(resolveNextFileTreeSelectionIndex(entries, 2, 1)).toBe(2)
+    expect(resolveNextFileTreeSelectionIndex([], -1, 1)).toBe(-1)
   })
 })

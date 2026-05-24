@@ -176,5 +176,35 @@ export const resolveHighlightedEntry = (
     return matchedIndex
   }
 
+  const normalizedInput = input.trim().replaceAll("\\", "/")
+  const pathParts = normalizedInput.split("/").filter(Boolean)
+
+  for (let index = pathParts.length - 1; index > 0; index -= 1) {
+    const parentCommand = `${pathParts.slice(0, index).join("/")}/`
+    const parentIndex = entries.findIndex((entry) => {
+      return entry.type === "directory" && entry.commandValue === parentCommand
+    })
+
+    if (parentIndex !== -1) {
+      return parentIndex
+    }
+  }
+
   return -1
+}
+
+export const resolveNextFileTreeSelectionIndex = (
+  entries: FileTreeEntry[],
+  highlightedIndex: number,
+  direction: -1 | 1,
+): number => {
+  if (entries.length === 0) {
+    return -1
+  }
+
+  if (highlightedIndex === -1) {
+    return direction === 1 ? 0 : entries.length - 1
+  }
+
+  return Math.min(Math.max(highlightedIndex + direction, 0), entries.length - 1)
 }

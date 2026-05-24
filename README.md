@@ -193,16 +193,17 @@ Return to query mode with `@q` or `@query`:
 ```
 
 Switch to view mode with `@view` or `@v`, then type a request path and press
-Enter to open that file in a modal:
+Enter to review that file in the Result pane:
 
 ```text
 @query >@view
 @view >folder-1/get-post
 ```
 
-Press Esc in the modal to close it and return to the main terminal view.
-While the modal is open in view mode, enter `@edit` or `@e` to switch the modal
-into edit mode. Entering `@edit` anywhere else shows an error in Result.
+While reviewing a file, enter `@edit` or `@e` to edit the file directly in the
+Result pane. You can also enter `@search` or `@s` while reviewing a file, search
+for a line, and then enter `@edit` to start editing at the focused match.
+Entering `@edit` without a reviewed file still shows an error in Result.
 
 The example files are:
 

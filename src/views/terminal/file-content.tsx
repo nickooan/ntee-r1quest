@@ -1,13 +1,22 @@
 import React from "react"
 import { Box, Text } from "ink"
+import type { SearchMatch } from "../key-helpers/index.ts"
 
-export type ViewEditProps = {
+export type FilePaneLayout = {
+  contentWidth: number
+  contentHeight: number
+  lineNumberWidth: number
+}
+
+export type FileContentProps = {
   fileName: string
   content: string
   width: number
   height: number
   scrollX: number
   scrollY: number
+  searchMatches: SearchMatch[]
+  focusedMatchIndex: number
   isEditing?: boolean
   cursorX?: number
   cursorY?: number
@@ -16,19 +25,34 @@ export type ViewEditProps = {
   selectedSaveAction?: "yes" | "no"
 }
 
-const borderColor = "#5a5a5a"
-const savePromptBackgroundColor = "black"
-const paddingX = 1
-const paddingY = 1
-const syntaxPattern =
-  /(@)(i|f|env)(\([^)]*\))|\b(true|false|null)\b|"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?|\/\/.*$/g
-const keywordPattern = /^(\s*)(ref|url|type|header|authorization|auth|body)\b/
-
 type HighlightSegment = {
   text: string
   color?: React.ComponentProps<typeof Text>["color"]
   bold?: boolean
   dimColor?: boolean
+}
+
+const savePromptBackgroundColor = "black"
+const paddingX = 1
+const syntaxPattern =
+  /(@)(i|f|env)(\([^)]*\))|\b(true|false|null)\b|"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?|\/\/.*$/g
+const keywordPattern = /^(\s*)(ref|url|type|header|authorization|auth|body)\b/
+
+export const buildFilePaneLayout = (
+  width: number,
+  height: number,
+  lineCount = 1,
+): FilePaneLayout => {
+  const contentHeight = Math.max(1, height - 2)
+  const lineNumberWidth = String(Math.max(lineCount, contentHeight)).length
+  const gutterWidth = lineNumberWidth + 2
+  const contentWidth = Math.max(1, width - 2 - paddingX * 2 - gutterWidth)
+
+  return {
+    contentWidth,
+    contentHeight,
+    lineNumberWidth,
+  }
 }
 
 const highlightLine = (line: string): HighlightSegment[] => {
@@ -87,18 +111,18 @@ const highlightLine = (line: string): HighlightSegment[] => {
   return segments
 }
 
-type HighlightedLineProps = {
-  line: string
-  width: number
-  scrollX: number
-}
-
-const HighlightedText = ({ text }: { text: string }) => {
+const HighlightedText = ({
+  text,
+  keyPrefix,
+}: {
+  text: string
+  keyPrefix: string
+}) => {
   return (
     <>
       {highlightLine(text).map((segment, index) => (
         <Text
-          key={`${index}-${segment.text}`}
+          key={`${keyPrefix}-${index}-${segment.text}`}
           color={segment.color}
           bold={segment.bold}
           dimColor={segment.dimColor}
@@ -110,24 +134,86 @@ const HighlightedText = ({ text }: { text: string }) => {
   )
 }
 
-const HighlightedLine = ({ line, width, scrollX }: HighlightedLineProps) => {
-  const visibleLine = line.slice(scrollX, scrollX + width)
-  const padding = Math.max(0, width - visibleLine.length)
-
-  return (
-    <>
-      <HighlightedText text={visibleLine} />
-      {" ".repeat(padding)}
-    </>
-  )
-}
-
-type EditableLineProps = {
+const HighlightedLine = ({
+  line,
+  lineIndex,
+  width,
+  scrollX,
+  matches,
+  focusedMatchIndex,
+}: {
   line: string
+  lineIndex: number
   width: number
   scrollX: number
-  cursorX: number
-  input: string
+  matches: SearchMatch[]
+  focusedMatchIndex: number
+}) => {
+  const visibleStart = scrollX
+  const visibleEnd = scrollX + width
+  const lineMatches = matches
+    .map((match, matchIndex) => ({
+      ...match,
+      matchIndex,
+    }))
+    .filter(
+      (match) =>
+        match.lineIndex === lineIndex &&
+        match.end > visibleStart &&
+        match.start < visibleEnd,
+    )
+    .sort((left, right) => left.start - right.start)
+  const children: React.ReactNode[] = []
+  let cursor = visibleStart
+
+  for (const match of lineMatches) {
+    const matchStart = Math.max(match.start, visibleStart)
+    const matchEnd = Math.min(match.end, visibleEnd)
+    const isFocusedMatch = match.matchIndex === focusedMatchIndex
+
+    if (matchStart > cursor) {
+      children.push(
+        <HighlightedText
+          key={`text-${cursor}`}
+          keyPrefix={`text-${lineIndex}-${cursor}`}
+          text={line.slice(cursor, matchStart)}
+        />,
+      )
+    }
+
+    children.push(
+      <Text
+        key={`match-${match.matchIndex}-${matchStart}`}
+        color="black"
+        backgroundColor={isFocusedMatch ? "yellow" : "white"}
+        bold={isFocusedMatch}
+        underline={isFocusedMatch}
+      >
+        {line.slice(matchStart, matchEnd)}
+      </Text>,
+    )
+
+    cursor = matchEnd
+  }
+
+  if (cursor < visibleEnd) {
+    const trailingText = line.slice(cursor, visibleEnd)
+
+    children.push(
+      <HighlightedText
+        key={`text-${cursor}`}
+        keyPrefix={`text-${lineIndex}-${cursor}`}
+        text={trailingText}
+      />,
+    )
+    children.push(
+      <Text key={`padding-${cursor}`}>
+        {" ".repeat(Math.max(0, visibleEnd - cursor - trailingText.length))}
+      </Text>,
+    )
+  }
+
+  return <>{children}</>
 }
 
 const EditableLine = ({
@@ -136,13 +222,28 @@ const EditableLine = ({
   scrollX,
   cursorX,
   input,
-}: EditableLineProps) => {
+}: {
+  line: string
+  width: number
+  scrollX: number
+  cursorX: number
+  input: string
+}) => {
   const cursorEnd = cursorX + Math.max(1, input.length)
   const visibleStart = scrollX
   const visibleEnd = scrollX + width
 
   if (cursorEnd <= visibleStart || cursorX >= visibleEnd) {
-    return <HighlightedLine line={line} width={width} scrollX={scrollX} />
+    return (
+      <HighlightedLine
+        line={line}
+        lineIndex={0}
+        width={width}
+        scrollX={scrollX}
+        matches={[]}
+        focusedMatchIndex={0}
+      />
+    )
   }
 
   const before = line.slice(visibleStart, cursorX)
@@ -165,73 +266,38 @@ const EditableLine = ({
 
   return (
     <>
-      <HighlightedText text={before} />
+      <HighlightedText keyPrefix="before" text={before} />
       <Text color="whiteBright" backgroundColor={input ? "green" : "white"}>
         {visibleCursorText}
       </Text>
-      <HighlightedText text={after} />
+      <HighlightedText keyPrefix="after" text={after} />
       {" ".repeat(Math.max(0, width - renderedLength))}
     </>
   )
 }
 
-export type ViewEditLayout = {
-  modalWidth: number
-  modalHeight: number
-  left: number
-  top: number
-  contentWidth: number
-  contentHeight: number
-}
-
-export const buildViewEditLayout = (
-  width: number,
-  height: number,
-  lineCount = 1,
-): ViewEditLayout => {
-  const modalWidth = Math.max(20, Math.min(width - 4, Math.floor(width * 0.8)))
-  const modalHeight = Math.max(
-    6,
-    Math.min(height - 4, Math.floor(height * 0.75)),
-  )
-  const left = Math.max(0, Math.floor((width - modalWidth) / 2))
-  const top = Math.max(0, Math.floor((height - modalHeight) / 2) - 2)
-  const contentHeight = Math.max(1, modalHeight - 2 - paddingY * 2)
-  const lineNumberWidth = String(Math.max(lineCount, contentHeight)).length
-  const gutterWidth = lineNumberWidth + 2
-  const contentWidth = Math.max(1, modalWidth - 2 - paddingX * 2 - gutterWidth)
-
-  return {
-    modalWidth,
-    modalHeight,
-    left,
-    top,
-    contentWidth,
-    contentHeight,
-  }
-}
-
-export const ViewEdit = ({
+export const FileContent = ({
   fileName,
   content,
   width,
   height,
   scrollX,
   scrollY,
+  searchMatches,
+  focusedMatchIndex,
   isEditing = false,
   cursorX = 0,
   cursorY = 0,
   input = "",
   isSavePromptOpen = false,
   selectedSaveAction = "yes",
-}: ViewEditProps) => {
+}: FileContentProps) => {
   const contentLines = content.split("\n")
-  const { modalWidth, modalHeight, left, top, contentWidth, contentHeight } =
-    buildViewEditLayout(width, height, contentLines.length)
-  const lineNumberWidth = String(
-    Math.max(contentLines.length, contentHeight),
-  ).length
-  const title = isEditing ? `${fileName} (editing)` : fileName
+  const { contentWidth, contentHeight, lineNumberWidth } = buildFilePaneLayout(
+    width,
+    height,
+    contentLines.length,
+  )
   const lines = contentLines.slice(scrollY, scrollY + contentHeight)
 
   while (lines.length < contentHeight) {
@@ -240,71 +306,51 @@ export const ViewEdit = ({
 
   return (
     <Box
-      position="absolute"
-      left={left}
-      top={top}
-      width={modalWidth}
-      height={modalHeight}
-      borderStyle="single"
-      borderColor={borderColor}
       flexDirection="column"
+      width={Math.max(1, width - 2)}
+      height={height - 2}
     >
-      <Box position="absolute" top={-1} left={-1}>
-        <Text color="whiteBright" backgroundColor="gray">
-          {"Esc"}
-        </Text>
-      </Box>
-      <Box
-        position="absolute"
-        top={-1}
-        left={Math.max(2, Math.floor((modalWidth - title.length) / 2))}
-      >
-        <Text bold>{` ${title.slice(0, Math.max(1, modalWidth - 6))} `}</Text>
-      </Box>
-      {Array.from({ length: paddingY }).map((_, index) => (
-        <Text key={`padding-top-${index}`}>
-          {" ".repeat(Math.max(1, modalWidth - 2))}
-        </Text>
-      ))}
-      {lines.map((line, index) => (
-        <Text key={`${fileName}-${index}`}>
-          {" ".repeat(paddingX)}
-          <Text dimColor>
-            {String(scrollY + index + 1).padStart(lineNumberWidth, " ")}
-            {" │"}
+      {lines.map((line, index) => {
+        const lineIndex = scrollY + index
+
+        return (
+          <Text key={`${fileName}-${lineIndex}`}>
+            {" ".repeat(paddingX)}
+            <Text dimColor>
+              {String(lineIndex + 1).padStart(lineNumberWidth, " ")}
+              {" │"}
+            </Text>
+            {isEditing && lineIndex === cursorY ? (
+              <EditableLine
+                line={line}
+                width={contentWidth}
+                scrollX={scrollX}
+                cursorX={cursorX}
+                input={input}
+              />
+            ) : (
+              <HighlightedLine
+                line={line}
+                lineIndex={lineIndex}
+                width={contentWidth}
+                scrollX={scrollX}
+                matches={searchMatches}
+                focusedMatchIndex={focusedMatchIndex}
+              />
+            )}
+            {" ".repeat(paddingX)}
           </Text>
-          {isEditing && scrollY + index === cursorY ? (
-            <EditableLine
-              line={line}
-              width={contentWidth}
-              scrollX={scrollX}
-              cursorX={cursorX}
-              input={input}
-            />
-          ) : (
-            <HighlightedLine
-              line={line}
-              width={contentWidth}
-              scrollX={scrollX}
-            />
-          )}
-          {" ".repeat(paddingX)}
-        </Text>
-      ))}
-      {Array.from({ length: paddingY }).map((_, index) => (
-        <Text key={`padding-bottom-${index}`}>
-          {" ".repeat(Math.max(1, modalWidth - 2))}
-        </Text>
-      ))}
+        )
+      })}
       {isSavePromptOpen && (
         <Box
           position="absolute"
-          top={Math.max(1, Math.floor(modalHeight / 2) - 2)}
-          left={Math.max(2, Math.floor(modalWidth / 2) - 10)}
+          top={Math.max(0, Math.floor(height / 2) - 3)}
+          left={Math.max(1, Math.floor(width / 2) - 11)}
           width={20}
           height={5}
           borderStyle="single"
-          borderColor={borderColor}
+          borderColor="#5a5a5a"
           backgroundColor={savePromptBackgroundColor}
           flexDirection="column"
           alignItems="center"

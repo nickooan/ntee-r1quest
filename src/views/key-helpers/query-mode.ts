@@ -1,30 +1,33 @@
 import type { Key } from "ink"
 
-export type BaseModeState = {
+export type QueryModeState = {
   scrollX: number
   scrollY: number
   command: string
+  commandCursorX?: number
 }
 
-export type BaseModeLimits = {
+export type QueryModeLimits = {
   maxScrollX: number
   maxScrollY: number
   viewHeight: number
 }
 
-export type BaseModeResult = {
-  state: BaseModeState
+export type QueryModeResult = {
+  state: QueryModeState
   command?: string
+  fileTreeSelectionDirection?: -1 | 1
+  shouldMoveToParentDirectory?: boolean
 }
 
 export const clampValue = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max)
 }
 
-export const clampBaseModeScroll = (
-  state: BaseModeState,
-  limits: BaseModeLimits,
-): BaseModeState => {
+export const clampQueryModeScroll = (
+  state: QueryModeState,
+  limits: QueryModeLimits,
+): QueryModeState => {
   return {
     ...state,
     scrollX: clampValue(state.scrollX, 0, limits.maxScrollX),
@@ -32,12 +35,23 @@ export const clampBaseModeScroll = (
   }
 }
 
-export const handleBaseModeInput = (
+const clampInputCursor = (input: string, inputCursorX: number): number => {
+  return Math.min(Math.max(inputCursorX, 0), input.length)
+}
+
+export const handleQueryModeInput = (
   input: string,
   key: Key,
-  state: BaseModeState,
-  limits: BaseModeLimits,
-): BaseModeResult => {
+  state: QueryModeState,
+  limits: QueryModeLimits,
+): QueryModeResult => {
+  if (key.shift && (key.upArrow || key.downArrow)) {
+    return {
+      state,
+      fileTreeSelectionDirection: key.downArrow ? 1 : -1,
+    }
+  }
+
   if (key.upArrow) {
     return {
       state: {
@@ -52,6 +66,30 @@ export const handleBaseModeInput = (
       state: {
         ...state,
         scrollY: clampValue(state.scrollY + 1, 0, limits.maxScrollY),
+      },
+    }
+  }
+
+  if (key.shift && key.leftArrow) {
+    return {
+      state: {
+        ...state,
+        commandCursorX: clampInputCursor(
+          state.command,
+          (state.commandCursorX ?? state.command.length) - 1,
+        ),
+      },
+    }
+  }
+
+  if (key.shift && key.rightArrow) {
+    return {
+      state: {
+        ...state,
+        commandCursorX: clampInputCursor(
+          state.command,
+          (state.commandCursorX ?? state.command.length) + 1,
+        ),
       },
     }
   }
@@ -121,10 +159,24 @@ export const handleBaseModeInput = (
   }
 
   if (key.backspace || key.delete) {
+    const commandCursorX = clampInputCursor(
+      state.command,
+      state.commandCursorX ?? state.command.length,
+    )
+
+    if (commandCursorX === 0) {
+      return { state }
+    }
+
+    const command = `${state.command.slice(0, commandCursorX - 1)}${state.command.slice(
+      commandCursorX,
+    )}`
+
     return {
       state: {
         ...state,
-        command: state.command.slice(0, -1),
+        command,
+        commandCursorX: commandCursorX - 1,
       },
     }
   }
@@ -134,22 +186,39 @@ export const handleBaseModeInput = (
       state: {
         ...state,
         command: "",
+        commandCursorX: 0,
       },
       command: state.command,
     }
   }
 
-  if (key.ctrl || key.meta || key.escape || key.tab) {
+  if (key.escape) {
+    return {
+      state,
+      shouldMoveToParentDirectory: true,
+    }
+  }
+
+  if (key.ctrl || key.meta || key.tab) {
     return {
       state,
     }
   }
 
   if (input) {
+    const commandCursorX = clampInputCursor(
+      state.command,
+      state.commandCursorX ?? state.command.length,
+    )
+    const command = `${state.command.slice(0, commandCursorX)}${input}${state.command.slice(
+      commandCursorX,
+    )}`
+
     return {
       state: {
         ...state,
-        command: `${state.command}${input}`,
+        command,
+        commandCursorX: commandCursorX + input.length,
       },
     }
   }

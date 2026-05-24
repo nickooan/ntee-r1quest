@@ -2,6 +2,7 @@ import type { Key } from "ink"
 
 export type ViewModeState = {
   command: string
+  commandCursorX?: number
   scrollX: number
   scrollY: number
 }
@@ -15,6 +16,12 @@ export type ViewModeLimits = {
 export type ViewModeResult = {
   state: ViewModeState
   selectedCommand?: string
+  fileTreeSelectionDirection?: -1 | 1
+  shouldMoveToParentDirectory?: boolean
+}
+
+const clampInputCursor = (input: string, inputCursorX: number): number => {
+  return Math.min(Math.max(inputCursorX, 0), input.length)
 }
 
 export const handleViewModeInput = (
@@ -23,6 +30,13 @@ export const handleViewModeInput = (
   state: ViewModeState,
   limits?: ViewModeLimits,
 ): ViewModeResult => {
+  if (key.shift && (key.upArrow || key.downArrow)) {
+    return {
+      state,
+      fileTreeSelectionDirection: key.downArrow ? 1 : -1,
+    }
+  }
+
   if (limits && key.upArrow) {
     return {
       state: {
@@ -37,6 +51,30 @@ export const handleViewModeInput = (
       state: {
         ...state,
         scrollY: Math.min(limits.maxScrollY, state.scrollY + 1),
+      },
+    }
+  }
+
+  if (key.shift && key.leftArrow) {
+    return {
+      state: {
+        ...state,
+        commandCursorX: clampInputCursor(
+          state.command,
+          (state.commandCursorX ?? state.command.length) - 1,
+        ),
+      },
+    }
+  }
+
+  if (key.shift && key.rightArrow) {
+    return {
+      state: {
+        ...state,
+        commandCursorX: clampInputCursor(
+          state.command,
+          (state.commandCursorX ?? state.command.length) + 1,
+        ),
       },
     }
   }
@@ -98,10 +136,24 @@ export const handleViewModeInput = (
   }
 
   if (key.backspace || key.delete) {
+    const commandCursorX = clampInputCursor(
+      state.command,
+      state.commandCursorX ?? state.command.length,
+    )
+
+    if (commandCursorX === 0) {
+      return { state }
+    }
+
+    const command = `${state.command.slice(0, commandCursorX - 1)}${state.command.slice(
+      commandCursorX,
+    )}`
+
     return {
       state: {
         ...state,
-        command: state.command.slice(0, -1),
+        command,
+        commandCursorX: commandCursorX - 1,
       },
     }
   }
@@ -113,17 +165,33 @@ export const handleViewModeInput = (
     }
   }
 
-  if (key.ctrl || key.meta || key.escape || key.tab) {
+  if (key.escape) {
+    return {
+      state,
+      shouldMoveToParentDirectory: true,
+    }
+  }
+
+  if (key.ctrl || key.meta || key.tab) {
     return {
       state,
     }
   }
 
   if (input) {
+    const commandCursorX = clampInputCursor(
+      state.command,
+      state.commandCursorX ?? state.command.length,
+    )
+    const command = `${state.command.slice(0, commandCursorX)}${input}${state.command.slice(
+      commandCursorX,
+    )}`
+
     return {
       state: {
         ...state,
-        command: `${state.command}${input}`,
+        command,
+        commandCursorX: commandCursorX + input.length,
       },
     }
   }
