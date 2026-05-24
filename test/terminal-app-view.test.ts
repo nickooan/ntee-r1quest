@@ -8,6 +8,7 @@ import {
   findFileTreeMatchIndex,
 } from "../src/runtime/file-manager/index.ts"
 import { buildTerminalViewport } from "../src/views/terminal-app.tsx"
+import { buildFilePaneLayout } from "../src/views/terminal/file-content.tsx"
 
 describe("terminal app view", () => {
   test("builds a fixed viewport from scroll offsets", () => {
@@ -30,6 +31,14 @@ describe("terminal app view", () => {
     expect(viewport.lines).toEqual(["ok  ", "    ", "    "])
     expect(viewport.maxScrollX).toBe(0)
     expect(viewport.maxScrollY).toBe(0)
+  })
+
+  test("builds file content layout for the result pane", () => {
+    expect(buildFilePaneLayout(40, 10, 120)).toEqual({
+      contentWidth: 31,
+      contentHeight: 8,
+      lineNumberWidth: 3,
+    })
   })
 
   test("builds a root file tree", () => {

@@ -23,7 +23,6 @@ import {
   TerminalMode,
 } from "./key-helpers/index.ts"
 import { Ai, buildAiLayout, buildAiMessageLines } from "./ai.tsx"
-import { ViewEdit, buildViewEditLayout } from "./view-edit.tsx"
 import {
   getAdaptor,
   type AcpAdaptorConstructor,
@@ -55,6 +54,7 @@ import {
 } from "./terminal/ai-session.ts"
 import { formatTerminalContent } from "./terminal/content.ts"
 import { resolveEditScroll } from "./terminal/edit-scroll.ts"
+import { buildFilePaneLayout } from "./terminal/file-content.tsx"
 import { ResponsePane } from "./terminal/response-pane.tsx"
 import { Sidebar } from "./terminal/sidebar.tsx"
 import { buildTerminalViewport, normalizeLines } from "./terminal/viewport.ts"
@@ -76,6 +76,22 @@ export type TerminalAppProps = {
 }
 
 type AcpAdapter = InstanceType<AcpAdaptorConstructor>
+
+const resolveResponsePaneTitle = (mode: TerminalMode): string => {
+  if (mode === TerminalMode.View) {
+    return "Reviewing"
+  }
+
+  if (mode === TerminalMode.Edit) {
+    return "Editing"
+  }
+
+  if (mode === TerminalMode.Search) {
+    return "Searching"
+  }
+
+  return "Result"
+}
 
 export const TerminalApp = ({
   response,
@@ -147,28 +163,57 @@ export const TerminalApp = ({
     fileTreeEntries,
     sidebarCommand,
   )
-  const content = formatTerminalContent({
+  const responseContent = formatTerminalContent({
     response,
     error: localError ?? error,
     isPending,
     frameIndex,
   })
+  const openFileContent =
+    openViewFile && mode === TerminalMode.Edit && editModeState
+      ? serializeEditModeContent(editModeState)
+      : openViewFile?.content
+  const content = openFileContent ?? responseContent
+  const contentLines = normalizeLines(content)
+  const filePaneLayout = openViewFile
+    ? buildFilePaneLayout(responsePaneWidth, viewHeight, contentLines.length)
+    : null
+  const activeContentWidth =
+    filePaneLayout?.contentWidth ?? responseContentWidth
+  const activeContentHeight =
+    filePaneLayout?.contentHeight ?? responseContentHeight
+  const activeMaxLineWidth = contentLines.reduce(
+    (currentMax, line) => Math.max(currentMax, line.length),
+    0,
+  )
+  const activeMaxScrollX = Math.max(0, activeMaxLineWidth - activeContentWidth)
+  const activeMaxScrollY = Math.max(
+    0,
+    contentLines.length - activeContentHeight,
+  )
+  const contentScrollX =
+    mode === TerminalMode.Search
+      ? searchModeState.scrollX
+      : openViewFile
+        ? viewModeState.scrollX
+        : baseModeState.scrollX
+  const contentScrollY =
+    mode === TerminalMode.Search
+      ? searchModeState.scrollY
+      : openViewFile
+        ? viewModeState.scrollY
+        : baseModeState.scrollY
   const viewport = buildTerminalViewport(
     content,
     responseContentWidth,
     responseContentHeight,
-    mode === TerminalMode.Search
-      ? searchModeState.scrollX
-      : baseModeState.scrollX,
-    mode === TerminalMode.Search
-      ? searchModeState.scrollY
-      : baseModeState.scrollY,
+    contentScrollX,
+    contentScrollY,
   )
   const searchMatches =
     mode === TerminalMode.Search
       ? findSearchMatches(content, searchModeState.query)
       : []
-  const contentLines = normalizeLines(content)
   const inputValue =
     mode === TerminalMode.Search
       ? searchModeState.input
@@ -408,7 +453,10 @@ export const TerminalApp = ({
       return
     }
 
-    if (openViewFile) {
+    if (
+      openViewFile &&
+      (mode === TerminalMode.View || mode === TerminalMode.Edit)
+    ) {
       if (mode === TerminalMode.Edit && editModeState) {
         const result = handleEditModeInput(input, key, editModeState)
 
@@ -439,7 +487,11 @@ export const TerminalApp = ({
           return
         }
 
-        const nextScroll = resolveEditScroll(result.state, width, height)
+        const nextScroll = resolveEditScroll(
+          result.state,
+          responsePaneWidth,
+          viewHeight,
+        )
 
         setEditModeState(result.state)
         setViewModeState({
@@ -463,7 +515,11 @@ export const TerminalApp = ({
       }
 
       const viewLines = openViewFile.content.split("\n")
-      const viewLayout = buildViewEditLayout(width, height, viewLines.length)
+      const viewLayout = buildFilePaneLayout(
+        responsePaneWidth,
+        viewHeight,
+        viewLines.length,
+      )
       const maxLineWidth = viewLines.reduce(
         (currentMax, line) => Math.max(currentMax, line.length),
         0,
@@ -503,10 +559,27 @@ export const TerminalApp = ({
       if (nextMode === TerminalMode.Query) {
         setMode(TerminalMode.Query)
         setOpenViewFile(null)
+        setEditModeState(null)
         setViewModeState({
           command: "",
           scrollX: 0,
           scrollY: 0,
+        })
+        return
+      }
+
+      if (nextMode === TerminalMode.Search) {
+        setMode(TerminalMode.Search)
+        setSearchModeState({
+          scrollX: result.state.scrollX,
+          scrollY: result.state.scrollY,
+          input: "",
+          query: "",
+          focusedMatchIndex: 0,
+        })
+        setViewModeState({
+          ...result.state,
+          command: "",
         })
         return
       }
@@ -535,10 +608,10 @@ export const TerminalApp = ({
 
     if (mode === TerminalMode.Search) {
       const limits = {
-        maxScrollX: viewport.maxScrollX,
-        maxScrollY: viewport.maxScrollY,
-        viewWidth: responseContentWidth,
-        viewHeight: responseContentHeight,
+        maxScrollX: activeMaxScrollX,
+        maxScrollY: activeMaxScrollY,
+        viewWidth: activeContentWidth,
+        viewHeight: activeContentHeight,
       }
       const result = handleSearchModeInput(
         input,
@@ -562,6 +635,8 @@ export const TerminalApp = ({
 
       if (nextMode === TerminalMode.Query) {
         setMode(TerminalMode.Query)
+        setOpenViewFile(null)
+        setEditModeState(null)
         setBaseModeState({
           ...baseModeState,
           scrollX: result.state.scrollX,
@@ -581,8 +656,8 @@ export const TerminalApp = ({
         setMode(TerminalMode.View)
         setViewModeState({
           command: "",
-          scrollX: 0,
-          scrollY: 0,
+          scrollX: openViewFile ? result.state.scrollX : 0,
+          scrollY: openViewFile ? result.state.scrollY : 0,
         })
         setSearchModeState({
           scrollX: result.state.scrollX,
@@ -606,6 +681,31 @@ export const TerminalApp = ({
       }
 
       if (nextMode === TerminalMode.Edit) {
+        if (openViewFile) {
+          const focusedMatch = searchMatches[searchModeState.focusedMatchIndex]
+          const nextEditModeState = {
+            ...createEditModeState(openViewFile.content),
+            cursorX: focusedMatch?.start ?? result.state.scrollX,
+            cursorY: focusedMatch?.lineIndex ?? result.state.scrollY,
+          }
+
+          setMode(TerminalMode.Edit)
+          setEditModeState(nextEditModeState)
+          setViewModeState({
+            command: "",
+            scrollX: result.state.scrollX,
+            scrollY: result.state.scrollY,
+          })
+          setSearchModeState({
+            ...result.state,
+            input: "",
+            query: "",
+            focusedMatchIndex: 0,
+          })
+          setLocalError(undefined)
+          return
+        }
+
         setLocalError(new Error(editModeRequiresViewFileMessage))
         setSearchModeState({
           ...result.state,
@@ -851,12 +951,29 @@ export const TerminalApp = ({
           height={viewHeight}
         />
         <ResponsePane
+          title={resolveResponsePaneTitle(mode)}
           contentLines={contentLines}
           viewport={viewport}
           searchMatches={searchMatches}
           focusedMatchIndex={searchModeState.focusedMatchIndex}
           width={responsePaneWidth}
           height={viewHeight}
+          fileContent={
+            openViewFile && openFileContent
+              ? {
+                  fileName: openViewFile.fileName,
+                  content: openFileContent,
+                  scrollX: contentScrollX,
+                  scrollY: contentScrollY,
+                  isEditing: mode === TerminalMode.Edit,
+                  cursorX: editModeState?.cursorX,
+                  cursorY: editModeState?.cursorY,
+                  input: editModeState?.input,
+                  isSavePromptOpen: editModeState?.isSavePromptOpen,
+                  selectedSaveAction: editModeState?.selectedSaveAction,
+                }
+              : undefined
+          }
         />
       </Box>
       <Box
@@ -873,26 +990,6 @@ export const TerminalApp = ({
         </Text>
         <Text backgroundColor={commandBackgroundColor}>{inputAfterCursor}</Text>
       </Box>
-      {openViewFile && (
-        <ViewEdit
-          fileName={openViewFile.fileName}
-          content={
-            mode === TerminalMode.Edit && editModeState
-              ? serializeEditModeContent(editModeState)
-              : openViewFile.content
-          }
-          width={width}
-          height={height}
-          scrollX={viewModeState.scrollX}
-          scrollY={viewModeState.scrollY}
-          isEditing={mode === TerminalMode.Edit}
-          cursorX={editModeState?.cursorX}
-          cursorY={editModeState?.cursorY}
-          input={editModeState?.input}
-          isSavePromptOpen={editModeState?.isSavePromptOpen}
-          selectedSaveAction={editModeState?.selectedSaveAction}
-        />
-      )}
       {mode === TerminalMode.Ai && (
         <Ai
           width={width}

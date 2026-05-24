@@ -1,12 +1,12 @@
 import type { EditModeState, ViewModeState } from "../key-helpers/index.ts"
-import { buildViewEditLayout } from "../view-edit.tsx"
+import { buildFilePaneLayout } from "./file-content.tsx"
 
 export const resolveEditScroll = (
   state: EditModeState,
   width: number,
   height: number,
 ): Pick<ViewModeState, "scrollX" | "scrollY"> => {
-  const layout = buildViewEditLayout(width, height, state.lines.length)
+  const layout = buildFilePaneLayout(width, height, state.lines.length)
   let scrollX = state.cursorX < 0 ? 0 : state.cursorX
   let scrollY = state.cursorY < 0 ? 0 : state.cursorY
 

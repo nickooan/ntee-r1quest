@@ -208,7 +208,7 @@ describe("view mode key helpers", () => {
     ).toEqual(viewState)
   })
 
-  test("handles view modal scrolling", () => {
+  test("handles reviewing pane scrolling", () => {
     const viewState = { command: "", scrollX: 2, scrollY: 3 }
     const viewLimits = {
       maxScrollX: 5,

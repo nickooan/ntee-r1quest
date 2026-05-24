@@ -2,16 +2,22 @@ import React from "react"
 import { Box, Text } from "ink"
 import type { SearchMatch } from "../key-helpers/index.ts"
 import { paneBorderColor } from "./constants.ts"
+import { FileContent, type FileContentProps } from "./file-content.tsx"
 import { PaneTitle } from "./pane-title.tsx"
 import type { Viewport } from "./viewport.ts"
 
 type ResponsePaneProps = {
+  title: string
   contentLines: string[]
   viewport: Viewport
   searchMatches: SearchMatch[]
   focusedMatchIndex: number
   width: number
   height: number
+  fileContent?: Omit<
+    FileContentProps,
+    "width" | "height" | "searchMatches" | "focusedMatchIndex"
+  >
 }
 
 type VisibleLineProps = {
@@ -88,12 +94,14 @@ const VisibleLine = ({
 }
 
 export const ResponsePane = ({
+  title,
   contentLines,
   viewport,
   searchMatches,
   focusedMatchIndex,
   width,
   height,
+  fileContent,
 }: ResponsePaneProps) => {
   const contentWidth = Math.max(1, width - 2)
 
@@ -106,19 +114,29 @@ export const ResponsePane = ({
       borderColor={paneBorderColor}
       position="relative"
     >
-      <PaneTitle title="Result" width={width} />
-      {viewport.lines.map((line, index) => (
-        <Box key={`${viewport.safeScrollY}-${index}`} width={contentWidth}>
-          <VisibleLine
-            line={contentLines[viewport.safeScrollY + index] ?? ""}
-            lineIndex={viewport.safeScrollY + index}
-            scrollX={viewport.safeScrollX}
-            width={contentWidth}
-            matches={searchMatches}
-            focusedMatchIndex={focusedMatchIndex}
-          />
-        </Box>
-      ))}
+      <PaneTitle title={title} width={width} />
+      {fileContent ? (
+        <FileContent
+          {...fileContent}
+          width={width}
+          height={height}
+          searchMatches={searchMatches}
+          focusedMatchIndex={focusedMatchIndex}
+        />
+      ) : (
+        viewport.lines.map((line, index) => (
+          <Box key={`${viewport.safeScrollY}-${index}`} width={contentWidth}>
+            <VisibleLine
+              line={contentLines[viewport.safeScrollY + index] ?? ""}
+              lineIndex={viewport.safeScrollY + index}
+              scrollX={viewport.safeScrollX}
+              width={contentWidth}
+              matches={searchMatches}
+              focusedMatchIndex={focusedMatchIndex}
+            />
+          </Box>
+        ))
+      )}
     </Box>
   )
 }
