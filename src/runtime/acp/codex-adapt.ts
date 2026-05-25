@@ -419,7 +419,6 @@ export class CodexAcpAdapter {
 
     throw error
   }
-
 }
 
 export const initCodexAcp = (

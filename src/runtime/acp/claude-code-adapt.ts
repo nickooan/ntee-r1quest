@@ -402,7 +402,6 @@ export class ClaudeCodeAcpAdapter {
 
     throw error
   }
-
 }
 
 export const initClaudeCodeAcp = (
