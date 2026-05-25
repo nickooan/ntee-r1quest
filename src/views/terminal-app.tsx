@@ -55,7 +55,6 @@ import {
   appendAcpResponse,
   findPermissionOptionId,
   formatAcpPermissionMessage,
-  summarizeAiConversationActivity,
 } from "./terminal/ai-session.ts"
 import { formatTerminalContent } from "./terminal/content.ts"
 import { resolveEditScroll } from "./terminal/edit-scroll.ts"
@@ -81,8 +80,6 @@ export type TerminalAppProps = {
 }
 
 type AcpAdapter = InstanceType<AcpAdaptorConstructor>
-
-const aiBackgroundIdleMs = 8000
 
 const resolveResponsePaneTitle = (mode: TerminalMode): string => {
   if (mode === TerminalMode.View) {
@@ -141,6 +138,7 @@ export const TerminalApp = ({
   })
   const [aiModeState, setAiModeState] =
     useState<AiModeState>(createAiModeState())
+  const [isAiPending, setIsAiPending] = useState(false)
   const [aiConversations, setAiConversations] = useState<
     CodexAcpConversation[]
   >([])
@@ -259,22 +257,13 @@ export const TerminalApp = ({
   const inputAfterCursor = inputValue.slice(commandInputCursorX)
   const promptValue = `@${mode} >`
   const aiLayout = buildAiLayout(width, height)
-  const aiConversationActivity = summarizeAiConversationActivity(
-    aiConversations,
-    Date.now(),
-    aiBackgroundIdleMs,
-  )
-  const pendingAiConversationCount =
-    aiConversationActivity.activeCount +
-    aiConversationActivity.backgroundTaskCount
-  const isAiThinking = aiConversationActivity.activeCount > 0
   const aiMessageLineCount =
     buildAiMessageLines(aiModeState.messages, aiLayout.contentWidth).length +
-    (isAiThinking ? 1 : 0)
+    (isAiPending ? 1 : 0)
   const aiMaxScrollY = Math.max(0, aiMessageLineCount - aiLayout.contentHeight)
 
   useEffect(() => {
-    if (!isPending && pendingAiConversationCount === 0) {
+    if (!isPending && !isAiPending) {
       return
     }
 
@@ -285,7 +274,7 @@ export const TerminalApp = ({
     return () => {
       clearInterval(interval)
     }
-  }, [pendingAiConversationCount, isPending])
+  }, [isAiPending, isPending])
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -380,6 +369,7 @@ export const TerminalApp = ({
         }
 
         setLocalError(error)
+        setIsAiPending(false)
       },
       onExit: () => {
         if (aiAdapterRef.current !== adapter) {
@@ -389,6 +379,7 @@ export const TerminalApp = ({
         aiAdapterRef.current = undefined
         setAiPermissionRequest(undefined)
         setAiConversations([])
+        setIsAiPending(false)
         setMode(TerminalMode.Query)
       },
     })
@@ -400,6 +391,7 @@ export const TerminalApp = ({
     }))
     setAiPermissionRequest(undefined)
     setAiConversations([])
+    setIsAiPending(false)
     setLocalError(undefined)
     setMode(TerminalMode.Ai)
 
@@ -553,14 +545,20 @@ export const TerminalApp = ({
       }
 
       if (submittedInput) {
+        setIsAiPending(true)
         const writePromise = aiAdapterRef.current?.write(submittedInput)
 
         if (!writePromise) {
+          setIsAiPending(false)
           return
         }
 
         void writePromise
+          .then(() => {
+            setIsAiPending(false)
+          })
           .catch((error: unknown) => {
+            setIsAiPending(false)
             setLocalError(error)
           })
       }
@@ -1213,9 +1211,8 @@ export const TerminalApp = ({
           isCursorVisible={isCursorVisible}
           messages={aiModeState.messages}
           scrollY={aiModeState.scrollY}
-          isPending={isAiThinking}
+          isPending={isAiPending}
           pendingFrameIndex={frameIndex}
-          backgroundTaskCount={aiConversationActivity.backgroundTaskCount}
           permissionMessage={
             aiPermissionRequest
               ? formatAcpPermissionMessage(aiPermissionRequest)

@@ -27,7 +27,6 @@
  *   },
  * })
  */
-import { randomUUID } from "node:crypto"
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { Readable, Writable } from "node:stream"
 import { fileURLToPath } from "node:url"
@@ -44,27 +43,20 @@ import {
   type SessionUpdate,
 } from "@agentclientprotocol/sdk"
 import { APP_NAME, VERSION } from "../version.ts"
+import {
+  AcpConversationManager,
+  type AcpConversation,
+  type AcpConversationStatus,
+} from "./conversation-manager.ts"
 
 export type CodexAcpResponse = {
   sessionId: string
   update: SessionUpdate
 }
 
-export type CodexAcpConversationStatus = "pending" | "completed" | "failed"
+export type CodexAcpConversationStatus = AcpConversationStatus
 
-export type CodexAcpConversation = {
-  id: string
-  sessionId: string
-  prompt: string
-  updates: SessionUpdate[]
-  status: CodexAcpConversationStatus
-  createdAt: number
-  updatedAt: number
-  completedAt?: number
-  response?: PromptResponse
-  error?: unknown
-  acknowledgedMessageId?: string
-}
+export type CodexAcpConversation = AcpConversation
 
 export type CodexAcpPermissionRequest = RequestPermissionRequest
 
@@ -153,7 +145,6 @@ export class CodexAcpAdapter {
   private readonly clientName: string
   private readonly clientVersion: string
   private readonly onResponse?: CodexAcpAdapterOptions["onResponse"]
-  private readonly onConversationUpdate?: CodexAcpAdapterOptions["onConversationUpdate"]
   private readonly onPermissionRequest?: CodexAcpAdapterOptions["onPermissionRequest"]
   private readonly onError?: CodexAcpAdapterOptions["onError"]
   private readonly onExit?: CodexAcpAdapterOptions["onExit"]
@@ -162,8 +153,7 @@ export class CodexAcpAdapter {
   private sessionId?: string
   private pendingPermission?: PendingPermission
   private runPromise?: Promise<this>
-  private readonly conversations = new Map<string, CodexAcpConversation>()
-  private activeConversationId?: string
+  private readonly conversationManager: AcpConversationManager
   private isStopping = false
 
   constructor(options: CodexAcpAdapterOptions = {}) {
@@ -176,10 +166,15 @@ export class CodexAcpAdapter {
     this.clientName = options.clientName ?? defaultClientName
     this.clientVersion = options.clientVersion ?? defaultClientVersion
     this.onResponse = options.onResponse
-    this.onConversationUpdate = options.onConversationUpdate
     this.onPermissionRequest = options.onPermissionRequest
     this.onError = options.onError
     this.onExit = options.onExit
+    this.conversationManager = new AcpConversationManager({
+      onConversationUpdate: options.onConversationUpdate,
+      onError: (error) => {
+        this.reportError(error)
+      },
+    })
   }
 
   get isRunning(): boolean {
@@ -195,13 +190,11 @@ export class CodexAcpAdapter {
   }
 
   get promptConversations(): CodexAcpConversation[] {
-    return Array.from(this.conversations.values(), copyConversation)
+    return this.conversationManager.promptConversations
   }
 
   get unfinishedPromptConversations(): CodexAcpConversation[] {
-    return this.promptConversations.filter((conversation) => {
-      return conversation.status === "pending"
-    })
+    return this.conversationManager.unfinishedPromptConversations
   }
 
   async run(): Promise<this> {
@@ -326,7 +319,7 @@ export class CodexAcpAdapter {
     this.connection = undefined
     this.sessionId = undefined
     this.runPromise = undefined
-    this.activeConversationId = undefined
+    this.conversationManager.resetActiveConversation()
   }
 
   private async sendPrompt(text: string): Promise<PromptResponse> {
@@ -350,7 +343,10 @@ export class CodexAcpAdapter {
         text: trimmedText,
       },
     ]
-    const conversation = this.createConversation(trimmedText)
+    const conversation = this.conversationManager.createConversation(
+      this.sessionId,
+      trimmedText,
+    )
 
     try {
       const response = await this.connection.prompt({
@@ -358,11 +354,11 @@ export class CodexAcpAdapter {
         messageId: conversation.id,
         prompt,
       })
-      this.completeConversation(conversation.id, response)
+      this.conversationManager.completeConversation(conversation.id, response)
 
       return response
     } catch (error) {
-      this.failConversation(conversation.id, error)
+      this.conversationManager.failConversation(conversation.id, error)
       this.reportError(error)
       throw error
     }
@@ -371,7 +367,7 @@ export class CodexAcpAdapter {
   private async handleSessionUpdate(
     notification: SessionNotification,
   ): Promise<void> {
-    this.recordConversationUpdate(notification.update)
+    this.conversationManager.recordConversationUpdate(notification.update)
     await this.onResponse?.({
       sessionId: notification.sessionId,
       update: notification.update,
@@ -424,120 +420,6 @@ export class CodexAcpAdapter {
     throw error
   }
 
-  private createConversation(prompt: string): CodexAcpConversation {
-    const now = Date.now()
-    const conversation: CodexAcpConversation = {
-      id: randomUUID(),
-      sessionId: this.sessionId ?? "",
-      prompt,
-      updates: [],
-      status: "pending",
-      createdAt: now,
-      updatedAt: now,
-    }
-
-    this.conversations.set(conversation.id, conversation)
-    this.activeConversationId = conversation.id
-    this.emitConversationUpdate(conversation)
-
-    return conversation
-  }
-
-  private recordConversationUpdate(update: SessionUpdate): void {
-    const conversation = this.findActiveConversation()
-
-    if (!conversation) {
-      return
-    }
-
-    conversation.updates = [...conversation.updates, update]
-    conversation.updatedAt = Date.now()
-    this.emitConversationUpdate(conversation)
-  }
-
-  private completeConversation(id: string, response: PromptResponse): void {
-    const conversation = this.conversations.get(id)
-
-    if (!conversation) {
-      return
-    }
-
-    const now = Date.now()
-    conversation.status = "completed"
-    conversation.response = response
-    conversation.acknowledgedMessageId = response.userMessageId ?? undefined
-    conversation.completedAt = now
-    conversation.updatedAt = now
-
-    if (this.activeConversationId === id) {
-      this.activeConversationId = this.findLatestPendingConversationId()
-    }
-
-    this.emitConversationUpdate(conversation)
-  }
-
-  private failConversation(id: string, error: unknown): void {
-    const conversation = this.conversations.get(id)
-
-    if (!conversation) {
-      return
-    }
-
-    const now = Date.now()
-    conversation.status = "failed"
-    conversation.error = error
-    conversation.completedAt = now
-    conversation.updatedAt = now
-
-    if (this.activeConversationId === id) {
-      this.activeConversationId = this.findLatestPendingConversationId()
-    }
-
-    this.emitConversationUpdate(conversation)
-  }
-
-  private findActiveConversation(): CodexAcpConversation | undefined {
-    if (this.activeConversationId) {
-      const conversation = this.conversations.get(this.activeConversationId)
-
-      if (conversation?.status === "pending") {
-        return conversation
-      }
-    }
-
-    const id = this.findLatestPendingConversationId()
-
-    return id ? this.conversations.get(id) : undefined
-  }
-
-  private findLatestPendingConversationId(): string | undefined {
-    return Array.from(this.conversations.values())
-      .filter((conversation) => {
-        return conversation.status === "pending"
-      })
-      .sort((left, right) => right.createdAt - left.createdAt)[0]?.id
-  }
-
-  private emitConversationUpdate(conversation: CodexAcpConversation): void {
-    try {
-      void Promise.resolve(
-        this.onConversationUpdate?.(copyConversation(conversation)),
-      ).catch((error: unknown) => {
-        this.reportError(error)
-      })
-    } catch (error) {
-      this.reportError(error)
-    }
-  }
-}
-
-const copyConversation = (
-  conversation: CodexAcpConversation,
-): CodexAcpConversation => {
-  return {
-    ...conversation,
-    updates: [...conversation.updates],
-  }
 }
 
 export const initCodexAcp = (

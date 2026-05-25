@@ -17,7 +17,6 @@ export type AiProps = {
   permissionMessage?: string
   isPending?: boolean
   pendingFrameIndex?: number
-  backgroundTaskCount?: number
 }
 
 const borderColor = "#5a5a5a"
@@ -25,7 +24,7 @@ const permissionModalBackgroundColor = "#1f1f1f"
 const pendingFrames = [".", "..", "..."]
 const paddingX = 1
 const paddingY = 1
-const statusLineHeight = 1
+const bottomPaddingY = 0
 
 const clampInputCursor = (input: string, inputCursorX: number): number => {
   return Math.min(Math.max(inputCursorX, 0), input.length)
@@ -51,7 +50,7 @@ export const buildAiLayout = (width: number, height: number): AiLayout => {
   const contentWidth = Math.max(1, modalWidth - 2 - paddingX * 2)
   const contentHeight = Math.max(
     1,
-    modalHeight - 2 - paddingY * 2 - 1 - statusLineHeight,
+    modalHeight - 2 - paddingY - bottomPaddingY - 1,
   )
 
   return {
@@ -241,7 +240,6 @@ export const Ai = ({
   permissionMessage,
   isPending = false,
   pendingFrameIndex = 0,
-  backgroundTaskCount = 0,
 }: AiProps) => {
   const { modalWidth, modalHeight, left, top, contentWidth, contentHeight } =
     buildAiLayout(width, height)
@@ -329,25 +327,7 @@ export const Ai = ({
         {" ".repeat(Math.max(0, contentWidth - inputLineLength))}
         {" ".repeat(paddingX)}
       </Text>
-      <Text>
-        {" ".repeat(paddingX)}
-        {backgroundTaskCount > 0 ? (
-          <Text color="yellow">{`Background tasks: ${backgroundTaskCount}`}</Text>
-        ) : (
-          ""
-        )}
-        {" ".repeat(
-          Math.max(
-            0,
-            contentWidth -
-              (backgroundTaskCount > 0
-                ? `Background tasks: ${backgroundTaskCount}`.length
-                : 0),
-          ),
-        )}
-        {" ".repeat(paddingX)}
-      </Text>
-      {Array.from({ length: paddingY }).map((_, index) => (
+      {Array.from({ length: bottomPaddingY }).map((_, index) => (
         <Text key={`padding-bottom-${index}`}>
           {" ".repeat(Math.max(1, modalWidth - 2))}
         </Text>

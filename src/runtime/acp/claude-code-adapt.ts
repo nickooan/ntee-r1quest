@@ -5,7 +5,6 @@
  * adapters through getAdaptor without changing session, prompt, permission, or
  * lifecycle handling.
  */
-import { randomUUID } from "node:crypto"
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { Readable, Writable } from "node:stream"
 import { fileURLToPath } from "node:url"
@@ -22,30 +21,20 @@ import {
   type SessionUpdate,
 } from "@agentclientprotocol/sdk"
 import { APP_NAME, VERSION } from "../version.ts"
+import {
+  AcpConversationManager,
+  type AcpConversation,
+  type AcpConversationStatus,
+} from "./conversation-manager.ts"
 
 export type ClaudeCodeAcpResponse = {
   sessionId: string
   update: SessionUpdate
 }
 
-export type ClaudeCodeAcpConversationStatus =
-  | "pending"
-  | "completed"
-  | "failed"
+export type ClaudeCodeAcpConversationStatus = AcpConversationStatus
 
-export type ClaudeCodeAcpConversation = {
-  id: string
-  sessionId: string
-  prompt: string
-  updates: SessionUpdate[]
-  status: ClaudeCodeAcpConversationStatus
-  createdAt: number
-  updatedAt: number
-  completedAt?: number
-  response?: PromptResponse
-  error?: unknown
-  acknowledgedMessageId?: string
-}
+export type ClaudeCodeAcpConversation = AcpConversation
 
 export type ClaudeCodeAcpPermissionRequest = RequestPermissionRequest
 
@@ -134,7 +123,6 @@ export class ClaudeCodeAcpAdapter {
   private readonly clientName: string
   private readonly clientVersion: string
   private readonly onResponse?: ClaudeCodeAcpAdapterOptions["onResponse"]
-  private readonly onConversationUpdate?: ClaudeCodeAcpAdapterOptions["onConversationUpdate"]
   private readonly onPermissionRequest?: ClaudeCodeAcpAdapterOptions["onPermissionRequest"]
   private readonly onError?: ClaudeCodeAcpAdapterOptions["onError"]
   private readonly onExit?: ClaudeCodeAcpAdapterOptions["onExit"]
@@ -143,8 +131,7 @@ export class ClaudeCodeAcpAdapter {
   private sessionId?: string
   private pendingPermission?: PendingPermission
   private runPromise?: Promise<this>
-  private readonly conversations = new Map<string, ClaudeCodeAcpConversation>()
-  private activeConversationId?: string
+  private readonly conversationManager: AcpConversationManager
   private isStopping = false
 
   constructor(options: ClaudeCodeAcpAdapterOptions = {}) {
@@ -157,10 +144,15 @@ export class ClaudeCodeAcpAdapter {
     this.clientName = options.clientName ?? defaultClientName
     this.clientVersion = options.clientVersion ?? defaultClientVersion
     this.onResponse = options.onResponse
-    this.onConversationUpdate = options.onConversationUpdate
     this.onPermissionRequest = options.onPermissionRequest
     this.onError = options.onError
     this.onExit = options.onExit
+    this.conversationManager = new AcpConversationManager({
+      onConversationUpdate: options.onConversationUpdate,
+      onError: (error) => {
+        this.reportError(error)
+      },
+    })
   }
 
   get isRunning(): boolean {
@@ -176,13 +168,11 @@ export class ClaudeCodeAcpAdapter {
   }
 
   get promptConversations(): ClaudeCodeAcpConversation[] {
-    return Array.from(this.conversations.values(), copyConversation)
+    return this.conversationManager.promptConversations
   }
 
   get unfinishedPromptConversations(): ClaudeCodeAcpConversation[] {
-    return this.promptConversations.filter((conversation) => {
-      return conversation.status === "pending"
-    })
+    return this.conversationManager.unfinishedPromptConversations
   }
 
   async run(): Promise<this> {
@@ -312,7 +302,7 @@ export class ClaudeCodeAcpAdapter {
     this.connection = undefined
     this.sessionId = undefined
     this.runPromise = undefined
-    this.activeConversationId = undefined
+    this.conversationManager.resetActiveConversation()
   }
 
   private async sendPrompt(text: string): Promise<PromptResponse> {
@@ -336,7 +326,10 @@ export class ClaudeCodeAcpAdapter {
         text: trimmedText,
       },
     ]
-    const conversation = this.createConversation(trimmedText)
+    const conversation = this.conversationManager.createConversation(
+      this.sessionId,
+      trimmedText,
+    )
 
     try {
       const response = await this.connection.prompt({
@@ -344,11 +337,11 @@ export class ClaudeCodeAcpAdapter {
         messageId: conversation.id,
         prompt,
       })
-      this.completeConversation(conversation.id, response)
+      this.conversationManager.completeConversation(conversation.id, response)
 
       return response
     } catch (error) {
-      this.failConversation(conversation.id, error)
+      this.conversationManager.failConversation(conversation.id, error)
       this.reportError(error)
       throw error
     }
@@ -357,7 +350,7 @@ export class ClaudeCodeAcpAdapter {
   private async handleSessionUpdate(
     notification: SessionNotification,
   ): Promise<void> {
-    this.recordConversationUpdate(notification.update)
+    this.conversationManager.recordConversationUpdate(notification.update)
     await this.onResponse?.({
       sessionId: notification.sessionId,
       update: notification.update,
@@ -410,120 +403,6 @@ export class ClaudeCodeAcpAdapter {
     throw error
   }
 
-  private createConversation(prompt: string): ClaudeCodeAcpConversation {
-    const now = Date.now()
-    const conversation: ClaudeCodeAcpConversation = {
-      id: randomUUID(),
-      sessionId: this.sessionId ?? "",
-      prompt,
-      updates: [],
-      status: "pending",
-      createdAt: now,
-      updatedAt: now,
-    }
-
-    this.conversations.set(conversation.id, conversation)
-    this.activeConversationId = conversation.id
-    this.emitConversationUpdate(conversation)
-
-    return conversation
-  }
-
-  private recordConversationUpdate(update: SessionUpdate): void {
-    const conversation = this.findActiveConversation()
-
-    if (!conversation) {
-      return
-    }
-
-    conversation.updates = [...conversation.updates, update]
-    conversation.updatedAt = Date.now()
-    this.emitConversationUpdate(conversation)
-  }
-
-  private completeConversation(id: string, response: PromptResponse): void {
-    const conversation = this.conversations.get(id)
-
-    if (!conversation) {
-      return
-    }
-
-    const now = Date.now()
-    conversation.status = "completed"
-    conversation.response = response
-    conversation.acknowledgedMessageId = response.userMessageId ?? undefined
-    conversation.completedAt = now
-    conversation.updatedAt = now
-
-    if (this.activeConversationId === id) {
-      this.activeConversationId = this.findLatestPendingConversationId()
-    }
-
-    this.emitConversationUpdate(conversation)
-  }
-
-  private failConversation(id: string, error: unknown): void {
-    const conversation = this.conversations.get(id)
-
-    if (!conversation) {
-      return
-    }
-
-    const now = Date.now()
-    conversation.status = "failed"
-    conversation.error = error
-    conversation.completedAt = now
-    conversation.updatedAt = now
-
-    if (this.activeConversationId === id) {
-      this.activeConversationId = this.findLatestPendingConversationId()
-    }
-
-    this.emitConversationUpdate(conversation)
-  }
-
-  private findActiveConversation(): ClaudeCodeAcpConversation | undefined {
-    if (this.activeConversationId) {
-      const conversation = this.conversations.get(this.activeConversationId)
-
-      if (conversation?.status === "pending") {
-        return conversation
-      }
-    }
-
-    const id = this.findLatestPendingConversationId()
-
-    return id ? this.conversations.get(id) : undefined
-  }
-
-  private findLatestPendingConversationId(): string | undefined {
-    return Array.from(this.conversations.values())
-      .filter((conversation) => {
-        return conversation.status === "pending"
-      })
-      .sort((left, right) => right.createdAt - left.createdAt)[0]?.id
-  }
-
-  private emitConversationUpdate(conversation: ClaudeCodeAcpConversation): void {
-    try {
-      void Promise.resolve(
-        this.onConversationUpdate?.(copyConversation(conversation)),
-      ).catch((error: unknown) => {
-        this.reportError(error)
-      })
-    } catch (error) {
-      this.reportError(error)
-    }
-  }
-}
-
-const copyConversation = (
-  conversation: ClaudeCodeAcpConversation,
-): ClaudeCodeAcpConversation => {
-  return {
-    ...conversation,
-    updates: [...conversation.updates],
-  }
 }
 
 export const initClaudeCodeAcp = (
