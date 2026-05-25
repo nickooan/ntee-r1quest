@@ -327,6 +327,7 @@ export const TerminalApp = ({
           return
         }
 
+        setIsAiPending(false)
         setAiModeState((currentState) => {
           return appendAcpResponse(currentState, response)
         })
@@ -527,9 +528,6 @@ export const TerminalApp = ({
         }
 
         void writePromise
-          .then(() => {
-            setIsAiPending(false)
-          })
           .catch((error: unknown) => {
             setIsAiPending(false)
             setLocalError(error)

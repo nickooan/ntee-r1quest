@@ -27,6 +27,7 @@
  *   },
  * })
  */
+import { randomUUID } from "node:crypto"
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { Readable, Writable } from "node:stream"
 import { fileURLToPath } from "node:url"
@@ -47,6 +48,22 @@ import { APP_NAME, VERSION } from "../version.ts"
 export type CodexAcpResponse = {
   sessionId: string
   update: SessionUpdate
+}
+
+export type CodexAcpConversationStatus = "pending" | "completed" | "failed"
+
+export type CodexAcpConversation = {
+  id: string
+  sessionId: string
+  prompt: string
+  updates: SessionUpdate[]
+  status: CodexAcpConversationStatus
+  createdAt: number
+  updatedAt: number
+  completedAt?: number
+  response?: PromptResponse
+  error?: unknown
+  acknowledgedMessageId?: string
 }
 
 export type CodexAcpPermissionRequest = RequestPermissionRequest
@@ -78,6 +95,9 @@ export type CodexAcpAdapterOptions = {
   clientName?: string
   clientVersion?: string
   onResponse?: (response: CodexAcpResponse) => void | Promise<void>
+  onConversationUpdate?: (
+    conversation: CodexAcpConversation,
+  ) => void | Promise<void>
   onPermissionRequest?: (
     request: CodexAcpPermissionRequest,
   ) =>
@@ -133,6 +153,7 @@ export class CodexAcpAdapter {
   private readonly clientName: string
   private readonly clientVersion: string
   private readonly onResponse?: CodexAcpAdapterOptions["onResponse"]
+  private readonly onConversationUpdate?: CodexAcpAdapterOptions["onConversationUpdate"]
   private readonly onPermissionRequest?: CodexAcpAdapterOptions["onPermissionRequest"]
   private readonly onError?: CodexAcpAdapterOptions["onError"]
   private readonly onExit?: CodexAcpAdapterOptions["onExit"]
@@ -140,7 +161,9 @@ export class CodexAcpAdapter {
   private connection?: ClientSideConnection
   private sessionId?: string
   private pendingPermission?: PendingPermission
-  private promptQueue: Promise<PromptResponse | void> = Promise.resolve()
+  private runPromise?: Promise<this>
+  private readonly conversations = new Map<string, CodexAcpConversation>()
+  private activeConversationId?: string
   private isStopping = false
 
   constructor(options: CodexAcpAdapterOptions = {}) {
@@ -153,6 +176,7 @@ export class CodexAcpAdapter {
     this.clientName = options.clientName ?? defaultClientName
     this.clientVersion = options.clientVersion ?? defaultClientVersion
     this.onResponse = options.onResponse
+    this.onConversationUpdate = options.onConversationUpdate
     this.onPermissionRequest = options.onPermissionRequest
     this.onError = options.onError
     this.onExit = options.onExit
@@ -170,11 +194,35 @@ export class CodexAcpAdapter {
     return this.pendingPermission?.request
   }
 
+  get promptConversations(): CodexAcpConversation[] {
+    return Array.from(this.conversations.values(), copyConversation)
+  }
+
+  get unfinishedPromptConversations(): CodexAcpConversation[] {
+    return this.promptConversations.filter((conversation) => {
+      return conversation.status === "pending"
+    })
+  }
+
   async run(): Promise<this> {
     if (this.connection && this.sessionId) {
       return this
     }
 
+    if (this.runPromise) {
+      return this.runPromise
+    }
+
+    this.runPromise = this.start()
+
+    try {
+      return await this.runPromise
+    } finally {
+      this.runPromise = undefined
+    }
+  }
+
+  private async start(): Promise<this> {
     const codexAcpPath = fileURLToPath(
       import.meta.resolve("@zed-industries/codex-acp/bin/codex-acp.js"),
     )
@@ -255,11 +303,11 @@ export class CodexAcpAdapter {
 
   async write(input: CodexAcpWriteInput): Promise<PromptResponse | void> {
     if (typeof input === "string") {
-      return this.enqueuePrompt(input)
+      return this.sendPrompt(input)
     }
 
     if (input.type === "prompt") {
-      return this.enqueuePrompt(input.text)
+      return this.sendPrompt(input.text)
     }
 
     return this.resolvePermission(input.decision)
@@ -277,16 +325,8 @@ export class CodexAcpAdapter {
     this.process = undefined
     this.connection = undefined
     this.sessionId = undefined
-  }
-
-  private enqueuePrompt(text: string): Promise<PromptResponse | void> {
-    this.promptQueue = this.promptQueue
-      .catch(() => undefined)
-      .then(() => {
-        return this.sendPrompt(text)
-      })
-
-    return this.promptQueue
+    this.runPromise = undefined
+    this.activeConversationId = undefined
   }
 
   private async sendPrompt(text: string): Promise<PromptResponse> {
@@ -310,13 +350,19 @@ export class CodexAcpAdapter {
         text: trimmedText,
       },
     ]
+    const conversation = this.createConversation(trimmedText)
 
     try {
-      return await this.connection.prompt({
+      const response = await this.connection.prompt({
         sessionId: this.sessionId,
+        messageId: conversation.id,
         prompt,
       })
+      this.completeConversation(conversation.id, response)
+
+      return response
     } catch (error) {
+      this.failConversation(conversation.id, error)
       this.reportError(error)
       throw error
     }
@@ -325,6 +371,7 @@ export class CodexAcpAdapter {
   private async handleSessionUpdate(
     notification: SessionNotification,
   ): Promise<void> {
+    this.recordConversationUpdate(notification.update)
     await this.onResponse?.({
       sessionId: notification.sessionId,
       update: notification.update,
@@ -375,6 +422,121 @@ export class CodexAcpAdapter {
     }
 
     throw error
+  }
+
+  private createConversation(prompt: string): CodexAcpConversation {
+    const now = Date.now()
+    const conversation: CodexAcpConversation = {
+      id: randomUUID(),
+      sessionId: this.sessionId ?? "",
+      prompt,
+      updates: [],
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    this.conversations.set(conversation.id, conversation)
+    this.activeConversationId = conversation.id
+    this.emitConversationUpdate(conversation)
+
+    return conversation
+  }
+
+  private recordConversationUpdate(update: SessionUpdate): void {
+    const conversation = this.findActiveConversation()
+
+    if (!conversation) {
+      return
+    }
+
+    conversation.updates = [...conversation.updates, update]
+    conversation.updatedAt = Date.now()
+    this.emitConversationUpdate(conversation)
+  }
+
+  private completeConversation(id: string, response: PromptResponse): void {
+    const conversation = this.conversations.get(id)
+
+    if (!conversation) {
+      return
+    }
+
+    const now = Date.now()
+    conversation.status = "completed"
+    conversation.response = response
+    conversation.acknowledgedMessageId = response.userMessageId ?? undefined
+    conversation.completedAt = now
+    conversation.updatedAt = now
+
+    if (this.activeConversationId === id) {
+      this.activeConversationId = this.findLatestPendingConversationId()
+    }
+
+    this.emitConversationUpdate(conversation)
+  }
+
+  private failConversation(id: string, error: unknown): void {
+    const conversation = this.conversations.get(id)
+
+    if (!conversation) {
+      return
+    }
+
+    const now = Date.now()
+    conversation.status = "failed"
+    conversation.error = error
+    conversation.completedAt = now
+    conversation.updatedAt = now
+
+    if (this.activeConversationId === id) {
+      this.activeConversationId = this.findLatestPendingConversationId()
+    }
+
+    this.emitConversationUpdate(conversation)
+  }
+
+  private findActiveConversation(): CodexAcpConversation | undefined {
+    if (this.activeConversationId) {
+      const conversation = this.conversations.get(this.activeConversationId)
+
+      if (conversation?.status === "pending") {
+        return conversation
+      }
+    }
+
+    const id = this.findLatestPendingConversationId()
+
+    return id ? this.conversations.get(id) : undefined
+  }
+
+  private findLatestPendingConversationId(): string | undefined {
+    return Array.from(this.conversations.values())
+      .filter((conversation) => {
+        return conversation.status === "pending"
+      })
+      .sort((left, right) => right.createdAt - left.createdAt)[0]?.id
+  }
+
+  private emitConversationUpdate(conversation: CodexAcpConversation): void {
+    try {
+      void Promise.resolve(
+        this.onConversationUpdate?.(copyConversation(conversation)),
+      ).catch((error: unknown) => {
+        this.reportError(error)
+      })
+    } catch (error) {
+      this.reportError(error)
+    }
+  }
+}
+
+const copyConversation = (
+  conversation: CodexAcpConversation,
+): CodexAcpConversation => {
+  return {
+    ...conversation,
+    updates: [...conversation.updates],
   }
 }
 

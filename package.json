@@ -22,7 +22,7 @@
     "build": "node ./bin/scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node ./bin/scripts/copy-grammar-assets.mjs",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "start": "node ./dist/index.js -r ./example",
+    "start": "node ./dist/index.js -r ./example -ai codex",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --runInBand",
     "typecheck": "tsc -p tsconfig.json",
     "pack:dry-run": "npm run build && npm pack --dry-run",

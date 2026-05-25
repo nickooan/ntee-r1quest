@@ -14,6 +14,7 @@ import type {
   SessionNotification,
 } from "@agentclientprotocol/sdk"
 import type {
+  CodexAcpConversation,
   CodexAcpPermissionRequest,
   CodexAcpResponse,
 } from "./codex-adapt.ts"
@@ -120,6 +121,21 @@ const flushPromises = async () => {
   })
 }
 
+const createDeferred = <T>() => {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+
+  return {
+    promise,
+    resolve,
+    reject,
+  }
+}
+
 describe("Codex ACP adapter integration", () => {
   beforeEach(() => {
     clientHandler = undefined
@@ -220,6 +236,7 @@ describe("Codex ACP adapter integration", () => {
 
     expect(promptMock).toHaveBeenCalledWith({
       sessionId: "session-1",
+      messageId: expect.any(String),
       prompt: [
         {
           type: "text",
@@ -237,6 +254,128 @@ describe("Codex ACP adapter integration", () => {
         },
       },
     })
+  })
+
+  test("sends new prompts while an earlier prompt is still running", async () => {
+    const codex = initCodexAcp()
+    const firstPrompt = createDeferred<PromptResponse>()
+
+    promptMock.mockImplementationOnce(() => {
+      return firstPrompt.promise
+    })
+    promptMock.mockResolvedValueOnce({
+      stopReason: "end_turn",
+    })
+
+    await codex.run()
+    const firstResult = codex.write("start a tunnel")
+    await flushPromises()
+
+    const secondResult = codex.write("what is the tunnel url?")
+    await secondResult
+
+    expect(promptMock).toHaveBeenCalledTimes(2)
+    expect(promptMock).toHaveBeenNthCalledWith(1, {
+      sessionId: "session-1",
+      messageId: expect.any(String),
+      prompt: [
+        {
+          type: "text",
+          text: "start a tunnel",
+        },
+      ],
+    })
+    expect(promptMock).toHaveBeenNthCalledWith(2, {
+      sessionId: "session-1",
+      messageId: expect.any(String),
+      prompt: [
+        {
+          type: "text",
+          text: "what is the tunnel url?",
+        },
+      ],
+    })
+
+    firstPrompt.resolve({
+      stopReason: "end_turn",
+    })
+    await firstResult
+  })
+
+  test("tracks unfinished prompt conversations", async () => {
+    const onConversationUpdate =
+      jest.fn<(conversation: CodexAcpConversation) => void>()
+    const codex = initCodexAcp({
+      onConversationUpdate,
+    })
+    const firstPrompt = createDeferred<PromptResponse>()
+
+    promptMock.mockImplementationOnce(() => {
+      return firstPrompt.promise
+    })
+
+    await codex.run()
+    const firstResult = codex.write("start a tunnel")
+    await flushPromises()
+
+    const [conversation] = codex.unfinishedPromptConversations
+    const firstPromptRequest = promptMock.mock.calls[0]?.[0]
+
+    expect(conversation).toEqual(
+      expect.objectContaining({
+        id: firstPromptRequest?.messageId,
+        sessionId: "session-1",
+        prompt: "start a tunnel",
+        status: "pending",
+        updates: [],
+      }),
+    )
+    expect(onConversationUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: firstPromptRequest?.messageId,
+        status: "pending",
+      }),
+    )
+
+    await clientHandler?.sessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "Tunnel starting",
+        },
+      },
+    })
+
+    expect(codex.unfinishedPromptConversations[0]?.updates).toEqual([
+      {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "Tunnel starting",
+        },
+      },
+    ])
+
+    firstPrompt.resolve({
+      stopReason: "end_turn",
+      userMessageId: firstPromptRequest?.messageId,
+    })
+    await firstResult
+
+    expect(codex.unfinishedPromptConversations).toEqual([])
+    expect(codex.promptConversations[0]).toEqual(
+      expect.objectContaining({
+        id: firstPromptRequest?.messageId,
+        acknowledgedMessageId: firstPromptRequest?.messageId,
+        status: "completed",
+        response: {
+          stopReason: "end_turn",
+          userMessageId: firstPromptRequest?.messageId,
+        },
+      }),
+    )
   })
 
   test("resolves permission requests through write", async () => {
