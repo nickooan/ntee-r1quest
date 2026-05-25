@@ -17,6 +17,7 @@ export type AiProps = {
   permissionMessage?: string
   isPending?: boolean
   pendingFrameIndex?: number
+  backgroundTaskCount?: number
 }
 
 const borderColor = "#5a5a5a"
@@ -24,6 +25,7 @@ const permissionModalBackgroundColor = "#1f1f1f"
 const pendingFrames = [".", "..", "..."]
 const paddingX = 1
 const paddingY = 1
+const statusLineHeight = 1
 
 const clampInputCursor = (input: string, inputCursorX: number): number => {
   return Math.min(Math.max(inputCursorX, 0), input.length)
@@ -47,7 +49,10 @@ export const buildAiLayout = (width: number, height: number): AiLayout => {
   const left = Math.max(0, Math.floor((width - modalWidth) / 2))
   const top = Math.max(0, Math.floor((height - modalHeight) / 2) - 2)
   const contentWidth = Math.max(1, modalWidth - 2 - paddingX * 2)
-  const contentHeight = Math.max(1, modalHeight - 2 - paddingY * 2 - 1)
+  const contentHeight = Math.max(
+    1,
+    modalHeight - 2 - paddingY * 2 - 1 - statusLineHeight,
+  )
 
   return {
     modalWidth,
@@ -236,6 +241,7 @@ export const Ai = ({
   permissionMessage,
   isPending = false,
   pendingFrameIndex = 0,
+  backgroundTaskCount = 0,
 }: AiProps) => {
   const { modalWidth, modalHeight, left, top, contentWidth, contentHeight } =
     buildAiLayout(width, height)
@@ -321,6 +327,24 @@ export const Ai = ({
         <Text bold>{isCursorVisible ? "_" : " "}</Text>
         {inputAfterCursor}
         {" ".repeat(Math.max(0, contentWidth - inputLineLength))}
+        {" ".repeat(paddingX)}
+      </Text>
+      <Text>
+        {" ".repeat(paddingX)}
+        {backgroundTaskCount > 0 ? (
+          <Text color="yellow">{`Background tasks: ${backgroundTaskCount}`}</Text>
+        ) : (
+          ""
+        )}
+        {" ".repeat(
+          Math.max(
+            0,
+            contentWidth -
+              (backgroundTaskCount > 0
+                ? `Background tasks: ${backgroundTaskCount}`.length
+                : 0),
+          ),
+        )}
         {" ".repeat(paddingX)}
       </Text>
       {Array.from({ length: paddingY }).map((_, index) => (
