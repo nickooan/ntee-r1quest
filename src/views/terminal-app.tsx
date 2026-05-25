@@ -28,6 +28,7 @@ import {
   listAdaptors,
   type AcpAdaptorConstructor,
   type AcpAdaptorName,
+  type CodexAcpConversation,
   type CodexAcpPermissionRequest,
 } from "../runtime/acp/index.ts"
 import {
@@ -138,6 +139,9 @@ export const TerminalApp = ({
   const [aiModeState, setAiModeState] =
     useState<AiModeState>(createAiModeState())
   const [isAiPending, setIsAiPending] = useState(false)
+  const [aiConversations, setAiConversations] = useState<
+    CodexAcpConversation[]
+  >([])
   const [aiPermissionRequest, setAiPermissionRequest] =
     useState<CodexAcpPermissionRequest>()
   const [editModeState, setEditModeState] = useState<EditModeState | null>(null)
@@ -331,6 +335,27 @@ export const TerminalApp = ({
           return appendAcpResponse(currentState, response)
         })
       },
+      onConversationUpdate: (conversation) => {
+        if (aiAdapterRef.current !== adapter) {
+          return
+        }
+
+        setAiConversations((currentConversations) => {
+          const existingIndex = currentConversations.findIndex(
+            (currentConversation) => {
+              return currentConversation.id === conversation.id
+            },
+          )
+
+          if (existingIndex === -1) {
+            return [...currentConversations, conversation]
+          }
+
+          return currentConversations.map((currentConversation, index) => {
+            return index === existingIndex ? conversation : currentConversation
+          })
+        })
+      },
       onPermissionRequest: (request) => {
         if (aiAdapterRef.current !== adapter) {
           return
@@ -353,6 +378,7 @@ export const TerminalApp = ({
 
         aiAdapterRef.current = undefined
         setAiPermissionRequest(undefined)
+        setAiConversations([])
         setIsAiPending(false)
         setMode(TerminalMode.Query)
       },
@@ -364,6 +390,7 @@ export const TerminalApp = ({
       scrollY: 0,
     }))
     setAiPermissionRequest(undefined)
+    setAiConversations([])
     setIsAiPending(false)
     setLocalError(undefined)
     setMode(TerminalMode.Ai)
