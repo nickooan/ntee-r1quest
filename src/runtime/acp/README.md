@@ -106,6 +106,53 @@ Stopping the adapter cancels any unresolved permission request.
 
 `AcpConversationManager` owns prompt conversation bookkeeping:
 
+```text
+Adapter.sendPrompt(text)
+  |
+  | createConversation(sessionId, text)
+  v
+Conversation Manager
+  |
+  | generate UUID
+  | store id, sessionId, prompt
+  | set status: pending
+  | initialize timestamps and updates
+  | set activeConversationId
+  | emit onConversationUpdate(snapshot)
+  v
+Adapter sends connection.prompt({
+  sessionId,
+  messageId: conversation.id,
+  prompt,
+})
+
+
+ACP sessionUpdate
+  |
+  | recordConversationUpdate(update)
+  v
+Conversation Manager
+  |
+  | find active pending conversation
+  | append update
+  | refresh updatedAt
+  | emit onConversationUpdate(snapshot)
+
+
+Prompt promise resolves                 Prompt promise rejects
+  |                                      |
+  | completeConversation(id, response)   | failConversation(id, error)
+  v                                      v
+Conversation Manager                    Conversation Manager
+  |                                      |
+  | set status: completed                | set status: failed
+  | store response                       | store error
+  | store acknowledgedMessageId          | set completedAt
+  | set completedAt / updatedAt          | set updatedAt
+  | choose next pending active id        | choose next pending active id
+  | emit onConversationUpdate(snapshot)  | emit onConversationUpdate(snapshot)
+```
+
 - creates a conversation id with `randomUUID()`
 - stores prompt text, session id, timestamps, updates, status, response, and
   error
