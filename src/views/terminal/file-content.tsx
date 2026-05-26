@@ -471,7 +471,7 @@ const SuggestionOverlay = ({
           }
           backgroundColor={
             optionStartIndex + index === suggestions.selectedIndex
-              ? "black"
+              ? "#006400"
               : "white"
           }
         >
