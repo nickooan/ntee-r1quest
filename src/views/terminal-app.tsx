@@ -14,6 +14,7 @@ import {
   handleViewModeInput,
   isAppExitCommand,
   resolveModeCommand,
+  resolveQuickSwitchMode,
   serializeEditModeContent,
   type QueryModeState,
   type AiModeState,
@@ -504,7 +505,84 @@ export const TerminalApp = ({
     return true
   }
 
+  const runQueryCommand = (command: string) => {
+    setOpenViewFile(null)
+    setEditModeState(null)
+    setViewModeState({
+      command: "",
+      commandCursorX: 0,
+      scrollX: 0,
+      scrollY: 0,
+    })
+    setLocalError(undefined)
+    onCommand?.(command)
+  }
+
+  const quickSwitchMode = (): boolean => {
+    const nextMode = resolveQuickSwitchMode(mode)
+
+    if (!nextMode) {
+      return false
+    }
+
+    setKeyboardSelectedCommand("")
+
+    if (nextMode === TerminalMode.Query) {
+      closeAiMode()
+      return true
+    }
+
+    if (nextMode === TerminalMode.View) {
+      setMode(TerminalMode.View)
+      setViewModeState({
+        command: "",
+        commandCursorX: 0,
+        scrollX: openViewFile ? viewModeState.scrollX : 0,
+        scrollY: openViewFile ? viewModeState.scrollY : 0,
+      })
+      return true
+    }
+
+    if (nextMode === TerminalMode.Search) {
+      const scrollX = openViewFile
+        ? viewModeState.scrollX
+        : queryModeState.scrollX
+      const scrollY = openViewFile
+        ? viewModeState.scrollY
+        : queryModeState.scrollY
+
+      setMode(TerminalMode.Search)
+      setSearchModeState({
+        scrollX,
+        scrollY,
+        input: "",
+        inputCursorX: 0,
+        query: "",
+        focusedMatchIndex: 0,
+      })
+      return true
+    }
+
+    if (nextMode === TerminalMode.Ai) {
+      startAiMode()
+      setSearchModeState({
+        ...searchModeState,
+        input: "",
+        inputCursorX: 0,
+        query: "",
+        focusedMatchIndex: 0,
+      })
+      return true
+    }
+
+    return false
+  }
+
   useInput((input, key) => {
+    if (key.shift && key.tab && quickSwitchMode()) {
+      return
+    }
+
     if (mode === TerminalMode.Ai) {
       if (key.escape) {
         closeAiMode()
@@ -1054,7 +1132,7 @@ export const TerminalApp = ({
           ...queryModeState,
           command: "",
         })
-        onCommand?.(highlightedEntry.commandValue)
+        runQueryCommand(highlightedEntry.commandValue)
         return
       }
 
@@ -1136,8 +1214,7 @@ export const TerminalApp = ({
       if (result.command.trim()) {
         setSelectedCommand(result.command)
       }
-      setLocalError(undefined)
-      onCommand?.(result.command)
+      runQueryCommand(result.command)
     }
   })
 
