@@ -1,30 +1,187 @@
 # ntee-r1quest
 
-`ntee-r1quest` is a Postman-like terminal app for testing HTTP requests from a
-file-based collection. Teams can keep request collections in a Git repo,
-generate them from Swagger/OpenAPI specs, and run the app against that repo.
+`ntee-r1quest` is a Postman-like terminal app for running HTTP requests from a
+file-based collection.
 
-Once running, `ntee-r1quest` lets you trigger `.nts` request files, review the
-HTTP response, edit requests, search response output, and chat with a local AI
-agent from the terminal.
+Collections are plain files, so teams can keep them in Git, generate them from
+Swagger/OpenAPI specs, review changes in pull requests, and run the same request
+set locally.
 
 ```bash
-npx ntee-r1quest -r {repo dir} -ai codex
+npx ntee-r1quest -r ./example/request
 ```
 
 ![ntee-r1quest terminal demo](https://codeberg.org/nickoan/ntee-r1quest/raw/branch/main/docs/assets/readme-demo.gif)
 
-## AI
+## Quick Start
 
-Use `@ai` inside the terminal UI to enter AI chat mode and talk with your local
-AI agent. The chat runs through an ACP adapter, so the agent session can keep
-running while you leave and re-enter the AI overlay.
+`ntee-r1quest` targets Node.js 24 or newer.
 
-The goal of this chat is not to replace your regular local AI agent terminal
-app. It is for short, quick actions while you are working in `ntee-r1quest`, so
-you do not need to swap apps or rebuild context for small questions and edits.
+```bash
+node --version
+```
 
-Choose the AI adapter with `-ai`:
+Run a request collection with `npx`:
+
+```bash
+npx ntee-r1quest -r ./example/request
+```
+
+Inside the app, type a request path without `.nts`, then press Enter:
+
+```text
+@query >example
+```
+
+Nested request paths work too:
+
+```text
+@query >folder-1/get-post
+```
+
+If `-r` is omitted, `ntee-r1quest` looks for `.r1qconfig.json`, then falls back
+to the current directory as the request root.
+
+## Terminal Modes
+
+The prompt shows the current mode:
+
+```text
+@query >
+@view >
+@edit >
+@search >
+@ai >
+```
+
+Switch modes by typing a mode command and pressing Enter:
+
+| Command   | Alias   | Purpose                                             |
+| --------- | ------- | --------------------------------------------------- |
+| `@query`  | `@q`    | Run request files and view responses.               |
+| `@view`   | `@v`    | Review request or data files in the Result pane.    |
+| `@edit`   | `@e`    | Edit the currently reviewed file.                   |
+| `@search` | `@s`    | Search the current Result or reviewed file content. |
+| `@ai`     | `@a`    | Open the AI chat overlay.                           |
+| `@exit`   | `@quit` | Exit the app.                                       |
+
+You can also press Shift+Tab to cycle modes:
+
+```text
+@query -> @view -> @search -> @ai -> @query
+```
+
+When the cycle enters `@ai`, the AI overlay opens. When it cycles out of `@ai`,
+the overlay closes and the AI session remains available.
+
+## Key Manual
+
+### Global
+
+| Key              | Action                                                  |
+| ---------------- | ------------------------------------------------------- |
+| Shift+Tab        | Quick-switch through query, view, search, and AI modes. |
+| Enter            | Submit the current mode input or selected item.         |
+| `@exit`, `@quit` | Exit the app safely.                                    |
+
+### Query Mode
+
+Use `@query` to run request files.
+
+| Key                      | Action                                                                                          |
+| ------------------------ | ----------------------------------------------------------------------------------------------- |
+| Type a request path      | Select a request by path without `.nts`.                                                        |
+| Enter                    | Run the typed or highlighted request. Pressing Enter again reruns the same highlighted request. |
+| Shift+Up / Shift+Down    | Move the sidebar highlight.                                                                     |
+| Esc                      | Move to the parent directory selection when possible.                                           |
+| Up / Down                | Scroll the Result pane vertically.                                                              |
+| Left / Right             | Scroll the Result pane horizontally.                                                            |
+| PageUp / PageDown        | Scroll the Result pane by one page.                                                             |
+| Home / End               | Jump to the start or end of Result content.                                                     |
+| Shift+Left / Shift+Right | Move the input cursor.                                                                          |
+
+### View Mode
+
+Use `@view` to open request and data files in the Result pane.
+
+| Key                      | Action                                                    |
+| ------------------------ | --------------------------------------------------------- |
+| Type a file path         | Select a file or directory by path.                       |
+| Enter                    | Open the selected file, or expand/select a directory.     |
+| Shift+Up / Shift+Down    | Move the sidebar highlight.                               |
+| Esc                      | Move to the parent directory, or close the reviewed file. |
+| Up / Down                | Scroll the reviewed file vertically.                      |
+| Left / Right             | Scroll the reviewed file horizontally.                    |
+| PageUp / PageDown        | Scroll the reviewed file by one page.                     |
+| Shift+Left / Shift+Right | Move the input cursor.                                    |
+
+### Edit Mode
+
+Use `@edit` while reviewing a file to edit it directly in the Result pane.
+
+| Key                      | Action                                                              |
+| ------------------------ | ------------------------------------------------------------------- |
+| Type text                | Buffer text at the edit cursor.                                     |
+| Enter                    | Insert buffered text, split a line, or accept an active suggestion. |
+| Esc                      | Open the save confirmation prompt.                                  |
+| Up / Down                | Move the file cursor, unless suggestions are visible.               |
+| Left / Right             | Move the file cursor horizontally.                                  |
+| Shift+Left / Shift+Right | Move the buffered input cursor.                                     |
+| Backspace / Delete       | Delete buffered text, or delete file content before the cursor.     |
+
+Editor suggestions appear while typing request keywords, macros, definition
+keys, or `ref` paths.
+
+| Key       | Action                                                         |
+| --------- | -------------------------------------------------------------- |
+| Up / Down | Move the highlighted suggestion while the dropdown is visible. |
+| Tab       | Apply the highlighted suggestion.                              |
+| Enter     | Apply the highlighted suggestion.                              |
+
+Examples:
+
+- `hea` suggests `header`.
+- `@` suggests macros such as `@i`, `@f`, `@env`, and concrete `@i(key)` values
+  from referenced `.ntd` files.
+- `@i(` suggests referenced `.ntd` keys.
+- `ref ../d` suggests matching directories and `.ntd` files, such as
+  `../data/` or `../default.ntd`.
+
+### Search Mode
+
+Use `@search` to search the current response or reviewed file.
+
+| Key                      | Action                                 |
+| ------------------------ | -------------------------------------- |
+| Type a search query      | Prepare a search query.                |
+| Enter                    | Apply the query and highlight matches. |
+| Up / Down                | Move between matches.                  |
+| Left / Right             | Scroll horizontally.                   |
+| PageUp / PageDown        | Scroll vertically by one page.         |
+| Home / End               | Jump to the first or last match.       |
+| Shift+Left / Shift+Right | Move the search input cursor.          |
+
+If you enter `@edit` from search while reviewing a file, editing starts near the
+focused match.
+
+### AI Mode
+
+Use `@ai` to chat with a local terminal AI agent through an ACP adapter.
+
+| Key           | Action                                        |
+| ------------- | --------------------------------------------- |
+| Type a prompt | Compose an AI prompt.                         |
+| Enter         | Send the prompt.                              |
+| Esc           | Hide the AI overlay and return to query mode. |
+| Up / Down     | Scroll AI messages.                           |
+| Left / Right  | Move the AI input cursor.                     |
+| `y` / `n`     | Respond to permission prompts when shown.     |
+
+The AI session can keep running while you leave and re-enter the overlay.
+
+## AI Adapter
+
+Choose an AI adapter with `-ai`:
 
 ```bash
 npx ntee-r1quest -r ./example/request -ai codex
@@ -36,92 +193,30 @@ or:
 npx ntee-r1quest -r ./example/request -ai claude
 ```
 
-Currently supported terminal AI agents are:
+Supported adapters:
 
 - `codex`
 - `claude` for Claude Code
 
-If `-ai` is not provided, `ntee-r1quest` reads the `ai` value from
-`.r1qconfig.json`. If neither is provided, `@ai` shows an error in Result and
-asks you to update config or restart with `-ai codex` or `-ai claude`.
+If `-ai` is not provided, `ntee-r1quest` reads `.r1qconfig.json`. If no adapter
+is declared, `@ai` shows a configuration error instead of choosing one
+implicitly.
 
-## Usage
+## Config
 
-### 1. Install Node.js
-
-`ntee-r1quest` runs on Node.js. Check that Node is available before running it:
-
-```bash
-node --version
-```
-
-This project targets Node.js 24 or newer.
-
-### 2. Run with npx
-
-After the package is published, run the terminal UI with:
-
-```bash
-npx ntee-r1quest
-```
-
-Use `-r` to choose the request root directory:
-
-```bash
-npx ntee-r1quest -r ./example/request
-```
-
-Inside the terminal UI, type a request file name without the `.nts` extension:
+Config lookup checks the current directory first:
 
 ```text
-@query >example
+./.r1qconfig.json
 ```
 
-Nested paths are supported:
+Then it checks the home config:
 
 ```text
-@query >folder/request-name
+~/.ntee-r1quest/.r1qconfig.json
 ```
 
-### 3. Link locally and run `r1q`
-
-Install the published package globally:
-
-```bash
-npm install -g ntee-r1quest
-```
-
-Or, for local development, install dependencies, build the compiled JavaScript,
-and link the package:
-
-```bash
-npm install
-npm run build
-npm link
-```
-
-Then run the CLI command from any directory:
-
-```bash
-r1q
-```
-
-Or run it with an explicit request root:
-
-```bash
-r1q -r ./example/request
-```
-
-You can also choose the AI adapter used by `@ai`:
-
-```bash
-r1q -ai claude
-```
-
-Supported AI adapters are `codex` and `claude`.
-
-If `-r` or `-ai` are not provided, `r1q` looks for a config file with a
-request resource root and AI adapter:
+Example:
 
 ```json
 {
@@ -130,108 +225,39 @@ request resource root and AI adapter:
 }
 ```
 
-The `ai` value can be `codex` or `claude`. A command-line `-ai` value takes
-precedence over `.r1qconfig.json`. If no AI adapter is declared, `@ai` shows an
-error in Result instead of choosing one implicitly.
+Command-line options take precedence over config values.
 
-Config lookup checks the current directory first:
+## Collection Structure
 
-```text
-./.r1qconfig.json
-```
-
-Then it checks your home config:
+A request collection usually looks like this:
 
 ```text
-~/.ntee-r1quest/.r1qconfig.json
+my-requests/
+  data/
+    common.ntd
+    auth.ntd
+  files/
+    upload.txt
+  get-user.nts
+  create-user.nts
+  folders/
+    get-posts.nts
 ```
 
-If no config is found, `r1q` uses the current directory as the requests collection root.
+- `.nts` files declare executable HTTP requests.
+- `.ntd` files hold reusable data loaded by `ref`.
+- Other files can be used by `@f(path)` for uploads.
 
-When installed or linked, the package name is `ntee-r1quest`, but the CLI command
-is `r1q`.
+## `.ntd` Definition Files
 
-### 4. Run the bundled examples
-
-You can clone the repo and run the app against the bundled `example` directory:
-
-```bash
-npm install
-npm run build
-npm run start
-```
-
-`npm run start` runs the compiled app from `dist/index.js` with `example` as the
-request root.
-
-Try:
-
-```text
-@query >example
-```
-
-or the file upload example:
-
-```text
-@query >example-upload
-```
-
-After a response is rendered, switch to search mode with `@search` or `@s`:
-
-```text
-@query >@search
-```
-
-Then type a search query to highlight matching response text:
-
-```text
-@search >content-type
-```
-
-Return to query mode with `@q` or `@query`:
-
-```text
-@search >@q
-```
-
-Switch to view mode with `@view` or `@v`, then type a request path and press
-Enter to review that file in the Result pane:
-
-```text
-@query >@view
-@view >folder-1/get-post
-```
-
-While reviewing a file, enter `@edit` or `@e` to edit the file directly in the
-Result pane. You can also enter `@search` or `@s` while reviewing a file, search
-for a line, and then enter `@edit` to start editing at the focused match.
-Entering `@edit` without a reviewed file still shows an error in Result.
-
-The example files are:
-
-```text
-example/data/example.ntd
-example/data/example-upload.ntd
-example/files/example.txt
-example/request/example.nts
-example/request/example-upload.nts
-example/request/folder-1/create-post.nts
-example/request/folder-1/get-post.nts
-example/request/folder-2/delete-post.nts
-example/request/folder-2/update-post.nts
-```
-
-## Request File Declaration
-
-### `.ntd` definition files
-
-`.ntd` files hold reusable definition data. Request files can load this data
-with `ref` and read values with `@i(key)`.
+`.ntd` files hold reusable data. `.nts` files load them with `ref` and read
+values with `@i(key)`.
 
 Example:
 
 ```ntd
 host: "https://jsonplaceholder.typicode.com"
+path: /todos/1
 content-type: application/json
 token: @env(API_TOKEN)
 enabled: true
@@ -252,7 +278,7 @@ Supported value types:
 - object
 - `@env(KEY)` environment variable macro
 
-Caution points:
+Rules and cautions:
 
 - Wrap URLs in double quotes. Unquoted `http://` or `https://` contains `//`,
   which starts a comment.
@@ -260,7 +286,8 @@ Caution points:
   number.
 - Keys may be bare identifiers such as `content-type`, or quoted strings when
   needed.
-- `.ntd` files can use `@env(KEY)`, but they cannot use `@i(...)` or `@f(...)`.
+- `.ntd` files can use `@env(KEY)`, but cannot use `@i(...)` or `@f(...)`.
+- Comments start with `//`.
 
 Good:
 
@@ -274,17 +301,16 @@ Problematic:
 host: https://httpbin.org
 ```
 
-### `.nts` request files
+## `.nts` Request Files
 
-`.nts` files declare one HTTP request. They can include references, a URL, a
-method, headers, authorization, and an optional body.
+`.nts` files declare one HTTP request.
 
 Example:
 
 ```nts
 ref ../data/example.ntd
 
-url "@i(host)/todos/1"
+url "@i(host)@i(path)"
 type get
 
 header accept, @i(content-type)
@@ -301,19 +327,18 @@ Supported declarations:
 - `authorization basic token`
 - `body ...`
 
-References:
+References must appear before other request statements:
 
 ```nts
 ref ../data/example.ntd
 ```
 
-`ref` must appear before the other request statements. The path is resolved
-relative to the `.nts` file.
+The path is resolved relative to the `.nts` file.
 
 URL:
 
 ```nts
-url "@i(host)/post"
+url "@i(host)@i(path)"
 ```
 
 The URL declaration expects a quoted string. You can interpolate `@i(...)`
@@ -399,20 +424,21 @@ body {
 }
 ```
 
-Caution points:
+Rules and cautions:
 
-- `@f(...)` is only valid inside request body values.
-- `@f(...)` takes a literal file path. It does not take an `@i(...)` macro as
-  its path.
-- File paths in `@f(...)` are resolved relative to the `.nts` file.
 - `ref` paths are resolved relative to the `.nts` file.
+- `@f(...)` is only valid inside request body values.
+- `@f(...)` takes a literal file path, not an `@i(...)` macro.
+- File paths in `@f(...)` are resolved relative to the `.nts` file.
+- `@f(...)` cannot be used in headers or authorization.
+- `@f(...)` cannot be used as the entire body by itself.
 - Comments start with `//`.
 
 ## Macros
 
 ### `@i(key)`
 
-`@i(key)` reads a value from referenced `.ntd` definition data.
+Reads a value from referenced `.ntd` definition data.
 
 Use it in `.nts` files:
 
@@ -426,13 +452,14 @@ Example:
 
 ```ntd
 host: "https://httpbin.org"
+path: /post
 content-type: application/json
 ```
 
 ```nts
 ref ../data/example.ntd
 
-url "@i(host)/post"
+url "@i(host)@i(path)"
 type post
 
 header content-type, @i(content-type)
@@ -442,7 +469,7 @@ header content-type, @i(content-type)
 
 ### `@env(KEY)`
 
-`@env(KEY)` reads an environment variable.
+Reads an environment variable.
 
 Use it only in `.ntd` files:
 
@@ -465,7 +492,7 @@ If the environment variable is missing, compilation throws an error.
 
 ### `@f(path)`
 
-`@f(path)` loads a local file as a request body value.
+Loads a local file as a request body value.
 
 Use it only in `.nts` body values:
 
@@ -481,19 +508,36 @@ For form uploads, set the request content type to multipart form data:
 header content-type, multipart/form-data
 ```
 
-Caution points:
-
-- `@f(...)` cannot be used in headers or authorization.
-- `@f(...)` cannot be used as the entire body by itself.
-- `@f(...)` paths are literal paths, not macros.
-- File paths are resolved relative to the `.nts` file.
-
 ## Examples
 
-The repo includes a GET example using JSONPlaceholder:
+Run the bundled examples from this repository:
+
+```bash
+npm install
+npm run build
+npm run start
+```
+
+`npm run start` runs the compiled app with `example/request` as the request root.
+
+Try:
+
+```text
+@query >example
+```
+
+or:
+
+```text
+@query >example-upload
+```
+
+The repo includes JSONPlaceholder examples:
 
 ```text
 example/data/example.ntd
+example/data/example-1.ntd
+example/data/example-2.ntd
 example/request/example.nts
 example/request/folder-1/create-post.nts
 example/request/folder-1/get-post.nts
@@ -509,29 +553,39 @@ example/request/example-upload.nts
 example/files/example.txt
 ```
 
-Run them with:
+## Local CLI and Development
+
+Install the published package globally:
 
 ```bash
+npm install -g ntee-r1quest
+```
+
+The package name is `ntee-r1quest`, and the CLI command is `r1q`:
+
+```bash
+r1q -r ./example/request
+```
+
+For local development:
+
+```bash
+npm install
 npm run build
-npm run start
+npm link
+r1q -r ./example/request
 ```
 
-Then type:
+Choose an AI adapter with:
 
-```text
-@query >example
+```bash
+r1q -r ./example/request -ai claude
 ```
 
-or:
+## OpenAPI Generator Skill
 
-```text
-@query >example-upload
-```
-
-## Skills
-
-This repo includes a Claude Code plugin with a skill for generating
-`ntee-r1quest` request collections from Swagger/OpenAPI v3 specs:
+This repo includes a Claude Code and Codex-compatible skill for generating
+`ntee-r1quest` collections from Swagger/OpenAPI v3 specs:
 
 ```text
 skills/openapi-r1quest-generator/
@@ -539,8 +593,7 @@ skills/openapi-r1quest-generator/
   skills/openapi-r1quest-generator/SKILL.md
 ```
 
-The skill describes how to scan an OpenAPI YAML or JSON file and generate a
-request project with this shape:
+The skill generates a project shape like:
 
 ```text
 <output-dir>/<project-name>/
@@ -556,13 +609,6 @@ Install it into Claude Code from this repository root:
 
 ```bash
 claude plugin install ./skills/openapi-r1quest-generator
-```
-
-Validate the plugin from the plugin directory:
-
-```bash
-cd skills/openapi-r1quest-generator
-claude plugin validate
 ```
 
 Import it into Codex globally:
