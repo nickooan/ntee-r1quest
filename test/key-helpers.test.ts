@@ -12,6 +12,7 @@ import {
   isAppExitCommand,
   serializeEditModeContent,
   resolveModeCommand,
+  resolveQuickSwitchMode,
   TerminalMode,
   type QueryModeLimits,
   type QueryModeState,
@@ -81,6 +82,14 @@ describe("mode commands", () => {
     expect(resolveModeCommand("@a")).toBe(TerminalMode.Ai)
     expect(isAppExitCommand("@exit")).toBe(true)
     expect(isAppExitCommand("@quit")).toBe(true)
+  })
+
+  test("resolves quick switch modes in query, view, search, ai order", () => {
+    expect(resolveQuickSwitchMode(TerminalMode.Query)).toBe(TerminalMode.View)
+    expect(resolveQuickSwitchMode(TerminalMode.View)).toBe(TerminalMode.Search)
+    expect(resolveQuickSwitchMode(TerminalMode.Search)).toBe(TerminalMode.Ai)
+    expect(resolveQuickSwitchMode(TerminalMode.Ai)).toBe(TerminalMode.Query)
+    expect(resolveQuickSwitchMode(TerminalMode.Edit)).toBeNull()
   })
 })
 

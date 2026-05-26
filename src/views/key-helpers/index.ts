@@ -1,6 +1,14 @@
 export {
-  clampQueryModeScroll,
   clampValue,
+  clampInputCursor,
+  insertInputAtCursor,
+  isQuickSwitchKey,
+  isTextInputIgnoredKey,
+  moveInputCursor,
+  removeInputBeforeCursor,
+} from "./generic-key-actions.ts"
+export {
+  clampQueryModeScroll,
   handleQueryModeInput,
   type QueryModeLimits,
   type QueryModeResult,
@@ -35,4 +43,9 @@ export {
   type ViewModeResult,
   type ViewModeState,
 } from "./view-mode.ts"
-export { TerminalMode, isAppExitCommand, resolveModeCommand } from "./mode.ts"
+export {
+  TerminalMode,
+  isAppExitCommand,
+  resolveModeCommand,
+  resolveQuickSwitchMode,
+} from "./mode.ts"

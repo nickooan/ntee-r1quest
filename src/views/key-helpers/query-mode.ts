@@ -1,4 +1,11 @@
 import type { Key } from "ink"
+import {
+  clampValue,
+  insertInputAtCursor,
+  isTextInputIgnoredKey,
+  moveInputCursor,
+  removeInputBeforeCursor,
+} from "./generic-key-actions.ts"
 
 export type QueryModeState = {
   scrollX: number
@@ -20,10 +27,6 @@ export type QueryModeResult = {
   shouldMoveToParentDirectory?: boolean
 }
 
-export const clampValue = (value: number, min: number, max: number): number => {
-  return Math.min(Math.max(value, min), max)
-}
-
 export const clampQueryModeScroll = (
   state: QueryModeState,
   limits: QueryModeLimits,
@@ -33,10 +36,6 @@ export const clampQueryModeScroll = (
     scrollX: clampValue(state.scrollX, 0, limits.maxScrollX),
     scrollY: clampValue(state.scrollY, 0, limits.maxScrollY),
   }
-}
-
-const clampInputCursor = (input: string, inputCursorX: number): number => {
-  return Math.min(Math.max(inputCursorX, 0), input.length)
 }
 
 export const handleQueryModeInput = (
@@ -74,9 +73,10 @@ export const handleQueryModeInput = (
     return {
       state: {
         ...state,
-        commandCursorX: clampInputCursor(
+        commandCursorX: moveInputCursor(
           state.command,
-          (state.commandCursorX ?? state.command.length) - 1,
+          state.commandCursorX ?? state.command.length,
+          -1,
         ),
       },
     }
@@ -86,9 +86,10 @@ export const handleQueryModeInput = (
     return {
       state: {
         ...state,
-        commandCursorX: clampInputCursor(
+        commandCursorX: moveInputCursor(
           state.command,
-          (state.commandCursorX ?? state.command.length) + 1,
+          state.commandCursorX ?? state.command.length,
+          1,
         ),
       },
     }
@@ -159,24 +160,20 @@ export const handleQueryModeInput = (
   }
 
   if (key.backspace || key.delete) {
-    const commandCursorX = clampInputCursor(
+    const nextCommand = removeInputBeforeCursor(
       state.command,
       state.commandCursorX ?? state.command.length,
     )
 
-    if (commandCursorX === 0) {
+    if (!nextCommand) {
       return { state }
     }
-
-    const command = `${state.command.slice(0, commandCursorX - 1)}${state.command.slice(
-      commandCursorX,
-    )}`
 
     return {
       state: {
         ...state,
-        command,
-        commandCursorX: commandCursorX - 1,
+        command: nextCommand.input,
+        commandCursorX: nextCommand.inputCursorX,
       },
     }
   }
@@ -199,26 +196,24 @@ export const handleQueryModeInput = (
     }
   }
 
-  if (key.ctrl || key.meta || key.tab) {
+  if (isTextInputIgnoredKey(key)) {
     return {
       state,
     }
   }
 
   if (input) {
-    const commandCursorX = clampInputCursor(
+    const nextCommand = insertInputAtCursor(
       state.command,
       state.commandCursorX ?? state.command.length,
+      input,
     )
-    const command = `${state.command.slice(0, commandCursorX)}${input}${state.command.slice(
-      commandCursorX,
-    )}`
 
     return {
       state: {
         ...state,
-        command,
-        commandCursorX: commandCursorX + input.length,
+        command: nextCommand.input,
+        commandCursorX: nextCommand.inputCursorX,
       },
     }
   }
