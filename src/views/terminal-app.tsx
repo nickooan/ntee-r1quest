@@ -1,13 +1,10 @@
 import { writeFileSync } from "node:fs"
 import type { AxiosResponse } from "axios"
-import React, { useEffect, useRef, useState } from "react"
+import React, { useEffect, useState } from "react"
 import { Box, Text, render, useInput, useWindowSize } from "ink"
 import {
-  createEditModeState,
-  createAiModeState,
   findSearchMatches,
   focusSearchMatch,
-  getEditRefSuggestionQuery,
   handleAiModeInput,
   handleQueryModeInput,
   handleEditModeInput,
@@ -17,36 +14,20 @@ import {
   isQuickSwitchKey,
   resolveModeCommand,
   resolveQuickSwitchMode,
-  refreshEditModeSuggestions,
   serializeEditModeContent,
   type QueryModeState,
-  type AiModeState,
   type EditModeState,
   type SearchModeState,
   type ViewModeState,
   TerminalMode,
 } from "./key-helpers/index.ts"
 import { Ai, buildAiLayout, buildAiMessageLines } from "./ai.tsx"
-import {
-  getAdaptor,
-  listAdaptors,
-  type AcpAdaptorConstructor,
-  type AcpAdaptorName,
-  type CodexAcpConversation,
-  type CodexAcpPermissionRequest,
-} from "../runtime/acp/index.ts"
-import {
-  buildEditorSuggestionItems,
-  buildRefSuggestionItems,
-  type EditorSuggestionItem,
-} from "../runtime/editor-suggestions/index.ts"
+import type { AcpAdaptorName } from "../runtime/acp/index.ts"
 import {
   buildExpandedDirectoryPaths,
   buildFileTreeEntries,
   readViewFile,
   resolveHighlightedEntry,
-  resolveNextFileTreeSelectionIndex,
-  resolveParentDirectoryCommand,
   resolveSidebarCommand,
   type OpenViewFile,
 } from "../runtime/file-manager/index.ts"
@@ -60,14 +41,13 @@ import {
   paneGap,
   requestStatsHeight,
 } from "./terminal/constants.ts"
-import {
-  appendAcpResponse,
-  findPermissionOptionId,
-  formatAcpPermissionMessage,
-} from "./terminal/ai-session.ts"
+import { formatAcpPermissionMessage } from "./terminal/ai-session.ts"
+import { useAiController } from "./terminal/ai-controller.ts"
 import { formatTerminalContent } from "./terminal/content.ts"
 import { resolveEditScroll } from "./terminal/edit-scroll.ts"
+import { useEditSuggestions } from "./terminal/edit-suggestions.ts"
 import { buildFilePaneLayout } from "./terminal/file-content.tsx"
+import { useFileNavigation } from "./terminal/file-navigation.ts"
 import { ResponsePane } from "./terminal/response-pane.tsx"
 import { Sidebar } from "./terminal/sidebar.tsx"
 import { buildTerminalViewport, normalizeLines } from "./terminal/viewport.ts"
@@ -87,8 +67,6 @@ export type TerminalAppProps = {
   onCommand?: (command: string) => void | Promise<void>
   onExit?: () => void
 }
-
-type AcpAdapter = InstanceType<AcpAdaptorConstructor>
 
 const resolveResponsePaneTitle = (mode: TerminalMode): string => {
   if (mode === TerminalMode.View) {
@@ -145,26 +123,27 @@ export const TerminalApp = ({
     scrollX: 0,
     scrollY: 0,
   })
-  const [aiModeState, setAiModeState] =
-    useState<AiModeState>(createAiModeState())
-  const [isAiPending, setIsAiPending] = useState(false)
-  const [aiConversations, setAiConversations] = useState<
-    CodexAcpConversation[]
-  >([])
-  const [aiPermissionRequest, setAiPermissionRequest] =
-    useState<CodexAcpPermissionRequest>()
   const [editModeState, setEditModeState] = useState<EditModeState | null>(null)
-  const [editSuggestionItems, setEditSuggestionItems] = useState<
-    EditorSuggestionItem[]
-  >([])
-  const [editRefSuggestionItems, setEditRefSuggestionItems] = useState<
-    EditorSuggestionItem[]
-  >([])
   const [openViewFile, setOpenViewFile] = useState<OpenViewFile | null>(null)
   const [localError, setLocalError] = useState<unknown>()
   const [selectedCommand, setSelectedCommand] = useState("")
   const [keyboardSelectedCommand, setKeyboardSelectedCommand] = useState("")
-  const aiAdapterRef = useRef<AcpAdapter | undefined>(undefined)
+  const {
+    aiModeState,
+    setAiModeState,
+    isAiPending,
+    aiPermissionRequest,
+    startAiMode,
+    closeAiMode,
+    stopAiMode,
+    respondToAiPermission,
+    writeAiInput,
+  } = useAiController({
+    aiAdaptor,
+    root,
+    setLocalError,
+    setMode,
+  })
   const height = fixedHeight ?? rows ?? defaultHeight
   const width = fixedWidth ?? columns ?? defaultWidth
   const commandInput =
@@ -276,15 +255,32 @@ export const TerminalApp = ({
     buildAiMessageLines(aiModeState.messages, aiLayout.contentWidth).length +
     (isAiPending ? 1 : 0)
   const aiMaxScrollY = Math.max(0, aiMessageLineCount - aiLayout.contentHeight)
-  const editRefSuggestionQuery =
-    mode === TerminalMode.Edit && editModeState
-      ? getEditRefSuggestionQuery(editModeState)
-      : null
-  const editRefSuggestionFragment = editRefSuggestionQuery?.fragment ?? null
-  const activeEditSuggestionItems = [
-    ...editSuggestionItems,
-    ...editRefSuggestionItems,
-  ]
+  const {
+    activeEditSuggestionItems,
+    createEditModeForOpenFile,
+    preloadEditSuggestions,
+    rebuildEditSuggestions,
+  } = useEditSuggestions({
+    mode,
+    editModeState,
+    openViewFile,
+    setEditModeState,
+  })
+  const {
+    moveSidebarSelection,
+    moveToParentDirectory,
+    moveQueryToParentDirectory,
+  } = useFileNavigation({
+    fileTreeEntries,
+    highlightedEntryIndex,
+    selectedCommand,
+    queryModeState,
+    viewModeState,
+    setKeyboardSelectedCommand,
+    setSelectedCommand,
+    setQueryModeState,
+    setViewModeState,
+  })
 
   useEffect(() => {
     if (!isPending && !isAiPending) {
@@ -310,284 +306,9 @@ export const TerminalApp = ({
     }
   }, [])
 
-  useEffect(() => {
-    const stopAiAdapter = () => {
-      const adapter = aiAdapterRef.current
-
-      aiAdapterRef.current = undefined
-      adapter?.stop()
-    }
-
-    process.once("exit", stopAiAdapter)
-
-    return () => {
-      process.off("exit", stopAiAdapter)
-      stopAiAdapter()
-    }
-  }, [])
-
-  useEffect(() => {
-    if (
-      mode !== TerminalMode.Edit ||
-      !openViewFile ||
-      !editModeState ||
-      editRefSuggestionFragment === null ||
-      editRefSuggestionFragment === "" ||
-      editRefSuggestionFragment === "." ||
-      editRefSuggestionFragment === ".." ||
-      editRefSuggestionFragment === "/" ||
-      editRefSuggestionFragment.endsWith(".ntd")
-    ) {
-      setEditRefSuggestionItems([])
-      return
-    }
-
-    const controller = new AbortController()
-    const timeout = setTimeout(() => {
-      controller.abort()
-    }, 1000)
-
-    void buildRefSuggestionItems(
-      openViewFile.path,
-      editRefSuggestionFragment,
-      controller.signal,
-    )
-      .then((suggestions) => {
-        if (controller.signal.aborted) {
-          return
-        }
-
-        setEditRefSuggestionItems(suggestions)
-        setEditModeState((currentState) => {
-          return currentState
-            ? refreshEditModeSuggestions(currentState, [
-                ...editSuggestionItems,
-                ...suggestions,
-              ])
-            : currentState
-        })
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setEditRefSuggestionItems([])
-        }
-      })
-      .finally(() => {
-        clearTimeout(timeout)
-      })
-
-    return () => {
-      clearTimeout(timeout)
-      controller.abort()
-    }
-  }, [editRefSuggestionFragment, editSuggestionItems, mode, openViewFile?.path])
-
-  const startAiMode = () => {
-    if (!aiAdaptor) {
-      const supportedAdaptors = listAdaptors().join(" or -ai ")
-
-      setLocalError(
-        new Error(
-          `AI agent undeclared. Update .r1qconfig.json with an "ai" value or start the app with -ai ${supportedAdaptors}.`,
-        ),
-      )
-      return
-    }
-
-    if (aiAdapterRef.current) {
-      setAiModeState((currentState) => ({
-        ...currentState,
-        scrollY: 0,
-      }))
-      setMode(TerminalMode.Ai)
-      return
-    }
-
-    const Adaptor = getAdaptor(aiAdaptor)
-    const adapter = new Adaptor({
-      cwd: root ?? process.cwd(),
-      onResponse: (response) => {
-        if (aiAdapterRef.current !== adapter) {
-          return
-        }
-
-        setAiModeState((currentState) => {
-          return appendAcpResponse(currentState, response)
-        })
-      },
-      onConversationUpdate: (conversation) => {
-        if (aiAdapterRef.current !== adapter) {
-          return
-        }
-
-        setAiConversations((currentConversations) => {
-          const existingIndex = currentConversations.findIndex(
-            (currentConversation) => {
-              return currentConversation.id === conversation.id
-            },
-          )
-
-          if (existingIndex === -1) {
-            return [...currentConversations, conversation]
-          }
-
-          return currentConversations.map((currentConversation, index) => {
-            return index === existingIndex ? conversation : currentConversation
-          })
-        })
-      },
-      onPermissionRequest: (request) => {
-        if (aiAdapterRef.current !== adapter) {
-          return
-        }
-
-        setAiPermissionRequest(request)
-      },
-      onError: (error) => {
-        if (aiAdapterRef.current !== adapter) {
-          return
-        }
-
-        setLocalError(error)
-        setIsAiPending(false)
-      },
-      onExit: () => {
-        if (aiAdapterRef.current !== adapter) {
-          return
-        }
-
-        aiAdapterRef.current = undefined
-        setAiPermissionRequest(undefined)
-        setAiConversations([])
-        setIsAiPending(false)
-        setMode(TerminalMode.Query)
-      },
-    })
-
-    aiAdapterRef.current = adapter
-    setAiModeState((currentState) => ({
-      ...currentState,
-      scrollY: 0,
-    }))
-    setAiPermissionRequest(undefined)
-    setAiConversations([])
-    setIsAiPending(false)
-    setLocalError(undefined)
-    setMode(TerminalMode.Ai)
-
-    void adapter.run().catch((error: unknown) => {
-      if (aiAdapterRef.current !== adapter) {
-        return
-      }
-
-      setLocalError(error)
-    })
-  }
-
-  const closeAiMode = () => {
-    setMode(TerminalMode.Query)
-  }
-
-  const stopAiMode = () => {
-    aiAdapterRef.current?.stop()
-  }
-
   const exitApp = () => {
     stopAiMode()
     onExit()
-  }
-
-  const createEditModeForOpenFile = (file: OpenViewFile): EditModeState => {
-    setEditSuggestionItems(buildEditorSuggestionItems(file.path, file.content))
-    setEditRefSuggestionItems([])
-    return createEditModeState(file.content)
-  }
-
-  const respondToAiPermission = (decision: "allow" | "reject") => {
-    if (!aiPermissionRequest) {
-      return
-    }
-
-    const optionId = findPermissionOptionId(aiPermissionRequest, decision)
-
-    if (!optionId) {
-      setLocalError(new Error(`No ${decision} permission option is available.`))
-      return
-    }
-
-    setAiPermissionRequest(undefined)
-    void aiAdapterRef.current
-      ?.write({
-        type: "permission",
-        decision: {
-          type: "selected",
-          optionId,
-        },
-      })
-      .catch((error: unknown) => {
-        setLocalError(error)
-      })
-  }
-
-  const moveSidebarSelection = (direction: -1 | 1): boolean => {
-    if (fileTreeEntries.length === 0) {
-      return false
-    }
-
-    const nextIndex = resolveNextFileTreeSelectionIndex(
-      fileTreeEntries,
-      highlightedEntryIndex,
-      direction,
-    )
-    const nextEntry = fileTreeEntries[nextIndex]
-
-    if (!nextEntry) {
-      return false
-    }
-
-    setKeyboardSelectedCommand(nextEntry.commandValue)
-
-    return true
-  }
-
-  const moveToParentDirectory = (): boolean => {
-    const currentCommand = viewModeState.command || selectedCommand
-    const parentCommand = resolveParentDirectoryCommand(currentCommand)
-
-    if (parentCommand === undefined) {
-      return false
-    }
-
-    setKeyboardSelectedCommand("")
-    setSelectedCommand(parentCommand)
-    setViewModeState({
-      ...viewModeState,
-      command: parentCommand,
-      commandCursorX: parentCommand.length,
-      scrollX: 0,
-      scrollY: 0,
-    })
-
-    return true
-  }
-
-  const moveQueryToParentDirectory = (): boolean => {
-    const currentCommand = queryModeState.command || selectedCommand
-    const parentCommand = resolveParentDirectoryCommand(currentCommand)
-
-    if (parentCommand === undefined) {
-      return false
-    }
-
-    setKeyboardSelectedCommand("")
-    setSelectedCommand(parentCommand)
-    setQueryModeState({
-      ...queryModeState,
-      command: parentCommand,
-      commandCursorX: parentCommand.length,
-    })
-
-    return true
   }
 
   const runQueryCommand = (command: string) => {
@@ -708,22 +429,7 @@ export const TerminalApp = ({
       }
 
       if (submittedInput) {
-        setIsAiPending(true)
-        const writePromise = aiAdapterRef.current?.write(submittedInput)
-
-        if (!writePromise) {
-          setIsAiPending(false)
-          return
-        }
-
-        void writePromise
-          .then(() => {
-            setIsAiPending(false)
-          })
-          .catch((error: unknown) => {
-            setIsAiPending(false)
-            setLocalError(error)
-          })
+        writeAiInput(submittedInput)
       }
 
       return
@@ -752,10 +458,7 @@ export const TerminalApp = ({
             })
             // Rebuild suggestions because saving can change ref lines and their
             // referenced .ntd keys.
-            setEditSuggestionItems(
-              buildEditorSuggestionItems(openViewFile.path, nextContent),
-            )
-            setEditRefSuggestionItems([])
+            rebuildEditSuggestions(openViewFile.path, nextContent)
             setLocalError(undefined)
           } catch (error) {
             setLocalError(error)
@@ -843,13 +546,7 @@ export const TerminalApp = ({
             scrollX: 0,
             scrollY: 0,
           })
-          setEditSuggestionItems(
-            buildEditorSuggestionItems(
-              nextOpenViewFile.path,
-              nextOpenViewFile.content,
-            ),
-          )
-          setEditRefSuggestionItems([])
+          preloadEditSuggestions(nextOpenViewFile)
           setOpenViewFile(nextOpenViewFile)
         }
 
@@ -1040,13 +737,10 @@ export const TerminalApp = ({
         if (openViewFile) {
           const focusedMatch = searchMatches[searchModeState.focusedMatchIndex]
           const nextEditModeState = {
-            ...createEditModeState(openViewFile.content),
+            ...createEditModeForOpenFile(openViewFile),
             cursorX: focusedMatch?.start ?? result.state.scrollX,
             cursorY: focusedMatch?.lineIndex ?? result.state.scrollY,
           }
-          setEditSuggestionItems(
-            buildEditorSuggestionItems(openViewFile.path, openViewFile.content),
-          )
 
           setMode(TerminalMode.Edit)
           setEditModeState(nextEditModeState)
@@ -1123,13 +817,7 @@ export const TerminalApp = ({
             scrollX: 0,
             scrollY: 0,
           })
-          setEditSuggestionItems(
-            buildEditorSuggestionItems(
-              nextOpenViewFile.path,
-              nextOpenViewFile.content,
-            ),
-          )
-          setEditRefSuggestionItems([])
+          preloadEditSuggestions(nextOpenViewFile)
           setOpenViewFile(nextOpenViewFile)
         }
 
