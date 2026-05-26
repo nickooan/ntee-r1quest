@@ -13,6 +13,7 @@ import {
   handleSearchModeInput,
   handleViewModeInput,
   isAppExitCommand,
+  isQuickSwitchKey,
   resolveModeCommand,
   resolveQuickSwitchMode,
   serializeEditModeContent,
@@ -579,7 +580,7 @@ export const TerminalApp = ({
   }
 
   useInput((input, key) => {
-    if (key.shift && key.tab && quickSwitchMode()) {
+    if (isQuickSwitchKey(key) && quickSwitchMode()) {
       return
     }
 

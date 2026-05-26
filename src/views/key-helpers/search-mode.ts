@@ -1,5 +1,11 @@
 import type { Key } from "ink"
-import { clampValue } from "./query-mode.ts"
+import {
+  clampValue,
+  insertInputAtCursor,
+  isTextInputIgnoredKey,
+  moveInputCursor,
+  removeInputBeforeCursor,
+} from "./generic-key-actions.ts"
 
 export type SearchMatch = {
   lineIndex: number
@@ -33,10 +39,6 @@ const getHorizontalScrollStep = (viewWidth: number): number => {
 }
 
 const searchMatchTopPadding = 2
-
-const clampInputCursor = (input: string, inputCursorX: number): number => {
-  return Math.min(Math.max(inputCursorX, 0), input.length)
-}
 
 const escapeRegExp = (value: string): string => {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -166,9 +168,10 @@ export const handleSearchModeInput = (
     return {
       state: {
         ...state,
-        inputCursorX: clampInputCursor(
+        inputCursorX: moveInputCursor(
           state.input,
-          (state.inputCursorX ?? state.input.length) - 1,
+          state.inputCursorX ?? state.input.length,
+          -1,
         ),
       },
     }
@@ -178,9 +181,10 @@ export const handleSearchModeInput = (
     return {
       state: {
         ...state,
-        inputCursorX: clampInputCursor(
+        inputCursorX: moveInputCursor(
           state.input,
-          (state.inputCursorX ?? state.input.length) + 1,
+          state.inputCursorX ?? state.input.length,
+          1,
         ),
       },
     }
@@ -282,24 +286,20 @@ export const handleSearchModeInput = (
   }
 
   if (key.backspace || key.delete) {
-    const inputCursorX = clampInputCursor(
+    const nextInput = removeInputBeforeCursor(
       state.input,
       state.inputCursorX ?? state.input.length,
     )
 
-    if (inputCursorX === 0) {
+    if (!nextInput) {
       return { state }
     }
-
-    const input = `${state.input.slice(0, inputCursorX - 1)}${state.input.slice(
-      inputCursorX,
-    )}`
 
     return {
       state: {
         ...state,
-        input,
-        inputCursorX: inputCursorX - 1,
+        input: nextInput.input,
+        inputCursorX: nextInput.inputCursorX,
       },
     }
   }
@@ -317,26 +317,24 @@ export const handleSearchModeInput = (
     }
   }
 
-  if (key.ctrl || key.meta || key.escape || key.tab) {
+  if (isTextInputIgnoredKey(key) || key.escape) {
     return {
       state,
     }
   }
 
   if (input) {
-    const inputCursorX = clampInputCursor(
+    const nextInput = insertInputAtCursor(
       state.input,
       state.inputCursorX ?? state.input.length,
+      input,
     )
-    const nextInput = `${state.input.slice(0, inputCursorX)}${input}${state.input.slice(
-      inputCursorX,
-    )}`
 
     return {
       state: {
         ...state,
-        input: nextInput,
-        inputCursorX: inputCursorX + input.length,
+        input: nextInput.input,
+        inputCursorX: nextInput.inputCursorX,
       },
     }
   }

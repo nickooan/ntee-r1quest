@@ -1,4 +1,10 @@
 import type { Key } from "ink"
+import {
+  insertInputAtCursor,
+  isTextInputIgnoredKey,
+  moveInputCursor,
+  removeInputBeforeCursor,
+} from "./generic-key-actions.ts"
 
 export type EditSaveAction = "yes" | "no"
 
@@ -49,10 +55,6 @@ const clampCursor = (
     cursorX: Math.min(Math.max(cursorX, 0), targetLine.length),
     cursorY: safeCursorY,
   }
-}
-
-const clampInputCursor = (input: string, inputCursorX: number): number => {
-  return Math.min(Math.max(inputCursorX, 0), input.length)
 }
 
 const insertAtCursor = (state: EditModeState): EditModeState => {
@@ -195,7 +197,7 @@ export const handleEditModeInput = (
     return {
       state: {
         ...state,
-        inputCursorX: clampInputCursor(state.input, state.inputCursorX - 1),
+        inputCursorX: moveInputCursor(state.input, state.inputCursorX, -1),
       },
     }
   }
@@ -204,7 +206,7 @@ export const handleEditModeInput = (
     return {
       state: {
         ...state,
-        inputCursorX: clampInputCursor(state.input, state.inputCursorX + 1),
+        inputCursorX: moveInputCursor(state.input, state.inputCursorX, 1),
       },
     }
   }
@@ -229,21 +231,17 @@ export const handleEditModeInput = (
 
   if (key.backspace || key.delete) {
     if (state.input) {
-      const inputCursorX = clampInputCursor(state.input, state.inputCursorX)
+      const nextInput = removeInputBeforeCursor(state.input, state.inputCursorX)
 
-      if (inputCursorX === 0) {
+      if (!nextInput) {
         return { state }
       }
-
-      const input = `${state.input.slice(0, inputCursorX - 1)}${state.input.slice(
-        inputCursorX,
-      )}`
 
       return {
         state: {
           ...state,
-          input,
-          inputCursorX: inputCursorX - 1,
+          input: nextInput.input,
+          inputCursorX: nextInput.inputCursorX,
         },
       }
     }
@@ -259,21 +257,22 @@ export const handleEditModeInput = (
     }
   }
 
-  if (key.ctrl || key.meta || key.tab) {
+  if (isTextInputIgnoredKey(key)) {
     return { state }
   }
 
   if (input) {
-    const inputCursorX = clampInputCursor(state.input, state.inputCursorX)
-    const nextInput = `${state.input.slice(0, inputCursorX)}${input}${state.input.slice(
-      inputCursorX,
-    )}`
+    const nextInput = insertInputAtCursor(
+      state.input,
+      state.inputCursorX,
+      input,
+    )
 
     return {
       state: {
         ...state,
-        input: nextInput,
-        inputCursorX: inputCursorX + input.length,
+        input: nextInput.input,
+        inputCursorX: nextInput.inputCursorX,
       },
     }
   }

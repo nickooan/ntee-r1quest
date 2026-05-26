@@ -1,6 +1,14 @@
 export {
-  clampQueryModeScroll,
   clampValue,
+  clampInputCursor,
+  insertInputAtCursor,
+  isQuickSwitchKey,
+  isTextInputIgnoredKey,
+  moveInputCursor,
+  removeInputBeforeCursor,
+} from "./generic-key-actions.ts"
+export {
+  clampQueryModeScroll,
   handleQueryModeInput,
   type QueryModeLimits,
   type QueryModeResult,
