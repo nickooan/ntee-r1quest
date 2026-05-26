@@ -1,7 +1,8 @@
+import { readdir } from "node:fs/promises"
 import { readFileSync, statSync } from "node:fs"
-import { dirname, resolve } from "node:path"
+import { basename, dirname, relative, resolve, sep } from "node:path"
 
-export type EditorSuggestionKind = "keyword" | "macro" | "definition"
+export type EditorSuggestionKind = "keyword" | "macro" | "definition" | "ref"
 
 export type EditorSuggestionItem = {
   label: string
@@ -144,4 +145,94 @@ export const buildEditorSuggestionItems = (
     ...definitionMacroSuggestions,
     ...definitionSuggestions,
   ]
+}
+
+const skippedRefFragments = new Set([".", "..", "/"])
+const maxRefSuggestionItems = 50
+
+const toRequestRelativePath = (
+  requestDirectory: string,
+  targetPath: string,
+): string => {
+  return relative(requestDirectory, targetPath).split(sep).join("/")
+}
+
+const throwIfAborted = (signal?: AbortSignal) => {
+  if (signal?.aborted) {
+    throw signal.reason
+  }
+}
+
+export const buildRefSuggestionItems = async (
+  requestPath: string,
+  fragment: string,
+  signal?: AbortSignal,
+): Promise<EditorSuggestionItem[]> => {
+  if (
+    !fragment ||
+    skippedRefFragments.has(fragment) ||
+    fragment.endsWith(".ntd")
+  ) {
+    return []
+  }
+
+  const requestDirectory = dirname(requestPath)
+  const normalizedFragment = fragment.split("\\").join("/")
+  const fragmentDirectory = normalizedFragment.endsWith("/")
+    ? normalizedFragment
+    : dirname(normalizedFragment)
+  const fragmentBaseName = normalizedFragment.endsWith("/")
+    ? ""
+    : basename(normalizedFragment)
+  const searchDirectory =
+    fragmentDirectory === "."
+      ? requestDirectory
+      : resolve(requestDirectory, fragmentDirectory)
+  const suggestions: EditorSuggestionItem[] = []
+
+  throwIfAborted(signal)
+
+  try {
+    const entries = await readdir(searchDirectory, { withFileTypes: true })
+
+    for (const entry of entries) {
+      throwIfAborted(signal)
+
+      const entryPath = resolve(searchDirectory, entry.name)
+      const isDirectoryMatch =
+        entry.isDirectory() && entry.name.startsWith(fragmentBaseName)
+      const isNtdFileMatch =
+        entry.isFile() &&
+        entry.name.endsWith(".ntd") &&
+        entry.name.startsWith(fragmentBaseName)
+
+      if (isDirectoryMatch || isNtdFileMatch) {
+        const refPath = isDirectoryMatch
+          ? `${toRequestRelativePath(requestDirectory, entryPath)}/`
+          : toRequestRelativePath(requestDirectory, entryPath)
+
+        suggestions.push({
+          label: refPath,
+          insertText: refPath,
+          kind: "ref",
+        })
+      }
+
+      if (suggestions.length >= maxRefSuggestionItems) {
+        break
+      }
+    }
+  } catch (error) {
+    throwIfAborted(signal)
+
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return []
+    }
+
+    throw error
+  }
+
+  return suggestions
+    .sort((left, right) => left.label.localeCompare(right.label))
+    .slice(0, maxRefSuggestionItems)
 }

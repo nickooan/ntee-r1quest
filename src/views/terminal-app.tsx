@@ -7,6 +7,7 @@ import {
   createAiModeState,
   findSearchMatches,
   focusSearchMatch,
+  getEditRefSuggestionQuery,
   handleAiModeInput,
   handleQueryModeInput,
   handleEditModeInput,
@@ -16,6 +17,7 @@ import {
   isQuickSwitchKey,
   resolveModeCommand,
   resolveQuickSwitchMode,
+  refreshEditModeSuggestions,
   serializeEditModeContent,
   type QueryModeState,
   type AiModeState,
@@ -35,6 +37,7 @@ import {
 } from "../runtime/acp/index.ts"
 import {
   buildEditorSuggestionItems,
+  buildRefSuggestionItems,
   type EditorSuggestionItem,
 } from "../runtime/editor-suggestions/index.ts"
 import {
@@ -154,6 +157,9 @@ export const TerminalApp = ({
   const [editSuggestionItems, setEditSuggestionItems] = useState<
     EditorSuggestionItem[]
   >([])
+  const [editRefSuggestionItems, setEditRefSuggestionItems] = useState<
+    EditorSuggestionItem[]
+  >([])
   const [openViewFile, setOpenViewFile] = useState<OpenViewFile | null>(null)
   const [localError, setLocalError] = useState<unknown>()
   const [selectedCommand, setSelectedCommand] = useState("")
@@ -270,6 +276,15 @@ export const TerminalApp = ({
     buildAiMessageLines(aiModeState.messages, aiLayout.contentWidth).length +
     (isAiPending ? 1 : 0)
   const aiMaxScrollY = Math.max(0, aiMessageLineCount - aiLayout.contentHeight)
+  const editRefSuggestionQuery =
+    mode === TerminalMode.Edit && editModeState
+      ? getEditRefSuggestionQuery(editModeState)
+      : null
+  const editRefSuggestionFragment = editRefSuggestionQuery?.fragment ?? null
+  const activeEditSuggestionItems = [
+    ...editSuggestionItems,
+    ...editRefSuggestionItems,
+  ]
 
   useEffect(() => {
     if (!isPending && !isAiPending) {
@@ -310,6 +325,62 @@ export const TerminalApp = ({
       stopAiAdapter()
     }
   }, [])
+
+  useEffect(() => {
+    if (
+      mode !== TerminalMode.Edit ||
+      !openViewFile ||
+      !editModeState ||
+      editRefSuggestionFragment === null ||
+      editRefSuggestionFragment === "" ||
+      editRefSuggestionFragment === "." ||
+      editRefSuggestionFragment === ".." ||
+      editRefSuggestionFragment === "/" ||
+      editRefSuggestionFragment.endsWith(".ntd")
+    ) {
+      setEditRefSuggestionItems([])
+      return
+    }
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => {
+      controller.abort()
+    }, 1000)
+
+    void buildRefSuggestionItems(
+      openViewFile.path,
+      editRefSuggestionFragment,
+      controller.signal,
+    )
+      .then((suggestions) => {
+        if (controller.signal.aborted) {
+          return
+        }
+
+        setEditRefSuggestionItems(suggestions)
+        setEditModeState((currentState) => {
+          return currentState
+            ? refreshEditModeSuggestions(currentState, [
+                ...editSuggestionItems,
+                ...suggestions,
+              ])
+            : currentState
+        })
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setEditRefSuggestionItems([])
+        }
+      })
+      .finally(() => {
+        clearTimeout(timeout)
+      })
+
+    return () => {
+      clearTimeout(timeout)
+      controller.abort()
+    }
+  }, [editRefSuggestionFragment, editSuggestionItems, mode, openViewFile?.path])
 
   const startAiMode = () => {
     if (!aiAdaptor) {
@@ -428,6 +499,7 @@ export const TerminalApp = ({
 
   const createEditModeForOpenFile = (file: OpenViewFile): EditModeState => {
     setEditSuggestionItems(buildEditorSuggestionItems(file.path, file.content))
+    setEditRefSuggestionItems([])
     return createEditModeState(file.content)
   }
 
@@ -666,7 +738,7 @@ export const TerminalApp = ({
           input,
           key,
           editModeState,
-          editSuggestionItems,
+          activeEditSuggestionItems,
         )
 
         if (result.shouldSave) {
@@ -683,6 +755,7 @@ export const TerminalApp = ({
             setEditSuggestionItems(
               buildEditorSuggestionItems(openViewFile.path, nextContent),
             )
+            setEditRefSuggestionItems([])
             setLocalError(undefined)
           } catch (error) {
             setLocalError(error)
@@ -776,6 +849,7 @@ export const TerminalApp = ({
               nextOpenViewFile.content,
             ),
           )
+          setEditRefSuggestionItems([])
           setOpenViewFile(nextOpenViewFile)
         }
 
@@ -1055,6 +1129,7 @@ export const TerminalApp = ({
               nextOpenViewFile.content,
             ),
           )
+          setEditRefSuggestionItems([])
           setOpenViewFile(nextOpenViewFile)
         }
 

@@ -423,7 +423,7 @@ describe("edit mode key helpers", () => {
     )
     const movedResult = handleEditModeInput(
       "",
-      key({ shift: true, downArrow: true }),
+      key({ downArrow: true }),
       typedResult.state,
     )
     const appliedResult = handleEditModeInput(
@@ -435,6 +435,45 @@ describe("edit mode key helpers", () => {
     expect(movedResult.state.suggestions?.selectedIndex).toBe(1)
     expect(serializeEditModeContent(appliedResult.state)).toBe("body @f()")
     expect(appliedResult.state.cursorX).toBe(8)
+  })
+
+  test("uses up and down to select suggestions while the overlay is open", () => {
+    const typedResult = handleEditModeInput(
+      "@",
+      defaultKey,
+      {
+        ...createEditModeState("body "),
+        cursorX: 5,
+      },
+      [
+        {
+          label: "@i",
+          insertText: "@i()",
+          cursorOffset: 3,
+          kind: "macro",
+        },
+        {
+          label: "@f",
+          insertText: "@f()",
+          cursorOffset: 3,
+          kind: "macro",
+        },
+      ],
+    )
+    const movedDownResult = handleEditModeInput(
+      "",
+      key({ downArrow: true }),
+      typedResult.state,
+    )
+    const movedUpResult = handleEditModeInput(
+      "",
+      key({ upArrow: true }),
+      movedDownResult.state,
+    )
+
+    expect(movedDownResult.state.cursorY).toBe(0)
+    expect(movedDownResult.state.suggestions?.selectedIndex).toBe(1)
+    expect(movedUpResult.state.suggestions?.selectedIndex).toBe(0)
   })
 
   test("suggests concrete intermediate macros from definition keys at @", () => {
@@ -489,6 +528,47 @@ describe("edit mode key helpers", () => {
     expect(typedResult.state.suggestions?.options[0]?.label).toBe("token")
     expect(serializeEditModeContent(appliedResult.state)).toBe("body @i(token")
     expect(appliedResult.state.cursorX).toBe(13)
+  })
+
+  test("suggests and applies ref paths from dynamic lookup results", () => {
+    const typedResult = handleEditModeInput(
+      "ref u",
+      defaultKey,
+      createEditModeState(""),
+      [
+        {
+          label: "user.ntd",
+          insertText: "user.ntd",
+          kind: "ref",
+        },
+      ],
+    )
+    const appliedResult = handleEditModeInput(
+      "",
+      key({ return: true }),
+      typedResult.state,
+    )
+
+    expect(typedResult.state.suggestions?.options[0]?.label).toBe("user.ntd")
+    expect(serializeEditModeContent(appliedResult.state)).toBe("ref user.ntd")
+    expect(appliedResult.state.cursorX).toBe(12)
+  })
+
+  test("does not keep suggesting after a ref path is complete", () => {
+    const result = handleEditModeInput(
+      "ref user.ntd",
+      defaultKey,
+      createEditModeState(""),
+      [
+        {
+          label: "user.ntd",
+          insertText: "user.ntd",
+          kind: "ref",
+        },
+      ],
+    )
+
+    expect(result.state.suggestions).toBeNull()
   })
 
   test("moves the buffered input cursor with shift arrows", () => {

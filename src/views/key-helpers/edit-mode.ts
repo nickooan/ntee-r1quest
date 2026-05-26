@@ -16,6 +16,10 @@ export type EditSuggestionState = {
   replaceEnd: number
 }
 
+export type EditRefSuggestionQuery = {
+  fragment: string
+}
+
 export type EditModeState = {
   lines: string[]
   cursorX: number
@@ -164,9 +168,38 @@ const findEditSuggestions = (
 ): EditSuggestionState | null => {
   const { line, cursorX } = getEffectiveLine(state)
   const beforeCursor = line.slice(0, cursorX)
+  const refMatch = beforeCursor.match(/^\s*ref\s+([^\s]*)$/)
   const definitionMatch = beforeCursor.match(/@i\(([A-Za-z0-9_-]*)$/)
   const macroMatch = beforeCursor.match(/@[A-Za-z]*$/)
   const keywordMatch = beforeCursor.match(/[A-Za-z][A-Za-z-]*$/)
+
+  if (refMatch?.[1] !== undefined) {
+    const prefix = refMatch[1]
+
+    if (
+      !prefix ||
+      prefix === "." ||
+      prefix === ".." ||
+      prefix === "/" ||
+      prefix.endsWith(".ntd")
+    ) {
+      return null
+    }
+
+    const replaceStart = cursorX - prefix.length
+    const options = suggestionItems.filter((item) => {
+      return item.kind === "ref" && item.label.startsWith(prefix)
+    })
+
+    return options.length === 0
+      ? null
+      : {
+          options,
+          selectedIndex: 0,
+          replaceStart,
+          replaceEnd: cursorX,
+        }
+  }
 
   if (definitionMatch?.[1] !== undefined) {
     const prefix = definitionMatch[1]
@@ -227,6 +260,22 @@ const findEditSuggestions = (
   return null
 }
 
+export const getEditRefSuggestionQuery = (
+  state: EditModeState,
+): EditRefSuggestionQuery | null => {
+  const { line, cursorX } = getEffectiveLine(state)
+  const beforeCursor = line.slice(0, cursorX)
+  const refMatch = beforeCursor.match(/^\s*ref\s+([^\s]*)$/)
+
+  if (refMatch?.[1] === undefined) {
+    return null
+  }
+
+  return {
+    fragment: refMatch[1],
+  }
+}
+
 const refreshSuggestions = (
   state: EditModeState,
   suggestionItems: EditorSuggestionItem[],
@@ -235,6 +284,13 @@ const refreshSuggestions = (
     ...state,
     suggestions: findEditSuggestions(state, suggestionItems),
   }
+}
+
+export const refreshEditModeSuggestions = (
+  state: EditModeState,
+  suggestionItems: EditorSuggestionItem[],
+): EditModeState => {
+  return refreshSuggestions(state, suggestionItems)
 }
 
 const moveSuggestionSelection = (
@@ -340,7 +396,7 @@ export const handleEditModeInput = (
     }
   }
 
-  if (key.shift && (key.upArrow || key.downArrow) && state.suggestions) {
+  if ((key.upArrow || key.downArrow) && state.suggestions) {
     return {
       state: moveSuggestionSelection(state, key.downArrow ? 1 : -1),
     }

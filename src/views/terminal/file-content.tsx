@@ -35,6 +35,7 @@ type HighlightSegment = {
 
 const savePromptBackgroundColor = "black"
 const paddingX = 1
+const maxSuggestionOverlayItems = 6
 const syntaxPattern =
   /(@)(i|f|env)(\([^)]*\))|\b(true|false|null)\b|"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?|\/\/.*$/g
 const keywordPattern = /^(\s*)(ref|url|type|header|authorization|auth|body)\b/
@@ -426,10 +427,12 @@ const SuggestionOverlay = ({
     ...suggestions.options.map((option) => option.label.length),
   )
   const overlayWidth = Math.min(Math.max(4, optionWidth + 2), width - 2)
-  const overlayHeight = Math.min(
-    suggestions.options.length + 2,
-    Math.max(3, height - 2),
+  const visibleOptionCount = Math.min(
+    suggestions.options.length,
+    maxSuggestionOverlayItems,
+    Math.max(1, height - 2),
   )
+  const overlayHeight = visibleOptionCount
   const relativeCursorY = cursorY - scrollY
   const preferredTop = relativeCursorY + 1
   const top =
@@ -442,7 +445,6 @@ const SuggestionOverlay = ({
     Math.max(0, preferredLeft),
     Math.max(0, width - 2 - overlayWidth),
   )
-  const visibleOptionCount = overlayHeight - 2
   const optionStartIndex = Math.min(
     Math.max(0, suggestions.selectedIndex - visibleOptionCount + 1),
     Math.max(0, suggestions.options.length - visibleOptionCount),
