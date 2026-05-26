@@ -31,6 +31,7 @@ export {
   type EditModeResult,
   type EditModeState,
   type EditSaveAction,
+  type EditSuggestionState,
 } from "./edit-mode.ts"
 export {
   createAiModeState,

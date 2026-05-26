@@ -335,6 +335,130 @@ describe("edit mode key helpers", () => {
     expect(serializeEditModeContent(appliedResult.state)).toBe("Xabc")
   })
 
+  test("suggests and applies request keywords", () => {
+    const typedResult = handleEditModeInput(
+      "hea",
+      defaultKey,
+      createEditModeState(""),
+      [
+        {
+          label: "header",
+          insertText: "header ",
+          kind: "keyword",
+        },
+      ],
+    )
+
+    expect(typedResult.state.suggestions?.options[0]?.label).toBe("header")
+
+    const appliedResult = handleEditModeInput(
+      "",
+      key({ tab: true }),
+      typedResult.state,
+      [
+        {
+          label: "header",
+          insertText: "header ",
+          kind: "keyword",
+        },
+      ],
+    )
+
+    expect(serializeEditModeContent(appliedResult.state)).toBe("header ")
+    expect(appliedResult.state.cursorX).toBe(7)
+    expect(appliedResult.state.suggestions).toBeNull()
+  })
+
+  test("applies suggestions with enter before normal edit submit", () => {
+    const typedResult = handleEditModeInput(
+      "hea",
+      defaultKey,
+      createEditModeState(""),
+      [
+        {
+          label: "header",
+          insertText: "header ",
+          kind: "keyword",
+        },
+      ],
+    )
+    const appliedResult = handleEditModeInput(
+      "",
+      key({ return: true }),
+      typedResult.state,
+    )
+
+    expect(serializeEditModeContent(appliedResult.state)).toBe("header ")
+    expect(appliedResult.state.cursorX).toBe(7)
+    expect(appliedResult.state.input).toBe("")
+  })
+
+  test("suggests macros and moves the suggestion highlight", () => {
+    const typedResult = handleEditModeInput(
+      "@",
+      defaultKey,
+      {
+        ...createEditModeState("body "),
+        cursorX: 5,
+      },
+      [
+        {
+          label: "@i",
+          insertText: "@i()",
+          cursorOffset: 3,
+          kind: "macro",
+        },
+        {
+          label: "@f",
+          insertText: "@f()",
+          cursorOffset: 3,
+          kind: "macro",
+        },
+      ],
+    )
+    const movedResult = handleEditModeInput(
+      "",
+      key({ shift: true, downArrow: true }),
+      typedResult.state,
+    )
+    const appliedResult = handleEditModeInput(
+      "",
+      key({ tab: true }),
+      movedResult.state,
+    )
+
+    expect(movedResult.state.suggestions?.selectedIndex).toBe(1)
+    expect(serializeEditModeContent(appliedResult.state)).toBe("body @f()")
+    expect(appliedResult.state.cursorX).toBe(8)
+  })
+
+  test("suggests referenced definition keys inside intermediate macros", () => {
+    const typedResult = handleEditModeInput(
+      "@i(",
+      defaultKey,
+      {
+        ...createEditModeState("body "),
+        cursorX: 5,
+      },
+      [
+        {
+          label: "token",
+          insertText: "token",
+          kind: "definition",
+        },
+      ],
+    )
+    const appliedResult = handleEditModeInput(
+      "",
+      key({ tab: true }),
+      typedResult.state,
+    )
+
+    expect(typedResult.state.suggestions?.options[0]?.label).toBe("token")
+    expect(serializeEditModeContent(appliedResult.state)).toBe("body @i(token")
+    expect(appliedResult.state.cursorX).toBe(13)
+  })
+
   test("moves the buffered input cursor with shift arrows", () => {
     const typedResult = handleEditModeInput(
       "abc",

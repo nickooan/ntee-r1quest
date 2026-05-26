@@ -33,6 +33,7 @@ import {
   type CodexAcpConversation,
   type CodexAcpPermissionRequest,
 } from "../runtime/acp/index.ts"
+import { buildEditorSuggestionItems } from "../runtime/editor-suggestions/index.ts"
 import {
   buildExpandedDirectoryPaths,
   buildFileTreeEntries,
@@ -650,7 +651,15 @@ export const TerminalApp = ({
       (mode === TerminalMode.View || mode === TerminalMode.Edit)
     ) {
       if (mode === TerminalMode.Edit && editModeState) {
-        const result = handleEditModeInput(input, key, editModeState)
+        const result = handleEditModeInput(
+          input,
+          key,
+          editModeState,
+          buildEditorSuggestionItems(
+            openViewFile.path,
+            serializeEditModeContent(editModeState),
+          ),
+        )
 
         if (result.shouldSave) {
           const nextContent = serializeEditModeContent(result.state)
@@ -1271,6 +1280,7 @@ export const TerminalApp = ({
                   cursorX: editModeState?.cursorX,
                   cursorY: editModeState?.cursorY,
                   input: editModeState?.input,
+                  suggestions: editModeState?.suggestions,
                   isSavePromptOpen: editModeState?.isSavePromptOpen,
                   selectedSaveAction: editModeState?.selectedSaveAction,
                 }

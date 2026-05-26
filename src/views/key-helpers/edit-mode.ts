@@ -1,4 +1,5 @@
 import type { Key } from "ink"
+import type { EditorSuggestionItem } from "../../runtime/editor-suggestions/index.ts"
 import {
   insertInputAtCursor,
   isTextInputIgnoredKey,
@@ -8,6 +9,13 @@ import {
 
 export type EditSaveAction = "yes" | "no"
 
+export type EditSuggestionState = {
+  options: EditorSuggestionItem[]
+  selectedIndex: number
+  replaceStart: number
+  replaceEnd: number
+}
+
 export type EditModeState = {
   lines: string[]
   cursorX: number
@@ -16,6 +24,7 @@ export type EditModeState = {
   inputCursorX: number
   isSavePromptOpen: boolean
   selectedSaveAction: EditSaveAction
+  suggestions: EditSuggestionState | null
 }
 
 export type EditModeResult = {
@@ -33,6 +42,7 @@ export const createEditModeState = (content: string): EditModeState => {
     inputCursorX: 0,
     isSavePromptOpen: false,
     selectedSaveAction: "yes",
+    suggestions: null,
   }
 }
 
@@ -72,6 +82,7 @@ const insertAtCursor = (state: EditModeState): EditModeState => {
     cursorX: state.cursorX + state.input.length,
     input: "",
     inputCursorX: 0,
+    suggestions: null,
   }
 }
 
@@ -92,6 +103,9 @@ const splitLineAtCursor = (state: EditModeState): EditModeState => {
     lines,
     cursorX: 0,
     cursorY: state.cursorY + 1,
+    input: "",
+    inputCursorX: 0,
+    suggestions: null,
   }
 }
 
@@ -108,6 +122,7 @@ const removeBeforeCursor = (state: EditModeState): EditModeState => {
       ...state,
       lines,
       cursorX: state.cursorX - 1,
+      suggestions: null,
     }
   }
 
@@ -126,6 +141,154 @@ const removeBeforeCursor = (state: EditModeState): EditModeState => {
     lines,
     cursorX: nextCursorX,
     cursorY: state.cursorY - 1,
+    suggestions: null,
+  }
+}
+
+const getEffectiveLine = (
+  state: EditModeState,
+): { line: string; cursorX: number } => {
+  const line = state.lines[state.cursorY] ?? ""
+
+  return {
+    line: `${line.slice(0, state.cursorX)}${state.input}${line.slice(
+      state.cursorX,
+    )}`,
+    cursorX: state.cursorX + state.inputCursorX,
+  }
+}
+
+const findEditSuggestions = (
+  state: EditModeState,
+  suggestionItems: EditorSuggestionItem[],
+): EditSuggestionState | null => {
+  const { line, cursorX } = getEffectiveLine(state)
+  const beforeCursor = line.slice(0, cursorX)
+  const definitionMatch = beforeCursor.match(/@i\(([A-Za-z0-9_-]*)$/)
+  const macroMatch = beforeCursor.match(/@[A-Za-z]*$/)
+  const keywordMatch = beforeCursor.match(/[A-Za-z][A-Za-z-]*$/)
+
+  if (definitionMatch?.[1] !== undefined) {
+    const prefix = definitionMatch[1]
+    const replaceStart = cursorX - prefix.length
+    const options = suggestionItems.filter((item) => {
+      return item.kind === "definition" && item.label.startsWith(prefix)
+    })
+
+    return options.length === 0
+      ? null
+      : {
+          options,
+          selectedIndex: 0,
+          replaceStart,
+          replaceEnd: cursorX,
+        }
+  }
+
+  if (macroMatch?.[0]) {
+    const prefix = macroMatch[0]
+    const replaceStart = cursorX - prefix.length
+    const options = suggestionItems.filter((item) => {
+      return item.kind === "macro" && item.label.startsWith(prefix)
+    })
+
+    return options.length === 0
+      ? null
+      : {
+          options,
+          selectedIndex: 0,
+          replaceStart,
+          replaceEnd: cursorX,
+        }
+  }
+
+  if (keywordMatch?.[0]) {
+    const prefix = keywordMatch[0]
+    const replaceStart = cursorX - prefix.length
+
+    if (beforeCursor.slice(0, replaceStart).trim() !== "") {
+      return null
+    }
+
+    const options = suggestionItems.filter((item) => {
+      return item.kind === "keyword" && item.label.startsWith(prefix)
+    })
+
+    return options.length === 0
+      ? null
+      : {
+          options,
+          selectedIndex: 0,
+          replaceStart,
+          replaceEnd: cursorX,
+        }
+  }
+
+  return null
+}
+
+const refreshSuggestions = (
+  state: EditModeState,
+  suggestionItems: EditorSuggestionItem[],
+): EditModeState => {
+  return {
+    ...state,
+    suggestions: findEditSuggestions(state, suggestionItems),
+  }
+}
+
+const moveSuggestionSelection = (
+  state: EditModeState,
+  direction: -1 | 1,
+): EditModeState => {
+  if (!state.suggestions || state.suggestions.options.length === 0) {
+    return state
+  }
+
+  const optionCount = state.suggestions.options.length
+
+  return {
+    ...state,
+    suggestions: {
+      ...state.suggestions,
+      selectedIndex:
+        (state.suggestions.selectedIndex + direction + optionCount) %
+        optionCount,
+    },
+  }
+}
+
+const applySuggestion = (state: EditModeState): EditModeState => {
+  const suggestions = state.suggestions
+
+  if (!suggestions) {
+    return state
+  }
+
+  const selectedOption = suggestions.options[suggestions.selectedIndex]
+
+  if (!selectedOption) {
+    return state
+  }
+
+  const { line } = getEffectiveLine(state)
+  const nextLine = `${line.slice(0, suggestions.replaceStart)}${
+    selectedOption.insertText
+  }${line.slice(suggestions.replaceEnd)}`
+  const nextCursorX =
+    suggestions.replaceStart +
+    (selectedOption.cursorOffset ?? selectedOption.insertText.length)
+  const lines = [...state.lines]
+
+  lines[state.cursorY] = nextLine
+
+  return {
+    ...state,
+    lines,
+    cursorX: nextCursorX,
+    input: "",
+    inputCursorX: 0,
+    suggestions: null,
   }
 }
 
@@ -160,6 +323,7 @@ export const handleEditModeInput = (
   input: string,
   key: Key,
   state: EditModeState,
+  suggestionItems: EditorSuggestionItem[] = [],
 ): EditModeResult => {
   if (state.isSavePromptOpen) {
     return handleSavePromptInput(key, state)
@@ -171,7 +335,26 @@ export const handleEditModeInput = (
         ...state,
         isSavePromptOpen: true,
         selectedSaveAction: "yes",
+        suggestions: null,
       },
+    }
+  }
+
+  if (key.shift && (key.upArrow || key.downArrow) && state.suggestions) {
+    return {
+      state: moveSuggestionSelection(state, key.downArrow ? 1 : -1),
+    }
+  }
+
+  if (key.tab && !key.shift && state.suggestions) {
+    return {
+      state: applySuggestion(state),
+    }
+  }
+
+  if (key.return && state.suggestions) {
+    return {
+      state: applySuggestion(state),
     }
   }
 
@@ -180,6 +363,7 @@ export const handleEditModeInput = (
       state: {
         ...state,
         ...clampCursor(state.lines, state.cursorX, state.cursorY - 1),
+        suggestions: null,
       },
     }
   }
@@ -189,6 +373,7 @@ export const handleEditModeInput = (
       state: {
         ...state,
         ...clampCursor(state.lines, state.cursorX, state.cursorY + 1),
+        suggestions: null,
       },
     }
   }
@@ -198,6 +383,7 @@ export const handleEditModeInput = (
       state: {
         ...state,
         inputCursorX: moveInputCursor(state.input, state.inputCursorX, -1),
+        suggestions: null,
       },
     }
   }
@@ -207,6 +393,7 @@ export const handleEditModeInput = (
       state: {
         ...state,
         inputCursorX: moveInputCursor(state.input, state.inputCursorX, 1),
+        suggestions: null,
       },
     }
   }
@@ -216,6 +403,7 @@ export const handleEditModeInput = (
       state: {
         ...state,
         ...clampCursor(state.lines, state.cursorX - 1, state.cursorY),
+        suggestions: null,
       },
     }
   }
@@ -225,6 +413,7 @@ export const handleEditModeInput = (
       state: {
         ...state,
         ...clampCursor(state.lines, state.cursorX + 1, state.cursorY),
+        suggestions: null,
       },
     }
   }
@@ -238,11 +427,14 @@ export const handleEditModeInput = (
       }
 
       return {
-        state: {
-          ...state,
-          input: nextInput.input,
-          inputCursorX: nextInput.inputCursorX,
-        },
+        state: refreshSuggestions(
+          {
+            ...state,
+            input: nextInput.input,
+            inputCursorX: nextInput.inputCursorX,
+          },
+          suggestionItems,
+        ),
       }
     }
 
@@ -269,11 +461,14 @@ export const handleEditModeInput = (
     )
 
     return {
-      state: {
-        ...state,
-        input: nextInput.input,
-        inputCursorX: nextInput.inputCursorX,
-      },
+      state: refreshSuggestions(
+        {
+          ...state,
+          input: nextInput.input,
+          inputCursorX: nextInput.inputCursorX,
+        },
+        suggestionItems,
+      ),
     }
   }
 
