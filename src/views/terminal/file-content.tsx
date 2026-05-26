@@ -1,6 +1,6 @@
 import React from "react"
 import { Box, Text } from "ink"
-import type { SearchMatch } from "../key-helpers/index.ts"
+import type { EditSuggestionState, SearchMatch } from "../key-helpers/index.ts"
 
 export type FilePaneLayout = {
   contentWidth: number
@@ -21,6 +21,7 @@ export type FileContentProps = {
   cursorX?: number
   cursorY?: number
   input?: string
+  suggestions?: EditSuggestionState | null
   isSavePromptOpen?: boolean
   selectedSaveAction?: "yes" | "no"
 }
@@ -34,6 +35,7 @@ type HighlightSegment = {
 
 const savePromptBackgroundColor = "black"
 const paddingX = 1
+const maxSuggestionOverlayItems = 6
 const syntaxPattern =
   /(@)(i|f|env)(\([^)]*\))|\b(true|false|null)\b|"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?|\/\/.*$/g
 const keywordPattern = /^(\s*)(ref|url|type|header|authorization|auth|body)\b/
@@ -291,6 +293,7 @@ export const FileContent = ({
   input = "",
   isSavePromptOpen = false,
   selectedSaveAction = "yes",
+  suggestions = null,
 }: FileContentProps) => {
   const contentLines = content.split("\n")
   const { contentWidth, contentHeight, lineNumberWidth } = buildFilePaneLayout(
@@ -381,6 +384,102 @@ export const FileContent = ({
           </Text>
         </Box>
       )}
+      {isEditing && suggestions && suggestions.options.length > 0 && (
+        <SuggestionOverlay
+          suggestions={suggestions}
+          width={width}
+          height={height}
+          contentHeight={contentHeight}
+          lineNumberWidth={lineNumberWidth}
+          cursorX={cursorX + input.length}
+          cursorY={cursorY}
+          scrollX={scrollX}
+          scrollY={scrollY}
+        />
+      )}
+    </Box>
+  )
+}
+
+const SuggestionOverlay = ({
+  suggestions,
+  width,
+  height,
+  contentHeight,
+  lineNumberWidth,
+  cursorX,
+  cursorY,
+  scrollX,
+  scrollY,
+}: {
+  suggestions: EditSuggestionState
+  width: number
+  height: number
+  contentHeight: number
+  lineNumberWidth: number
+  cursorX: number
+  cursorY: number
+  scrollX: number
+  scrollY: number
+}) => {
+  const optionWidth = Math.max(
+    1,
+    ...suggestions.options.map((option) => option.label.length),
+  )
+  const overlayWidth = Math.min(Math.max(4, optionWidth + 2), width - 2)
+  const visibleOptionCount = Math.min(
+    suggestions.options.length,
+    maxSuggestionOverlayItems,
+    Math.max(1, height - 2),
+  )
+  const overlayHeight = visibleOptionCount
+  const relativeCursorY = cursorY - scrollY
+  const preferredTop = relativeCursorY + 1
+  const top =
+    preferredTop + overlayHeight <= contentHeight
+      ? preferredTop
+      : Math.max(0, relativeCursorY - overlayHeight)
+  const contentLeft = paddingX + lineNumberWidth + 2
+  const preferredLeft = contentLeft + Math.max(0, cursorX - scrollX)
+  const left = Math.min(
+    Math.max(0, preferredLeft),
+    Math.max(0, width - 2 - overlayWidth),
+  )
+  const optionStartIndex = Math.min(
+    Math.max(0, suggestions.selectedIndex - visibleOptionCount + 1),
+    Math.max(0, suggestions.options.length - visibleOptionCount),
+  )
+  const visibleOptions = suggestions.options.slice(
+    optionStartIndex,
+    optionStartIndex + visibleOptionCount,
+  )
+
+  return (
+    <Box
+      position="absolute"
+      top={top}
+      left={left}
+      width={overlayWidth}
+      height={visibleOptions.length}
+      flexDirection="column"
+    >
+      {visibleOptions.map((option, index) => (
+        <Text
+          key={`${option.kind}-${option.label}`}
+          color={
+            optionStartIndex + index === suggestions.selectedIndex
+              ? "white"
+              : "black"
+          }
+          backgroundColor={
+            optionStartIndex + index === suggestions.selectedIndex
+              ? "#006400"
+              : "white"
+          }
+        >
+          {option.label.padEnd(overlayWidth, " ")}
+        </Text>
+      ))}
     </Box>
   )
 }

@@ -1,6 +1,7 @@
 ref ../data/example.ntd
+ref ../data/example-14.ntd
 
-url "@i(host)/todos/1"
+url "@i(host)@i(path)"
 type get
 
 header accept, @i(content-type)

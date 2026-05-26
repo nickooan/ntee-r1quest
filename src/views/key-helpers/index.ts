@@ -26,11 +26,15 @@ export {
 } from "./search-mode.ts"
 export {
   createEditModeState,
+  getEditRefSuggestionQuery,
   handleEditModeInput,
+  refreshEditModeSuggestions,
   serializeEditModeContent,
+  type EditRefSuggestionQuery,
   type EditModeResult,
   type EditModeState,
   type EditSaveAction,
+  type EditSuggestionState,
 } from "./edit-mode.ts"
 export {
   createAiModeState,
