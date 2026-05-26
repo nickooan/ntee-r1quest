@@ -20,5 +20,8 @@ describe("editor suggestions", () => {
     expect(suggestions).toContainEqual(
       expect.objectContaining({ label: "token", kind: "definition" }),
     )
+    expect(suggestions).toContainEqual(
+      expect.objectContaining({ label: "@i(token)", kind: "macro" }),
+    )
   })
 })

@@ -33,7 +33,10 @@ import {
   type CodexAcpConversation,
   type CodexAcpPermissionRequest,
 } from "../runtime/acp/index.ts"
-import { buildEditorSuggestionItems } from "../runtime/editor-suggestions/index.ts"
+import {
+  buildEditorSuggestionItems,
+  type EditorSuggestionItem,
+} from "../runtime/editor-suggestions/index.ts"
 import {
   buildExpandedDirectoryPaths,
   buildFileTreeEntries,
@@ -148,6 +151,9 @@ export const TerminalApp = ({
   const [aiPermissionRequest, setAiPermissionRequest] =
     useState<CodexAcpPermissionRequest>()
   const [editModeState, setEditModeState] = useState<EditModeState | null>(null)
+  const [editSuggestionItems, setEditSuggestionItems] = useState<
+    EditorSuggestionItem[]
+  >([])
   const [openViewFile, setOpenViewFile] = useState<OpenViewFile | null>(null)
   const [localError, setLocalError] = useState<unknown>()
   const [selectedCommand, setSelectedCommand] = useState("")
@@ -420,6 +426,11 @@ export const TerminalApp = ({
     onExit()
   }
 
+  const createEditModeForOpenFile = (file: OpenViewFile): EditModeState => {
+    setEditSuggestionItems(buildEditorSuggestionItems(file.path, file.content))
+    return createEditModeState(file.content)
+  }
+
   const respondToAiPermission = (decision: "allow" | "reject") => {
     if (!aiPermissionRequest) {
       return
@@ -655,10 +666,7 @@ export const TerminalApp = ({
           input,
           key,
           editModeState,
-          buildEditorSuggestionItems(
-            openViewFile.path,
-            serializeEditModeContent(editModeState),
-          ),
+          editSuggestionItems,
         )
 
         if (result.shouldSave) {
@@ -670,6 +678,11 @@ export const TerminalApp = ({
               ...openViewFile,
               content: nextContent,
             })
+            // Rebuild suggestions because saving can change ref lines and their
+            // referenced .ntd keys.
+            setEditSuggestionItems(
+              buildEditorSuggestionItems(openViewFile.path, nextContent),
+            )
             setLocalError(undefined)
           } catch (error) {
             setLocalError(error)
@@ -757,6 +770,12 @@ export const TerminalApp = ({
             scrollX: 0,
             scrollY: 0,
           })
+          setEditSuggestionItems(
+            buildEditorSuggestionItems(
+              nextOpenViewFile.path,
+              nextOpenViewFile.content,
+            ),
+          )
           setOpenViewFile(nextOpenViewFile)
         }
 
@@ -808,7 +827,7 @@ export const TerminalApp = ({
       if (nextMode === TerminalMode.Edit) {
         if (mode === TerminalMode.View) {
           setMode(TerminalMode.Edit)
-          setEditModeState(createEditModeState(openViewFile.content))
+          setEditModeState(createEditModeForOpenFile(openViewFile))
           setLocalError(undefined)
         }
 
@@ -951,6 +970,9 @@ export const TerminalApp = ({
             cursorX: focusedMatch?.start ?? result.state.scrollX,
             cursorY: focusedMatch?.lineIndex ?? result.state.scrollY,
           }
+          setEditSuggestionItems(
+            buildEditorSuggestionItems(openViewFile.path, openViewFile.content),
+          )
 
           setMode(TerminalMode.Edit)
           setEditModeState(nextEditModeState)
@@ -1027,6 +1049,12 @@ export const TerminalApp = ({
             scrollX: 0,
             scrollY: 0,
           })
+          setEditSuggestionItems(
+            buildEditorSuggestionItems(
+              nextOpenViewFile.path,
+              nextOpenViewFile.content,
+            ),
+          )
           setOpenViewFile(nextOpenViewFile)
         }
 

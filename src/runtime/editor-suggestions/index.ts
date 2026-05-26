@@ -123,18 +123,25 @@ export const buildEditorSuggestionItems = (
   requestPath?: string,
   content = "",
 ): EditorSuggestionItem[] => {
-  const definitionSuggestions =
+  const definitionKeys =
     requestPath === undefined
       ? []
-      : getReferencedDefinitionKeys(requestPath, content).map((key) => ({
-          label: key,
-          insertText: key,
-          kind: "definition" as const,
-        }))
+      : getReferencedDefinitionKeys(requestPath, content)
+  const definitionSuggestions = definitionKeys.map((key) => ({
+    label: key,
+    insertText: key,
+    kind: "definition" as const,
+  }))
+  const definitionMacroSuggestions = definitionKeys.map((key) => ({
+    label: `@i(${key})`,
+    insertText: `@i(${key})`,
+    kind: "macro" as const,
+  }))
 
   return [
     ...requestKeywordSuggestions,
     ...requestMacroSuggestions,
+    ...definitionMacroSuggestions,
     ...definitionSuggestions,
   ]
 }

@@ -414,6 +414,11 @@ describe("edit mode key helpers", () => {
           cursorOffset: 3,
           kind: "macro",
         },
+        {
+          label: "@i(token)",
+          insertText: "@i(token)",
+          kind: "macro",
+        },
       ],
     )
     const movedResult = handleEditModeInput(
@@ -430,6 +435,33 @@ describe("edit mode key helpers", () => {
     expect(movedResult.state.suggestions?.selectedIndex).toBe(1)
     expect(serializeEditModeContent(appliedResult.state)).toBe("body @f()")
     expect(appliedResult.state.cursorX).toBe(8)
+  })
+
+  test("suggests concrete intermediate macros from definition keys at @", () => {
+    const typedResult = handleEditModeInput(
+      "@",
+      defaultKey,
+      {
+        ...createEditModeState("body "),
+        cursorX: 5,
+      },
+      [
+        {
+          label: "@i(token)",
+          insertText: "@i(token)",
+          kind: "macro",
+        },
+      ],
+    )
+    const appliedResult = handleEditModeInput(
+      "",
+      key({ return: true }),
+      typedResult.state,
+    )
+
+    expect(typedResult.state.suggestions?.options[0]?.label).toBe("@i(token)")
+    expect(serializeEditModeContent(appliedResult.state)).toBe("body @i(token)")
+    expect(appliedResult.state.cursorX).toBe(14)
   })
 
   test("suggests referenced definition keys inside intermediate macros", () => {
