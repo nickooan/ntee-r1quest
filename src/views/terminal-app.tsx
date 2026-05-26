@@ -714,8 +714,12 @@ export const TerminalApp = ({
         viewModeState.command.trim() !== "" && !isModeCommandInput
       const isKeyboardSelectionInput =
         viewModeState.command.trim() === "" && keyboardSelectedCommand !== ""
+      const isSelectedCommandInput =
+        viewModeState.command.trim() === "" &&
+        keyboardSelectedCommand === "" &&
+        selectedCommand !== ""
       const highlightedEntry =
-        isViewCommandInput || isKeyboardSelectionInput
+        isViewCommandInput || isKeyboardSelectionInput || isSelectedCommandInput
           ? fileTreeEntries[highlightedEntryIndex]
           : undefined
 
@@ -981,8 +985,12 @@ export const TerminalApp = ({
         viewModeState.command.trim() !== "" && !isModeCommandInput
       const isKeyboardSelectionInput =
         viewModeState.command.trim() === "" && keyboardSelectedCommand !== ""
+      const isSelectedCommandInput =
+        viewModeState.command.trim() === "" &&
+        keyboardSelectedCommand === "" &&
+        selectedCommand !== ""
       const highlightedEntry =
-        isViewCommandInput || isKeyboardSelectionInput
+        isViewCommandInput || isKeyboardSelectionInput || isSelectedCommandInput
           ? fileTreeEntries[highlightedEntryIndex]
           : undefined
 
@@ -1108,8 +1116,12 @@ export const TerminalApp = ({
       queryModeState.command.trim() !== "" && !isModeCommandInput
     const isKeyboardSelectionInput =
       queryModeState.command.trim() === "" && keyboardSelectedCommand !== ""
+    const isSelectedCommandInput =
+      queryModeState.command.trim() === "" &&
+      keyboardSelectedCommand === "" &&
+      selectedCommand !== ""
     const highlightedEntry =
-      isQueryCommandInput || isKeyboardSelectionInput
+      isQueryCommandInput || isKeyboardSelectionInput || isSelectedCommandInput
         ? fileTreeEntries[highlightedEntryIndex]
         : undefined
 
