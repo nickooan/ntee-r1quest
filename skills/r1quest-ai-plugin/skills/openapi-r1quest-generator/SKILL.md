@@ -45,6 +45,9 @@ Rules:
 - Put auth-related values in `data/auth.ntd` when auth exists.
 - Put operation-specific body/query/header examples in `data/<operation-name>.ntd`
   when the operation needs reusable data.
+- Put duplicated Swagger/OpenAPI path, query, header, and cookie parameters in
+  `.ntd` files and reference them with `@i(...)` from every generated `.nts`
+  that uses them.
 - Put `.nts` request files directly under `<project-name>/`.
 - Name request files as `<method>-<operation-name>.nts`.
 - Normalize operation names to lowercase kebab-case.
@@ -74,6 +77,10 @@ Extract:
 - `paths`
 - path-level parameters
 - operation-level parameters
+- reusable `components.parameters` and Swagger v2 global `parameters`
+- reusable `components.schemas`, `components.requestBodies`,
+  `components.headers`, `components.securitySchemes`, and Swagger v2
+  `definitions`, `parameters`, `responses`, and `securityDefinitions`
 - request headers
 - request bodies
 - security requirements
@@ -84,6 +91,45 @@ server.
 
 If the server URL contains variables, create values in `data/common.ntd` and
 document the selected defaults.
+
+Respect reusable OpenAPI/Swagger definitions. When a request references a shared
+parameter, schema, request body, header, response, or security definition, follow
+the reference and generate request data from the resolved definition instead of
+flattening or dropping it.
+
+## Reuse Shared Data
+
+Prefer `.ntd` keys for duplicated values instead of repeating literals across
+`.nts` files.
+
+Deduplicate at these levels:
+
+- Shared host, base paths, content types, accept headers, auth values, common
+  headers, and API key names -> `data/common.ntd` or `data/auth.ntd`.
+- Path-level parameters used by multiple methods under the same path -> a shared
+  `.ntd` file for that path or `data/common.ntd` when broadly reused.
+- Referenced `components.parameters` or Swagger v2 global `parameters` used by
+  multiple operations -> one `.ntd` key with a stable kebab-case name.
+- Repeated query parameters across list/search operations -> shared `.ntd` keys
+  such as `page`, `limit`, `sort`, and `filter`.
+- Reused request body schemas or examples -> one `.ntd` object reused by each
+  matching `.nts`.
+
+When a parameter appears in multiple operations with the same meaning, generate
+one key and reference it from every request:
+
+```ntd
+tenant-id: tenant-123
+page: 1
+limit: 20
+```
+
+```nts
+url "@i(host)/tenants/@i(tenant-id)/properties?page=@i(page)&limit=@i(limit)"
+```
+
+Only create operation-specific `.ntd` keys when the value is truly unique to
+that operation or when sharing it would make the data file unclear.
 
 ## Generate `.ntd` Files
 
@@ -105,6 +151,19 @@ token: @env(API_TOKEN)
 
 For path/query/body examples, generate realistic placeholder data from OpenAPI
 examples, defaults, enums, schema types, and property names.
+
+For duplicated parameters, use one key per conceptual value. Prefer names from
+the original parameter name, normalized to kebab-case:
+
+```ntd
+property-id: property-123
+tenant-id: tenant-123
+x-request-id: request-123
+```
+
+If two parameters normalize to the same key but have different locations or
+meanings, prefix them with context such as `query-`, `header-`, or the operation
+group name.
 
 Example:
 
@@ -223,6 +282,14 @@ Put corresponding values in an `.ntd` file:
 page: 1
 limit: 20
 ```
+
+For OpenAPI path-level parameters, generate the parameter value once and reuse it
+for every operation under that path unless an operation explicitly overrides the
+parameter definition.
+
+For operation-level parameters, first check whether the same parameter name,
+location, schema, and example/default already exists in another operation. If it
+does, reuse the same `.ntd` key.
 
 ## Headers And Content Types
 
