@@ -1,0 +1,17 @@
+{
+  "name": "r1quest-ai-plugin",
+  "version": "0.1.0",
+  "description": "AI skills for generating, understanding, running, and editing ntee-r1quest request projects.",
+  "author": {
+    "name": "ntee-r1quest"
+  },
+  "license": "GPL-3.0-only",
+  "keywords": [
+    "openapi",
+    "swagger",
+    "ntee-r1quest",
+    "r1quest",
+    "http",
+    "requests"
+  ]
+}

@@ -602,18 +602,20 @@ Choose an AI adapter with:
 r1q -r ./example/request -ai claude
 ```
 
-## OpenAPI Generator Skill
+## R1Quest AI Plugin
 
-This repo includes a Claude Code and Codex-compatible skill for generating
-`ntee-r1quest` collections from Swagger/OpenAPI v3 specs:
+This repo includes a Claude Code plugin with AI skills for generating,
+understanding, running, and editing `ntee-r1quest` projects:
 
 ```text
-skills/openapi-r1quest-generator/
+skills/r1quest-ai-plugin/
   .claude-plugin/plugin.json
   skills/openapi-r1quest-generator/SKILL.md
+  skills/r1quest-language-runtime/SKILL.md
+  skills/r1quest-project-editor/SKILL.md
 ```
 
-The skill generates a project shape like:
+The OpenAPI generator skill creates a project shape like:
 
 ```text
 <output-dir>/<project-name>/
@@ -628,22 +630,27 @@ The skill generates a project shape like:
 Install it into Claude Code from this repository root:
 
 ```bash
-claude plugin install ./skills/openapi-r1quest-generator
+claude plugin install ./skills/r1quest-ai-plugin
 ```
 
-Import it into Codex globally:
+Import individual skills into Codex globally:
 
 ```bash
 mkdir -p ~/.codex/skills
-cp -R skills/openapi-r1quest-generator/skills/openapi-r1quest-generator ~/.codex/skills/openapi-r1quest-generator
+cp -R skills/r1quest-ai-plugin/skills/openapi-r1quest-generator ~/.codex/skills/openapi-r1quest-generator
+cp -R skills/r1quest-ai-plugin/skills/r1quest-language-runtime ~/.codex/skills/r1quest-language-runtime
+cp -R skills/r1quest-ai-plugin/skills/r1quest-project-editor ~/.codex/skills/r1quest-project-editor
 ```
 
 Or with `CODEX_HOME`:
 
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-cp -R skills/openapi-r1quest-generator/skills/openapi-r1quest-generator "${CODEX_HOME:-$HOME/.codex}/skills/openapi-r1quest-generator"
+cp -R skills/r1quest-ai-plugin/skills/openapi-r1quest-generator "${CODEX_HOME:-$HOME/.codex}/skills/openapi-r1quest-generator"
+cp -R skills/r1quest-ai-plugin/skills/r1quest-language-runtime "${CODEX_HOME:-$HOME/.codex}/skills/r1quest-language-runtime"
+cp -R skills/r1quest-ai-plugin/skills/r1quest-project-editor "${CODEX_HOME:-$HOME/.codex}/skills/r1quest-project-editor"
 ```
 
-Once installed, ask Claude Code or Codex to use the OpenAPI R1Quest generator
-with an OpenAPI spec path, output directory, and project name.
+Once installed, ask Claude Code or Codex to generate requests from OpenAPI,
+explain `.ntd`/`.nts` syntax, run one-shot `-p` requests, or update files in an
+existing request root.
