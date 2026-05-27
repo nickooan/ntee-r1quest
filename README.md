@@ -218,6 +218,12 @@ Config lookup checks the current directory first:
 ./.r1qconfig.json
 ```
 
+When a request root is resolved, its config is also loaded:
+
+```text
+<request-root>/.r1qconfig.json
+```
+
 Then it checks the home config:
 
 ```text

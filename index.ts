@@ -5,11 +5,10 @@ import { render } from "ink"
 import {
   execute,
   executePathArgument,
-  parseArguments,
-  resolveAiAdaptor,
-  resolveRoot,
-  resolveSock,
+  resolveRuntimeConfig,
 } from "./src/runtime/command.ts"
+import { resolveAdaptorName } from "./src/runtime/acp/index.ts"
+import type { RuntimeConfig } from "./src/runtime/config.ts"
 import {
   buildExternalRequestEvent,
   postExternalRequestEvent,
@@ -20,7 +19,10 @@ import { TerminalApp } from "./src/views/terminal-app.tsx"
 
 export { VERSION } from "./src/runtime/version.ts"
 
-const runPathArgument = async (args: string[]): Promise<boolean> => {
+const runPathArgument = async (
+  args: string[],
+  config: RuntimeConfig,
+): Promise<boolean> => {
   try {
     const requestStartTime = Date.now()
     const response = await executePathArgument(args)
@@ -33,8 +35,8 @@ const runPathArgument = async (args: string[]): Promise<boolean> => {
 
     process.stdout.write(responseContent)
 
-    const socketPath = resolveSock(resolveRoot(args))
-    const requestPath = parseArguments(args).path
+    const socketPath = config.sock
+    const requestPath = config.parsedArgs.path
 
     if (socketPath && requestPath) {
       try {
@@ -60,10 +62,13 @@ const runPathArgument = async (args: string[]): Promise<boolean> => {
   }
 }
 
-const CommandApp = ({ args }: { args: string[] }) => {
-  const root = useMemo(() => resolveRoot(args), [args])
-  const aiAdaptor = useMemo(() => resolveAiAdaptor(args), [args])
-  const externalEventSocket = useMemo(() => resolveSock(root), [root])
+const CommandApp = ({ config }: { config: RuntimeConfig }) => {
+  const root = config.root
+  const aiAdaptor = useMemo(
+    () => (config.ai ? resolveAdaptorName(config.ai) : undefined),
+    [config.ai],
+  )
+  const externalEventSocket = config.sock
   const [response, setResponse] = useState<AxiosResponse | undefined>()
   const [error, setError] = useState<unknown>()
   const [isPending, setIsPending] = useState(false)
@@ -106,9 +111,10 @@ const CommandApp = ({ args }: { args: string[] }) => {
 
 if (import.meta.main) {
   const args = process.argv.slice(2)
-  const didRunPathArgument = await runPathArgument(args)
+  const config = resolveRuntimeConfig(args)
+  const didRunPathArgument = await runPathArgument(args, config)
 
   if (!didRunPathArgument) {
-    render(React.createElement(CommandApp, { args }))
+    render(React.createElement(CommandApp, { config }))
   }
 }

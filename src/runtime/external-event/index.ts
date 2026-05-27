@@ -17,9 +17,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null
 }
 
-const assertExternalRequestEvent = (
-  value: unknown,
-): ExternalRequestEvent => {
+const assertExternalRequestEvent = (value: unknown): ExternalRequestEvent => {
   if (!isRecord(value)) {
     throw new TypeError("External event must be a JSON object.")
   }
