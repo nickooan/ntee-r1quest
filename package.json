@@ -25,7 +25,7 @@
     "start:codex": "node ./dist/index.js -r ./example -ai codex",
     "start:claude": "node ./dist/index.js -r ./example -ai claude",
     "start": "node ./dist/index.js -r ./example",
-    "start:p": "node ./dist/index.js -r ./example -p request/example-upload",
+    "start:p": "node ./dist/index.js -r ./example -p request/example",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --runInBand",
     "typecheck": "tsc -p tsconfig.json",
     "pack:dry-run": "npm run build && npm pack --dry-run",

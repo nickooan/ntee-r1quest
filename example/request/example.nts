@@ -1,5 +1,4 @@
 ref ../data/example.ntd
-ref ../data/example-14.ntd
 
 url "@i(host)@i(path)"
 type get
