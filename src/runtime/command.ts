@@ -1,6 +1,6 @@
 import { homedir } from "node:os"
 import { existsSync, readFileSync } from "node:fs"
-import { isAbsolute, join, normalize, resolve } from "node:path"
+import { dirname, isAbsolute, join, normalize, resolve } from "node:path"
 import type { AxiosResponse } from "axios"
 import { compileFile, CompileSourceType } from "../compiler/semantics.ts"
 import { resolveAdaptorName, type AcpAdaptorName } from "./acp/index.ts"
@@ -15,6 +15,7 @@ type ParsedArgs = {
 type ConfigFile = {
   root?: string | null
   ai?: string | null
+  sock?: string | null
 }
 
 type ExecuteOptions = {
@@ -35,6 +36,18 @@ const configPaths = (): string[] => [
   resolve(process.cwd(), ".r1qconfig.json"),
   join(homedir(), ".ntee-r1quest", ".r1qconfig.json"),
 ]
+
+const configPathsWithRoot = (root?: string): string[] => {
+  const paths = configPaths()
+
+  if (!root) {
+    return paths
+  }
+
+  const rootConfigPath = resolve(root, ".r1qconfig.json")
+
+  return paths.includes(rootConfigPath) ? paths : [rootConfigPath, ...paths]
+}
 
 const expandHomeDirectory = (directory: string): string => {
   if (directory === "~") {
@@ -94,6 +107,27 @@ export const readConfigAiAdaptor = (): string | null => {
   return null
 }
 
+export const readConfigSock = (
+  root?: string,
+): { value: string; configDirectory: string } | null => {
+  for (const configPath of configPathsWithRoot(root)) {
+    if (!existsSync(configPath)) {
+      continue
+    }
+
+    const config = JSON.parse(readFileSync(configPath, "utf8")) as ConfigFile
+
+    if (typeof config.sock === "string" && config.sock.length > 0) {
+      return {
+        value: config.sock,
+        configDirectory: dirname(configPath),
+      }
+    }
+  }
+
+  return null
+}
+
 const isArgumentName = (argument: string): argument is ArgumentName => {
   return argumentNames.includes(argument as ArgumentName)
 }
@@ -143,6 +177,20 @@ export const resolveAiAdaptor = (
   }
 
   return resolveAdaptorName(inputAiAdaptor)
+}
+
+export const resolveSock = (root?: string): string | undefined => {
+  const inputSock = readConfigSock(root)
+
+  if (!inputSock) {
+    return undefined
+  }
+
+  const expandedSock = expandHomeDirectory(inputSock.value)
+
+  return isAbsolute(expandedSock)
+    ? normalize(expandedSock)
+    : resolve(inputSock.configDirectory, expandedSock)
 }
 
 const normalizeSource = (source: string): string => {

@@ -5,9 +5,15 @@ import { render } from "ink"
 import {
   execute,
   executePathArgument,
+  parseArguments,
   resolveAiAdaptor,
   resolveRoot,
+  resolveSock,
 } from "./src/runtime/command.ts"
+import {
+  buildExternalRequestEvent,
+  postExternalRequestEvent,
+} from "./src/runtime/external-event/index.ts"
 import { VERSION } from "./src/runtime/version.ts"
 import { formatError, formatResponse } from "./src/views/response.tsx"
 import { TerminalApp } from "./src/views/terminal-app.tsx"
@@ -16,13 +22,34 @@ export { VERSION } from "./src/runtime/version.ts"
 
 const runPathArgument = async (args: string[]): Promise<boolean> => {
   try {
+    const requestStartTime = Date.now()
     const response = await executePathArgument(args)
 
     if (!response) {
       return false
     }
 
-    process.stdout.write(formatResponse(response))
+    const responseContent = formatResponse(response)
+
+    process.stdout.write(responseContent)
+
+    const socketPath = resolveSock(resolveRoot(args))
+    const requestPath = parseArguments(args).path
+
+    if (socketPath && requestPath) {
+      try {
+        await postExternalRequestEvent(
+          socketPath,
+          buildExternalRequestEvent(
+            requestPath,
+            Date.now() - requestStartTime,
+            responseContent,
+          ),
+        )
+      } catch (error) {
+        process.stderr.write(`${formatError(error)}\n`)
+      }
+    }
 
     return true
   } catch (error) {
@@ -36,6 +63,7 @@ const runPathArgument = async (args: string[]): Promise<boolean> => {
 const CommandApp = ({ args }: { args: string[] }) => {
   const root = useMemo(() => resolveRoot(args), [args])
   const aiAdaptor = useMemo(() => resolveAiAdaptor(args), [args])
+  const externalEventSocket = useMemo(() => resolveSock(root), [root])
   const [response, setResponse] = useState<AxiosResponse | undefined>()
   const [error, setError] = useState<unknown>()
   const [isPending, setIsPending] = useState(false)
@@ -70,6 +98,7 @@ const CommandApp = ({ args }: { args: string[] }) => {
     root,
     version: VERSION,
     aiAdaptor,
+    externalEventSocket,
     requestDurationMs,
     onCommand: runCommand,
   })

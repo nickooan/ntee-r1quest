@@ -42,6 +42,14 @@ Nested request paths work too:
 If `-r` is omitted, `ntee-r1quest` looks for `.r1qconfig.json`, then falls back
 to the current directory as the request root.
 
+Run one request without opening the terminal app:
+
+```bash
+npx ntee-r1quest -r ./example/request -p folder-1/get-post
+```
+
+The `-p` value may include or omit `.nts`.
+
 ## Terminal Modes
 
 The prompt shows the current mode:
@@ -221,11 +229,17 @@ Example:
 ```json
 {
   "root": "~/example-api-collection",
-  "ai": "codex"
+  "ai": "codex",
+  "sock": "/tmp/ntee-r1quest.sock"
 }
 ```
 
 Command-line options take precedence over config values.
+
+When `sock` is set, the terminal app listens on that Unix socket for external
+request events. A `-p` execution posts its formatted response to the socket when
+available, so an open terminal app can highlight the matching request and show
+the result.
 
 ## Collection Structure
 

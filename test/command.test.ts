@@ -15,6 +15,7 @@ import {
   parseArguments,
   resolveAiAdaptor,
   resolveRoot,
+  resolveSock,
 } from "../src/runtime/command.ts"
 
 const server = setupServer()
@@ -189,6 +190,29 @@ describe("command runtime", () => {
     } finally {
       process.chdir(originalWorkingDirectory)
     }
+  })
+
+  test("resolves .r1qconfig.json sock from the current directory", () => {
+    const originalWorkingDirectory = process.cwd()
+    const configWorkingDirectory = join(
+      originalWorkingDirectory,
+      "test/config-sock",
+    )
+
+    process.chdir(configWorkingDirectory)
+
+    try {
+      expect(resolveSock()).toBe(join(configWorkingDirectory, "r1q.sock"))
+    } finally {
+      process.chdir(originalWorkingDirectory)
+    }
+  })
+
+  test("resolves sock from the request root config before current directory config", () => {
+    const originalWorkingDirectory = process.cwd()
+    const root = join(originalWorkingDirectory, "test/config-root-sock")
+
+    expect(resolveSock(root)).toBe(join(root, "test.sock"))
   })
 
   test("does not default to an ai adaptor when none is declared", () => {
