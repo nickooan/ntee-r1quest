@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs"
 import type { AxiosResponse } from "axios"
-import React, { useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { Box, Text, render, useInput, useWindowSize } from "ink"
 import {
   findSearchMatches,
@@ -23,6 +23,12 @@ import {
 } from "./key-helpers/index.ts"
 import { Ai, buildAiLayout, buildAiMessageLines } from "./ai.tsx"
 import type { AcpAdaptorName } from "../runtime/acp/index.ts"
+import {
+  buildExternalEventCommand,
+  startExternalEventListener,
+  type ExternalEventListener,
+  type ExternalRequestEvent,
+} from "../runtime/external-event/index.ts"
 import {
   buildExpandedDirectoryPaths,
   buildFileTreeEntries,
@@ -61,6 +67,7 @@ export type TerminalAppProps = {
   root?: string
   version?: string
   requestDurationMs?: number
+  externalEventSocket?: string
   height?: number
   width?: number
   aiAdaptor?: AcpAdaptorName
@@ -91,6 +98,7 @@ export const TerminalApp = ({
   root,
   version,
   requestDurationMs,
+  externalEventSocket,
   height: fixedHeight,
   width: fixedWidth,
   aiAdaptor,
@@ -126,6 +134,8 @@ export const TerminalApp = ({
   const [editModeState, setEditModeState] = useState<EditModeState | null>(null)
   const [openViewFile, setOpenViewFile] = useState<OpenViewFile | null>(null)
   const [localError, setLocalError] = useState<unknown>()
+  const [externalEvent, setExternalEvent] =
+    useState<ExternalRequestEvent | null>(null)
   const [selectedCommand, setSelectedCommand] = useState("")
   const [keyboardSelectedCommand, setKeyboardSelectedCommand] = useState("")
   const {
@@ -172,6 +182,7 @@ export const TerminalApp = ({
   const responseContent = formatTerminalContent({
     response,
     error: localError ?? error,
+    externalContent: externalEvent?.responseContent,
     isPending,
     frameIndex,
   })
@@ -306,6 +317,72 @@ export const TerminalApp = ({
     }
   }, [])
 
+  useEffect(() => {
+    if (!externalEventSocket) {
+      return
+    }
+
+    const handleError = (nextError: unknown) => {
+      setExternalEvent(null)
+      setOpenViewFile(null)
+      setEditModeState(null)
+      setLocalError(nextError)
+      setMode((currentMode) =>
+        currentMode === TerminalMode.Ai ? currentMode : TerminalMode.Query,
+      )
+    }
+
+    let listener: ExternalEventListener | undefined
+
+    try {
+      listener = startExternalEventListener(
+        externalEventSocket,
+        (event) => {
+          const command = buildExternalEventCommand(event)
+
+          setExternalEvent(event)
+          setLocalError(undefined)
+          setOpenViewFile(null)
+          setEditModeState(null)
+          setSelectedCommand(command)
+          setKeyboardSelectedCommand("")
+          setQueryModeState((currentState) => ({
+            ...currentState,
+            command: "",
+            commandCursorX: 0,
+            scrollX: 0,
+            scrollY: 0,
+          }))
+          setViewModeState({
+            command: "",
+            commandCursorX: 0,
+            scrollX: 0,
+            scrollY: 0,
+          })
+          setSearchModeState((currentState) => ({
+            ...currentState,
+            scrollX: 0,
+            scrollY: 0,
+            input: "",
+            inputCursorX: 0,
+            query: "",
+            focusedMatchIndex: 0,
+          }))
+          setMode((currentMode) =>
+            currentMode === TerminalMode.Ai ? currentMode : TerminalMode.Query,
+          )
+        },
+        handleError,
+      )
+    } catch (error) {
+      handleError(error)
+    }
+
+    return () => {
+      void listener?.close()
+    }
+  }, [externalEventSocket])
+
   const exitApp = () => {
     stopAiMode()
     onExit()
@@ -321,6 +398,7 @@ export const TerminalApp = ({
       scrollY: 0,
     })
     setLocalError(undefined)
+    setExternalEvent(null)
     onCommand?.(command)
   }
 
@@ -1043,7 +1121,7 @@ export const TerminalApp = ({
         {version && <Text color="#006400">{`ver: ${version}`}</Text>}
       </Box>
       <Box width={width} height={requestStatsHeight}>
-        <Text>{`◷ Time Spend ${requestDurationMs ?? 0} ms,`}</Text>
+        <Text>{`◷ Time Spend ${externalEvent?.time ?? requestDurationMs ?? 0} ms,`}</Text>
       </Box>
       <Box width={width} height={viewHeight} columnGap={paneGap}>
         <Sidebar

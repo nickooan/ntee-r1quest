@@ -4,17 +4,71 @@ import React, { useMemo, useState } from "react"
 import { render } from "ink"
 import {
   execute,
-  resolveAiAdaptor,
-  resolveRoot,
+  executePathArgument,
+  resolveRuntimeConfig,
 } from "./src/runtime/command.ts"
+import { resolveAdaptorName } from "./src/runtime/acp/index.ts"
+import type { RuntimeConfig } from "./src/runtime/config.ts"
+import {
+  buildExternalRequestEvent,
+  postExternalRequestEvent,
+} from "./src/runtime/external-event/index.ts"
 import { VERSION } from "./src/runtime/version.ts"
+import { formatError, formatResponse } from "./src/views/response.tsx"
 import { TerminalApp } from "./src/views/terminal-app.tsx"
 
 export { VERSION } from "./src/runtime/version.ts"
 
-const CommandApp = ({ args }: { args: string[] }) => {
-  const root = useMemo(() => resolveRoot(args), [args])
-  const aiAdaptor = useMemo(() => resolveAiAdaptor(args), [args])
+const runPathArgument = async (
+  args: string[],
+  config: RuntimeConfig,
+): Promise<boolean> => {
+  try {
+    const requestStartTime = Date.now()
+    const response = await executePathArgument(args)
+
+    if (!response) {
+      return false
+    }
+
+    const responseContent = formatResponse(response)
+
+    process.stdout.write(responseContent)
+
+    const socketPath = config.sock
+    const requestPath = config.parsedArgs.path
+
+    if (socketPath && requestPath) {
+      try {
+        await postExternalRequestEvent(
+          socketPath,
+          buildExternalRequestEvent(
+            requestPath,
+            Date.now() - requestStartTime,
+            responseContent,
+          ),
+        )
+      } catch (error) {
+        process.stderr.write(`${formatError(error)}\n`)
+      }
+    }
+
+    return true
+  } catch (error) {
+    process.stderr.write(`${formatError(error)}\n`)
+    process.exitCode = 1
+
+    return true
+  }
+}
+
+const CommandApp = ({ config }: { config: RuntimeConfig }) => {
+  const root = config.root
+  const aiAdaptor = useMemo(
+    () => (config.ai ? resolveAdaptorName(config.ai) : undefined),
+    [config.ai],
+  )
+  const externalEventSocket = config.sock
   const [response, setResponse] = useState<AxiosResponse | undefined>()
   const [error, setError] = useState<unknown>()
   const [isPending, setIsPending] = useState(false)
@@ -49,11 +103,18 @@ const CommandApp = ({ args }: { args: string[] }) => {
     root,
     version: VERSION,
     aiAdaptor,
+    externalEventSocket,
     requestDurationMs,
     onCommand: runCommand,
   })
 }
 
 if (import.meta.main) {
-  render(React.createElement(CommandApp, { args: process.argv.slice(2) }))
+  const args = process.argv.slice(2)
+  const config = resolveRuntimeConfig(args)
+  const didRunPathArgument = await runPathArgument(args, config)
+
+  if (!didRunPathArgument) {
+    render(React.createElement(CommandApp, { config }))
+  }
 }

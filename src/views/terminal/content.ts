@@ -4,6 +4,7 @@ import { formatError, formatPending, formatResponse } from "../response.tsx"
 export type TerminalContentOptions = {
   response?: AxiosResponse
   error?: unknown
+  externalContent?: string
   isPending?: boolean
   frameIndex: number
 }
@@ -11,6 +12,7 @@ export type TerminalContentOptions = {
 export const formatTerminalContent = ({
   response,
   error,
+  externalContent,
   isPending,
   frameIndex,
 }: TerminalContentOptions): string => {
@@ -20,6 +22,10 @@ export const formatTerminalContent = ({
 
   if (error !== undefined) {
     return formatError(error)
+  }
+
+  if (externalContent !== undefined) {
+    return externalContent
   }
 
   if (response) {

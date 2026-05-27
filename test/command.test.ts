@@ -11,9 +11,11 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import {
   execute,
+  executePathArgument,
   parseArguments,
   resolveAiAdaptor,
   resolveRoot,
+  resolveSock,
 } from "../src/runtime/command.ts"
 
 const server = setupServer()
@@ -39,6 +41,12 @@ describe("command runtime", () => {
     ).toEqual({
       ai: "claude",
       root: "./requests",
+    })
+  })
+
+  test("parses path argument", () => {
+    expect(parseArguments(["-p", "users/get.nts"])).toEqual({
+      path: "users/get.nts",
     })
   })
 
@@ -102,6 +110,40 @@ describe("command runtime", () => {
     expect(process.cwd()).toBe(originalWorkingDirectory)
   })
 
+  test("executes a -p request file with extension under the resolved root", async () => {
+    server.use(
+      http.get("https://ntee.io", ({ request }) => {
+        expect(request.headers.get("authorization")).toBe("bearer test-token")
+
+        return HttpResponse.json({
+          method: "get",
+          ok: true,
+        })
+      }),
+    )
+
+    const originalWorkingDirectory = process.cwd()
+    const response = await executePathArgument([
+      "-r",
+      join(originalWorkingDirectory, "test/data"),
+      "-p",
+      "nested/get.nts",
+    ])
+
+    expect(response?.status).toBe(200)
+    expect(response?.data).toEqual({
+      method: "get",
+      ok: true,
+    })
+    expect(process.cwd()).toBe(originalWorkingDirectory)
+  })
+
+  test("does not execute a request when -p is omitted", async () => {
+    await expect(executePathArgument(["-r", "test/data"])).resolves.toBe(
+      undefined,
+    )
+  })
+
   test("uses .r1qconfig.json root from the current directory", () => {
     const originalWorkingDirectory = process.cwd()
     const configWorkingDirectory = join(
@@ -148,6 +190,29 @@ describe("command runtime", () => {
     } finally {
       process.chdir(originalWorkingDirectory)
     }
+  })
+
+  test("resolves .r1qconfig.json sock from the current directory", () => {
+    const originalWorkingDirectory = process.cwd()
+    const configWorkingDirectory = join(
+      originalWorkingDirectory,
+      "test/config-sock",
+    )
+
+    process.chdir(configWorkingDirectory)
+
+    try {
+      expect(resolveSock()).toBe(join(configWorkingDirectory, "r1q.sock"))
+    } finally {
+      process.chdir(originalWorkingDirectory)
+    }
+  })
+
+  test("resolves sock from the request root config before current directory config", () => {
+    const originalWorkingDirectory = process.cwd()
+    const root = join(originalWorkingDirectory, "test/config-root-sock")
+
+    expect(resolveSock(root)).toBe(join(root, "test.sock"))
   })
 
   test("does not default to an ai adaptor when none is declared", () => {
