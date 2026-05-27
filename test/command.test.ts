@@ -11,6 +11,7 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import {
   execute,
+  executePathArgument,
   parseArguments,
   resolveAiAdaptor,
   resolveRoot,
@@ -39,6 +40,12 @@ describe("command runtime", () => {
     ).toEqual({
       ai: "claude",
       root: "./requests",
+    })
+  })
+
+  test("parses path argument", () => {
+    expect(parseArguments(["-p", "users/get.nts"])).toEqual({
+      path: "users/get.nts",
     })
   })
 
@@ -100,6 +107,40 @@ describe("command runtime", () => {
       ok: true,
     })
     expect(process.cwd()).toBe(originalWorkingDirectory)
+  })
+
+  test("executes a -p request file with extension under the resolved root", async () => {
+    server.use(
+      http.get("https://ntee.io", ({ request }) => {
+        expect(request.headers.get("authorization")).toBe("bearer test-token")
+
+        return HttpResponse.json({
+          method: "get",
+          ok: true,
+        })
+      }),
+    )
+
+    const originalWorkingDirectory = process.cwd()
+    const response = await executePathArgument([
+      "-r",
+      join(originalWorkingDirectory, "test/data"),
+      "-p",
+      "nested/get.nts",
+    ])
+
+    expect(response?.status).toBe(200)
+    expect(response?.data).toEqual({
+      method: "get",
+      ok: true,
+    })
+    expect(process.cwd()).toBe(originalWorkingDirectory)
+  })
+
+  test("does not execute a request when -p is omitted", async () => {
+    await expect(executePathArgument(["-r", "test/data"])).resolves.toBe(
+      undefined,
+    )
   })
 
   test("uses .r1qconfig.json root from the current directory", () => {

@@ -4,13 +4,34 @@ import React, { useMemo, useState } from "react"
 import { render } from "ink"
 import {
   execute,
+  executePathArgument,
   resolveAiAdaptor,
   resolveRoot,
 } from "./src/runtime/command.ts"
 import { VERSION } from "./src/runtime/version.ts"
+import { formatError, formatResponse } from "./src/views/response.tsx"
 import { TerminalApp } from "./src/views/terminal-app.tsx"
 
 export { VERSION } from "./src/runtime/version.ts"
+
+const runPathArgument = async (args: string[]): Promise<boolean> => {
+  try {
+    const response = await executePathArgument(args)
+
+    if (!response) {
+      return false
+    }
+
+    process.stdout.write(formatResponse(response))
+
+    return true
+  } catch (error) {
+    process.stderr.write(`${formatError(error)}\n`)
+    process.exitCode = 1
+
+    return true
+  }
+}
 
 const CommandApp = ({ args }: { args: string[] }) => {
   const root = useMemo(() => resolveRoot(args), [args])
@@ -55,5 +76,10 @@ const CommandApp = ({ args }: { args: string[] }) => {
 }
 
 if (import.meta.main) {
-  render(React.createElement(CommandApp, { args: process.argv.slice(2) }))
+  const args = process.argv.slice(2)
+  const didRunPathArgument = await runPathArgument(args)
+
+  if (!didRunPathArgument) {
+    render(React.createElement(CommandApp, { args }))
+  }
 }

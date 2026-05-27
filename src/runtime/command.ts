@@ -9,6 +9,7 @@ import { execute as executeRequest } from "./request.ts"
 type ParsedArgs = {
   root?: string
   ai?: string
+  path?: string
 }
 
 type ConfigFile = {
@@ -19,6 +20,15 @@ type ConfigFile = {
 type ExecuteOptions = {
   root: string
   source: string
+}
+
+const argumentNames = ["-r", "-ai", "-p"] as const
+type ArgumentName = (typeof argumentNames)[number]
+
+const argumentKeys: Record<ArgumentName, keyof ParsedArgs> = {
+  "-r": "root",
+  "-ai": "ai",
+  "-p": "path",
 }
 
 const configPaths = (): string[] => [
@@ -84,13 +94,17 @@ export const readConfigAiAdaptor = (): string | null => {
   return null
 }
 
+const isArgumentName = (argument: string): argument is ArgumentName => {
+  return argumentNames.includes(argument as ArgumentName)
+}
+
 export const parseArguments = (args: string[]): ParsedArgs => {
   const parsedArgs: ParsedArgs = {}
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]
 
-    if (argument !== "-r" && argument !== "-ai") {
+    if (!argument || !isArgumentName(argument)) {
       continue
     }
 
@@ -100,11 +114,7 @@ export const parseArguments = (args: string[]): ParsedArgs => {
       continue
     }
 
-    if (argument === "-r") {
-      parsedArgs.root = value
-    } else {
-      parsedArgs.ai = value
-    }
+    parsedArgs[argumentKeys[argument]] = value
     index += 1
   }
 
@@ -167,4 +177,16 @@ export const execute = async (
     root,
     source: normalizeSource(source),
   })
+}
+
+export const executePathArgument = async (
+  args: string[] = [],
+): Promise<AxiosResponse | undefined> => {
+  const parsedArgs = parseArguments(args)
+
+  if (!parsedArgs.path) {
+    return undefined
+  }
+
+  return execute(parsedArgs.path, resolveRoot(args))
 }
