@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs"
 import type { AxiosResponse } from "axios"
-import React, { useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { Box, Text, render, useInput, useWindowSize } from "ink"
 import {
   findSearchMatches,
