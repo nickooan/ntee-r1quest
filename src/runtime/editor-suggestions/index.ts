@@ -1,15 +1,18 @@
 import { readdir } from "node:fs/promises"
 import { readFileSync, statSync } from "node:fs"
 import { basename, dirname, relative, resolve, sep } from "node:path"
+import {
+  requestKeywordSuggestions,
+  requestMacroSuggestions,
+  type EditorSuggestionItem,
+} from "./items.ts"
 
-export type EditorSuggestionKind = "keyword" | "macro" | "definition" | "ref"
-
-export type EditorSuggestionItem = {
-  label: string
-  insertText: string
-  cursorOffset?: number
-  kind: EditorSuggestionKind
-}
+export {
+  requestKeywordSuggestions,
+  requestMacroSuggestions,
+  type EditorSuggestionItem,
+  type EditorSuggestionKind,
+} from "./items.ts"
 
 type CachedDefinition = {
   mtimeMs: number
@@ -17,41 +20,6 @@ type CachedDefinition = {
 }
 
 const definitionCache = new Map<string, CachedDefinition>()
-
-export const requestKeywordSuggestions: EditorSuggestionItem[] = [
-  "ref",
-  "url",
-  "type",
-  "header",
-  "authorization",
-  "auth",
-  "body",
-].map((keyword) => ({
-  label: keyword,
-  insertText: `${keyword} `,
-  kind: "keyword",
-}))
-
-export const requestMacroSuggestions: EditorSuggestionItem[] = [
-  {
-    label: "@i",
-    insertText: "@i()",
-    cursorOffset: 3,
-    kind: "macro",
-  },
-  {
-    label: "@f",
-    insertText: "@f()",
-    cursorOffset: 3,
-    kind: "macro",
-  },
-  {
-    label: "@env",
-    insertText: "@env()",
-    cursorOffset: 5,
-    kind: "macro",
-  },
-]
 
 const parseReferencedDefinitionPaths = (
   requestPath: string,
