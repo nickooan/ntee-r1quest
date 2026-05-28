@@ -126,6 +126,39 @@ describe("compiler", () => {
     })
   })
 
+  test("compiles multiline GraphQL strings directly in request body values", () => {
+    expect(
+      compileFile("test/data/compiler-graphql-body.nts", CompileSourceType.File),
+    ).toEqual({
+      headers: {},
+      body: {
+        query:
+          "query GetUser($id: ID!) {\n  user(id: $id) {\n    id\n    name\n  }\n}",
+        variables: {
+          id: 123,
+        },
+      },
+    })
+  })
+
+  test("compiles multiline GraphQL strings from definition files", () => {
+    expect(
+      compileFile(
+        "test/data/compiler-graphql-definition-body.nts",
+        CompileSourceType.File,
+      ),
+    ).toEqual({
+      headers: {},
+      body: {
+        query:
+          "query GetUser($id: ID!) {\n  user(id: $id) {\n    id\n    name\n  }\n}",
+        variables: {
+          id: 123,
+        },
+      },
+    })
+  })
+
   test("compiles array body values", () => {
     expect(
       compileFile("test/data/compiler-array-body.nts", CompileSourceType.File),

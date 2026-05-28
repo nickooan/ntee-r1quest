@@ -1,0 +1,14 @@
+mutation:
+"mutation CreatePost($input: CreatePostInput!) {
+  createPost(input: $input) {
+    id
+    title
+    body
+  }
+}"
+variables: {
+  input: {
+    title: "R1Quest GraphQL example"
+    body: "Created from a GraphQLZero mutation example."
+  }
+}

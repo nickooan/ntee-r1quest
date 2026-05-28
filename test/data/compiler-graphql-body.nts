@@ -1,0 +1,11 @@
+body {
+  query: "query GetUser($id: ID!) {
+  user(id: $id) {
+    id
+    name
+  }
+}"
+  variables: {
+    id: 123
+  }
+}

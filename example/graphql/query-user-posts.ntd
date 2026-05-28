@@ -1,0 +1,21 @@
+query:
+"query GetUserPosts($id: ID!, $page: Int!, $limit: Int!) {
+  user(id: $id) {
+    id
+    name
+    posts(options: { paginate: { page: $page, limit: $limit } }) {
+      data {
+        id
+        title
+      }
+      meta {
+        totalCount
+      }
+    }
+  }
+}"
+variables: {
+  id: "1"
+  page: 1
+  limit: 5
+}

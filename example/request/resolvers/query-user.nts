@@ -1,0 +1,12 @@
+ref ../../graphql/query-user.ntd
+
+url "https://graphqlzero.almansi.me/api"
+type post
+
+header accept, application/json
+header content-type, application/json
+
+body {
+  query: @i(query)
+  variables: @i(variables)
+}
