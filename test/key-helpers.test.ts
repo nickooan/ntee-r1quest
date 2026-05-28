@@ -296,6 +296,32 @@ describe("view mode key helpers", () => {
     expect(removedResult.state.command).toBe("folder/reques-t")
     expect(removedResult.state.commandCursorX).toBe(14)
   })
+
+  test("uses control e as an edit mode shortcut", () => {
+    const viewState = {
+      command: "",
+      commandCursorX: 0,
+      scrollX: 0,
+      scrollY: 0,
+    }
+    const result = handleViewModeInput("e", key({ ctrl: true }), viewState)
+
+    expect(result.selectedCommand).toBe("@edit")
+    expect(result.state).toEqual(viewState)
+  })
+
+  test("uses raw control e input as an edit mode shortcut", () => {
+    const viewState = {
+      command: "",
+      commandCursorX: 0,
+      scrollX: 0,
+      scrollY: 0,
+    }
+    const result = handleViewModeInput("\u0005", defaultKey, viewState)
+
+    expect(result.selectedCommand).toBe("@edit")
+    expect(result.state).toEqual(viewState)
+  })
 })
 
 describe("edit mode key helpers", () => {
@@ -694,6 +720,32 @@ describe("edit mode key helpers", () => {
     expect(confirmResult.shouldSave).toBe(false)
     expect(confirmResult.shouldExitEdit).toBe(true)
   })
+
+  test("saves directly with control s", () => {
+    const result = handleEditModeInput(
+      "s",
+      key({ ctrl: true }),
+      createEditModeState("abc"),
+    )
+
+    expect(result.shouldSave).toBe(true)
+    expect(result.shouldExitEdit).toBe(true)
+    expect(result.state.isSavePromptOpen).toBe(false)
+    expect(result.state.selectedSaveAction).toBe("yes")
+    expect(result.state.suggestions).toBeNull()
+  })
+
+  test("saves directly with raw control s input", () => {
+    const result = handleEditModeInput(
+      "\u0013",
+      defaultKey,
+      createEditModeState("abc"),
+    )
+
+    expect(result.shouldSave).toBe(true)
+    expect(result.shouldExitEdit).toBe(true)
+  })
+
 })
 
 describe("query mode key helpers", () => {

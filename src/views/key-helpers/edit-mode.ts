@@ -393,6 +393,10 @@ const handleSavePromptInput = (
   return { state }
 }
 
+const isDirectSaveShortcut = (input: string, key: Key): boolean => {
+  return (key.ctrl && input.toLowerCase() === "s") || input === "\u0013"
+}
+
 export const handleEditModeInput = (
   input: string,
   key: Key,
@@ -401,6 +405,19 @@ export const handleEditModeInput = (
 ): EditModeResult => {
   if (state.isSavePromptOpen) {
     return handleSavePromptInput(key, state)
+  }
+
+  if (isDirectSaveShortcut(input, key)) {
+    return {
+      state: {
+        ...state,
+        isSavePromptOpen: false,
+        selectedSaveAction: "yes",
+        suggestions: null,
+      },
+      shouldSave: true,
+      shouldExitEdit: true,
+    }
   }
 
   if (key.escape) {

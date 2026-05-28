@@ -27,6 +27,10 @@ export type ViewModeResult = {
   shouldMoveToParentDirectory?: boolean
 }
 
+const isEditModeShortcut = (input: string, key: Key): boolean => {
+  return (key.ctrl && input.toLowerCase() === "e") || input === "\u0005"
+}
+
 export const handleViewModeInput = (
   input: string,
   key: Key,
@@ -145,6 +149,13 @@ export const handleViewModeInput = (
         scrollX: limits.maxScrollX,
         scrollY: limits.maxScrollY,
       },
+    }
+  }
+
+  if (isEditModeShortcut(input, key)) {
+    return {
+      state,
+      selectedCommand: "@edit",
     }
   }
 
