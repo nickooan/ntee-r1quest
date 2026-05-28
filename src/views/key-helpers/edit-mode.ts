@@ -149,6 +149,63 @@ const removeBeforeCursor = (state: EditModeState): EditModeState => {
   }
 }
 
+const isSpace = (character: string | undefined): boolean => {
+  return character === undefined || /\s/.test(character)
+}
+
+const selectTokenAtCursor = (state: EditModeState): EditModeState => {
+  const lines = [...state.lines]
+  const line = lines[state.cursorY] ?? ""
+  const cursorX = Math.min(Math.max(state.cursorX, 0), line.length)
+  const leftCharacter = line[cursorX - 1]
+  const rightCharacter = line[cursorX]
+
+  if (isSpace(leftCharacter) && isSpace(rightCharacter)) {
+    return {
+      ...state,
+      suggestions: null,
+    }
+  }
+
+  let tokenStart = cursorX
+  let tokenEnd = cursorX
+
+  if (!isSpace(rightCharacter)) {
+    tokenEnd = cursorX + 1
+
+    while (tokenStart > 0 && !isSpace(line[tokenStart - 1])) {
+      tokenStart -= 1
+    }
+
+    while (tokenEnd < line.length && !isSpace(line[tokenEnd])) {
+      tokenEnd += 1
+    }
+  } else {
+    tokenStart = cursorX - 1
+
+    while (tokenStart > 0 && !isSpace(line[tokenStart - 1])) {
+      tokenStart -= 1
+    }
+
+    while (tokenEnd < line.length && !isSpace(line[tokenEnd])) {
+      tokenEnd += 1
+    }
+  }
+
+  const token = line.slice(tokenStart, tokenEnd)
+
+  lines[state.cursorY] = `${line.slice(0, tokenStart)}${line.slice(tokenEnd)}`
+
+  return {
+    ...state,
+    lines,
+    cursorX: tokenStart,
+    input: token,
+    inputCursorX: token.length,
+    suggestions: null,
+  }
+}
+
 const getEffectiveLine = (
   state: EditModeState,
 ): { line: string; cursorX: number } => {
@@ -397,6 +454,10 @@ const isDirectSaveShortcut = (input: string, key: Key): boolean => {
   return (key.ctrl && input.toLowerCase() === "s") || input === "\u0013"
 }
 
+const isTokenSelectShortcut = (input: string, key: Key): boolean => {
+  return (key.ctrl && input.toLowerCase() === "a") || input === "\u0001"
+}
+
 export const handleEditModeInput = (
   input: string,
   key: Key,
@@ -417,6 +478,12 @@ export const handleEditModeInput = (
       },
       shouldSave: true,
       shouldExitEdit: true,
+    }
+  }
+
+  if (isTokenSelectShortcut(input, key)) {
+    return {
+      state: selectTokenAtCursor(state),
     }
   }
 

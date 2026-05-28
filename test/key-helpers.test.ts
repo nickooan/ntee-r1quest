@@ -746,6 +746,82 @@ describe("edit mode key helpers", () => {
     expect(result.shouldExitEdit).toBe(true)
   })
 
+  test("selects the current token with control a", () => {
+    const result = handleEditModeInput("a", key({ ctrl: true }), {
+      ...createEditModeState("header accept, @i(content-type)"),
+      cursorX: 3,
+    })
+
+    expect(serializeEditModeContent(result.state)).toBe(
+      " accept, @i(content-type)",
+    )
+    expect(result.state.cursorX).toBe(0)
+    expect(result.state.input).toBe("header")
+    expect(result.state.inputCursorX).toBe(6)
+  })
+
+  test("selects tokens from their beginning or ending cursor positions", () => {
+    const beginResult = handleEditModeInput("a", key({ ctrl: true }), {
+      ...createEditModeState("header accept, @i(content-type)"),
+      cursorX: 7,
+    })
+    const endResult = handleEditModeInput("a", key({ ctrl: true }), {
+      ...createEditModeState("header accept, @i(content-type)"),
+      cursorX: 14,
+    })
+
+    expect(beginResult.state.input).toBe("accept,")
+    expect(beginResult.state.cursorX).toBe(7)
+    expect(serializeEditModeContent(beginResult.state)).toBe(
+      "header  @i(content-type)",
+    )
+    expect(endResult.state.input).toBe("accept,")
+    expect(endResult.state.cursorX).toBe(7)
+    expect(serializeEditModeContent(endResult.state)).toBe(
+      "header  @i(content-type)",
+    )
+  })
+
+  test("does not select anything when both sides of the cursor are spaces", () => {
+    const stateWithSpaces = {
+      ...createEditModeState("xxxx   bbbbb"),
+      cursorX: 6,
+    }
+    const result = handleEditModeInput("\u0001", defaultKey, stateWithSpaces)
+
+    expect(result.state).toEqual({
+      ...stateWithSpaces,
+      suggestions: null,
+    })
+  })
+
+  test("allows editing and reinserting a selected token", () => {
+    const selectedResult = handleEditModeInput("a", key({ ctrl: true }), {
+      ...createEditModeState("header accept"),
+      cursorX: 3,
+    })
+    const movedResult = handleEditModeInput(
+      "",
+      key({ shift: true, leftArrow: true }),
+      selectedResult.state,
+    )
+    const insertedResult = handleEditModeInput(
+      "-x",
+      defaultKey,
+      movedResult.state,
+    )
+    const appliedResult = handleEditModeInput(
+      "",
+      key({ return: true }),
+      insertedResult.state,
+    )
+
+    expect(insertedResult.state.input).toBe("heade-xr")
+    expect(serializeEditModeContent(appliedResult.state)).toBe(
+      "heade-xr accept",
+    )
+  })
+
 })
 
 describe("query mode key helpers", () => {
