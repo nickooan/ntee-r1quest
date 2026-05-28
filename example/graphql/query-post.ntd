@@ -1,0 +1,16 @@
+query:
+"query GetPost($id: ID!) {
+  post(id: $id) {
+    id
+    title
+    body
+    user {
+      id
+      username
+      email
+    }
+  }
+}"
+variables: {
+  id: "1"
+}

@@ -11,6 +11,8 @@ and editing `ntee-r1quest` projects.
   request keywords, and one-shot `-p` execution.
 - `r1quest-project-editor`: Scan the current request root and update existing
   `.ntd` and `.nts` files safely.
+- `r1quest-graphql-generator`: Generate GraphQL query and mutation examples
+  using `.ntd` operation/variables files and `.nts` resolver actions.
 
 ## Structure
 
@@ -24,6 +26,8 @@ r1quest-ai-plugin/
     r1quest-language-runtime/
       SKILL.md
     r1quest-project-editor/
+      SKILL.md
+    r1quest-graphql-generator/
       SKILL.md
 ```
 

@@ -1,0 +1,8 @@
+ref ./compiler-multiline-definition.ntd
+
+body {
+  query: @i(graphql-query)
+  variables: {
+    id: @i(user-id)
+  }
+}

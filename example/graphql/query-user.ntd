@@ -1,0 +1,19 @@
+query:
+"query GetUser($id: ID!) {
+  user(id: $id) {
+    id
+    name
+    username
+    email
+    phone
+    website
+    company {
+      name
+      catchPhrase
+      bs
+    }
+  }
+}"
+variables: {
+  id: "1"
+}

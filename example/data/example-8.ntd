@@ -1,3 +1,0 @@
-host: "https://jsonplaceholder.typicode.com"
-path: /albums/1/photos
-content-type: application/json

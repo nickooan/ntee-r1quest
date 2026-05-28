@@ -13,6 +13,22 @@ npx ntee-r1quest -r ./example/request
 
 ![ntee-r1quest terminal demo](https://codeberg.org/nickoan/ntee-r1quest/raw/branch/main/docs/assets/readme-demo.gif)
 
+## Index
+
+- [Quick Start](#quick-start)
+- [Terminal Modes](#terminal-modes)
+- [Key Manual](#key-manual)
+- [AI Adapter](#ai-adapter)
+- [Config](#config)
+- [Collection Structure](#collection-structure)
+- [`.ntd` Definition Files](#ntd-definition-files)
+- [`.nts` Request Files](#nts-request-files)
+- [Macros](#macros)
+- [Examples](#examples)
+- [GraphQL Requests](#graphql-requests)
+- [Local CLI and Development](#local-cli-and-development)
+- [R1Quest AI Plugin](#r1quest-ai-plugin)
+
 ## Quick Start
 
 `ntee-r1quest` targets Node.js 24 or newer.
@@ -577,6 +593,121 @@ example/data/example-upload.ntd
 example/request/example-upload.nts
 example/files/example.txt
 ```
+
+The repo also includes GraphQLZero examples that split GraphQL operation text
+and variables into `.ntd` files, then execute them from resolver `.nts` files:
+
+```text
+example/graphql/query-post.ntd
+example/graphql/query-user.ntd
+example/graphql/query-user-posts.ntd
+example/graphql/query-album-photos.ntd
+example/graphql/mutation-create-post.ntd
+example/request/resolvers/query-post.nts
+example/request/resolvers/query-user.nts
+example/request/resolvers/query-user-posts.nts
+example/request/resolvers/query-album-photos.nts
+example/request/resolvers/mutation-create-post.nts
+```
+
+Try one without opening the terminal UI:
+
+```bash
+r1q -r ./example -p request/resolvers/query-post.nts
+```
+
+or run the mutation example:
+
+```bash
+r1q -r ./example -p request/resolvers/mutation-create-post.nts
+```
+
+## GraphQL Requests
+
+GraphQL requests work well when `.ntd` files hold the operation and variables,
+while `.nts` files hold the HTTP request.
+
+Query definition:
+
+```ntd
+query:
+"query GetPost($id: ID!) {
+  post(id: $id) {
+    id
+    title
+    body
+  }
+}"
+variables: {
+  id: "1"
+}
+```
+
+Mutation definition:
+
+```ntd
+mutation:
+"mutation CreatePost($input: CreatePostInput!) {
+  createPost(input: $input) {
+    id
+    title
+  }
+}"
+variables: {
+  input: {
+    title: "R1Quest GraphQL example"
+    body: "Created from a GraphQL mutation example."
+  }
+}
+```
+
+Resolver request:
+
+```nts
+ref ../../graphql/query-post.ntd
+
+url "https://graphqlzero.almansi.me/api"
+type post
+
+header accept, application/json
+header content-type, application/json
+
+body {
+  query: @i(query)
+  variables: @i(variables)
+}
+```
+
+For mutations, send the operation with `@i(mutation)`:
+
+```nts
+body {
+  query: @i(mutation)
+  variables: @i(variables)
+}
+```
+
+`.nts` files may reference multiple `.ntd` files. This is useful when shared
+auth, host, or token values already live in another definition file:
+
+```nts
+ref ../../data/auth.ntd
+ref ../../graphql/query-private-user.ntd
+
+url "https://api.example.com/graphql"
+type post
+
+header accept, application/json
+header content-type, application/json
+auth bearer @i(token)
+
+body {
+  query: @i(query)
+  variables: @i(variables)
+}
+```
+
+When multiple refs define the same key, later refs overwrite earlier refs.
 
 ## Local CLI and Development
 
