@@ -169,6 +169,7 @@ const findEditSuggestions = (
   const { line, cursorX } = getEffectiveLine(state)
   const beforeCursor = line.slice(0, cursorX)
   const refMatch = beforeCursor.match(/^\s*ref\s+([^\s]*)$/)
+  const headerMatch = beforeCursor.match(/^\s*header\s+([A-Za-z][A-Za-z-]*)$/)
   const definitionMatch = beforeCursor.match(/@i\(([A-Za-z0-9_-]*)$/)
   const macroMatch = beforeCursor.match(/@[A-Za-z]*$/)
   const keywordMatch = beforeCursor.match(/[A-Za-z][A-Za-z-]*$/)
@@ -189,6 +190,23 @@ const findEditSuggestions = (
     const replaceStart = cursorX - prefix.length
     const options = suggestionItems.filter((item) => {
       return item.kind === "ref" && item.label.startsWith(prefix)
+    })
+
+    return options.length === 0
+      ? null
+      : {
+          options,
+          selectedIndex: 0,
+          replaceStart,
+          replaceEnd: cursorX,
+        }
+  }
+
+  if (headerMatch?.[1] !== undefined) {
+    const prefix = headerMatch[1]
+    const replaceStart = cursorX - prefix.length
+    const options = suggestionItems.filter((item) => {
+      return item.kind === "header" && item.label.startsWith(prefix)
     })
 
     return options.length === 0

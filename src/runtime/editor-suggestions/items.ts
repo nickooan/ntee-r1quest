@@ -1,4 +1,9 @@
-export type EditorSuggestionKind = "keyword" | "macro" | "definition" | "ref"
+export type EditorSuggestionKind =
+  | "keyword"
+  | "macro"
+  | "definition"
+  | "ref"
+  | "header"
 
 export type EditorSuggestionItem = {
   label: string
@@ -41,3 +46,37 @@ export const requestMacroSuggestions: EditorSuggestionItem[] = [
     kind: "macro",
   },
 ]
+
+export const requestHeaderSuggestions: EditorSuggestionItem[] = [
+  "accept",
+  "accept-encoding",
+  "accept-language",
+  "authorization",
+  "cache-control",
+  "content-encoding",
+  "content-language",
+  "content-length",
+  "content-type",
+  "cookie",
+  "if-match",
+  "if-modified-since",
+  "if-none-match",
+  "if-unmodified-since",
+  "origin",
+  "prefer",
+  "range",
+  "referer",
+  "user-agent",
+  "x-api-key",
+  "x-correlation-id",
+  "x-csrf-token",
+  "x-forwarded-for",
+  "x-forwarded-host",
+  "x-forwarded-proto",
+  "x-idempotency-key",
+  "x-request-id",
+].map((header) => ({
+  label: header,
+  insertText: `${header}, `,
+  kind: "header",
+}))

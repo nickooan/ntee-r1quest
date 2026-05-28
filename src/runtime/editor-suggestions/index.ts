@@ -2,12 +2,14 @@ import { readdir } from "node:fs/promises"
 import { readFileSync, statSync } from "node:fs"
 import { basename, dirname, relative, resolve, sep } from "node:path"
 import {
+  requestHeaderSuggestions,
   requestKeywordSuggestions,
   requestMacroSuggestions,
   type EditorSuggestionItem,
 } from "./items.ts"
 
 export {
+  requestHeaderSuggestions,
   requestKeywordSuggestions,
   requestMacroSuggestions,
   type EditorSuggestionItem,
@@ -109,6 +111,7 @@ export const buildEditorSuggestionItems = (
 
   return [
     ...requestKeywordSuggestions,
+    ...requestHeaderSuggestions,
     ...requestMacroSuggestions,
     ...definitionMacroSuggestions,
     ...definitionSuggestions,

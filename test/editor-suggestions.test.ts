@@ -26,6 +26,13 @@ describe("editor suggestions", () => {
     expect(suggestions).toContainEqual(
       expect.objectContaining({ label: "@i(token)", kind: "macro" }),
     )
+    expect(suggestions).toContainEqual(
+      expect.objectContaining({
+        label: "content-type",
+        insertText: "content-type, ",
+        kind: "header",
+      }),
+    )
   })
 
   test("builds dynamic ref suggestions from the typed path fragment", async () => {

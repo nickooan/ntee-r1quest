@@ -369,6 +369,34 @@ describe("edit mode key helpers", () => {
     expect(appliedResult.state.suggestions).toBeNull()
   })
 
+  test("suggests and applies header names after header keyword", () => {
+    const typedResult = handleEditModeInput(
+      "header cont",
+      defaultKey,
+      createEditModeState(""),
+      [
+        {
+          label: "content-type",
+          insertText: "content-type, ",
+          kind: "header",
+        },
+      ],
+    )
+    const appliedResult = handleEditModeInput(
+      "",
+      key({ tab: true }),
+      typedResult.state,
+    )
+
+    expect(typedResult.state.suggestions?.options[0]?.label).toBe(
+      "content-type",
+    )
+    expect(serializeEditModeContent(appliedResult.state)).toBe(
+      "header content-type, ",
+    )
+    expect(appliedResult.state.cursorX).toBe(21)
+  })
+
   test("applies suggestions with enter before normal edit submit", () => {
     const typedResult = handleEditModeInput(
       "hea",
