@@ -122,6 +122,7 @@ Use `@view` to open request and data files in the Result pane.
 | Left / Right             | Scroll the reviewed file horizontally.                    |
 | PageUp / PageDown        | Scroll the reviewed file by one page.                     |
 | Shift+Left / Shift+Right | Move the input cursor.                                    |
+| Ctrl+E                   | Enter edit mode for the currently reviewed file.          |
 
 ### Edit Mode
 
@@ -136,6 +137,8 @@ Use `@edit` while reviewing a file to edit it directly in the Result pane.
 | Left / Right             | Move the file cursor horizontally.                                  |
 | Shift+Left / Shift+Right | Move the buffered input cursor.                                     |
 | Backspace / Delete       | Delete buffered text, or delete file content before the cursor.     |
+| Ctrl+S                   | Save immediately and return to view mode.                           |
+| Ctrl+A                   | Move the current token into the input bar for inline editing.       |
 
 Editor suggestions appear while typing request keywords, macros, definition
 keys, or `ref` paths.
@@ -149,6 +152,8 @@ keys, or `ref` paths.
 Examples:
 
 - `hea` suggests `header`.
+- `header cont` suggests headers such as `content-type` and inserts the
+  trailing `, `.
 - `@` suggests macros such as `@i`, `@f`, `@env`, and concrete `@i(key)` values
   from referenced `.ntd` files.
 - `@i(` suggests referenced `.ntd` keys.

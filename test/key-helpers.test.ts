@@ -821,7 +821,6 @@ describe("edit mode key helpers", () => {
       "heade-xr accept",
     )
   })
-
 })
 
 describe("query mode key helpers", () => {
