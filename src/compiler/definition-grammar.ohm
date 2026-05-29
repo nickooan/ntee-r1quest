@@ -1,9 +1,32 @@
 R1QuestDefinition {
   Program
-    = Entry*
+    = DefinitionItem*
+
+  DefinitionItem
+    = GraphqlOperation
+    | Entry
 
   Entry
     = Key ":" Value
+
+  GraphqlOperation
+    = graphqlOperationType graphqlOperationHead GraphqlSelectionSet
+
+  graphqlOperationType
+    = "query" ~identifierPart
+    | "mutation" ~identifierPart
+
+  graphqlOperationHead
+    = (~"{" any)*
+
+  GraphqlSelectionSet
+    = "{" GraphqlSelectionPart* "}"
+
+  GraphqlSelectionPart
+    = string
+    | graphqlComment
+    | GraphqlSelectionSet
+    | ~("{" | "}") any
 
   Key
     = objectKey
@@ -83,6 +106,9 @@ R1QuestDefinition {
 
   comment
     = commentStart (~lineTerminator any)*
+
+  graphqlComment
+    = "#" (~lineTerminator any)*
 
   commentStart
     = "//"

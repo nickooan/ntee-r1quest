@@ -22,9 +22,10 @@ graphql/
   query-user.ntd
   mutation-create-post.ntd
 request/
-  resolvers/
+  queries/
     query-post.nts
     query-user.nts
+  mutations/
     mutation-create-post.nts
 ```
 
@@ -36,13 +37,12 @@ to the `.nts` file.
 For queries:
 
 ```ntd
-query:
-"query GetPost($id: ID!) {
+query GetPost($id: ID!) {
   post(id: $id) {
     id
     title
   }
-}"
+}
 variables: {
   id: "1"
 }
@@ -51,13 +51,12 @@ variables: {
 For mutations:
 
 ```ntd
-mutation:
-"mutation CreatePost($input: CreatePostInput!) {
+mutation CreatePost($input: CreatePostInput!) {
   createPost(input: $input) {
     id
     title
   }
-}"
+}
 variables: {
   input: {
     title: "Example title"
@@ -67,9 +66,11 @@ variables: {
 
 Rules:
 
-- Use `query:` for query operations and `mutation:` for mutation operations.
+- Use top-level `query ... { ... }` for query operations and
+  `mutation ... { ... }` for mutation operations.
+- Quoted `query: "..."` and `mutation: "..."` entries are still valid when
+  explicit string values are preferred.
 - Put variables in a `variables:` object, even when empty: `variables: {}`.
-- Use multiline double-quoted strings for GraphQL operation text.
 - Use GraphQL variables instead of interpolating values into operation text.
 - Do not use `@i(...)` or `@f(...)` inside `.ntd` files.
 - Use `@env(KEY)` only for environment values needed in variables or auth data.
@@ -200,13 +201,13 @@ After creating or editing GraphQL R1Quest files:
 4. Run a small query with one-shot execution when network access is allowed:
 
 ```bash
-r1q -r ./example -p request/resolvers/query-post.nts
+r1q -r ./example -p request/queries/query-post.nts
 ```
 
 or:
 
 ```bash
-npx ntee-r1quest -r ./example -p request/resolvers/query-post.nts
+npx ntee-r1quest -r ./example -p request/queries/query-post.nts
 ```
 
 Report whether validation was compile-only or live-executed.

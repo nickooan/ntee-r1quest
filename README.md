@@ -603,23 +603,23 @@ example/graphql/query-user.ntd
 example/graphql/query-user-posts.ntd
 example/graphql/query-album-photos.ntd
 example/graphql/mutation-create-post.ntd
-example/request/resolvers/query-post.nts
-example/request/resolvers/query-user.nts
-example/request/resolvers/query-user-posts.nts
-example/request/resolvers/query-album-photos.nts
-example/request/resolvers/mutation-create-post.nts
+example/request/queries/query-post.nts
+example/request/queries/query-user.nts
+example/request/queries/query-user-posts.nts
+example/request/queries/query-album-photos.nts
+example/request/mutations/mutation-create-post.nts
 ```
 
 Try one without opening the terminal UI:
 
 ```bash
-r1q -r ./example -p request/resolvers/query-post.nts
+r1q -r ./example -p request/queries/query-post.nts
 ```
 
 or run the mutation example:
 
 ```bash
-r1q -r ./example -p request/resolvers/mutation-create-post.nts
+r1q -r ./example -p request/mutations/mutation-create-post.nts
 ```
 
 ## GraphQL Requests
@@ -630,14 +630,13 @@ while `.nts` files hold the HTTP request.
 Query definition:
 
 ```ntd
-query:
-"query GetPost($id: ID!) {
+query GetPost($id: ID!) {
   post(id: $id) {
     id
     title
     body
   }
-}"
+}
 variables: {
   id: "1"
 }
@@ -646,13 +645,12 @@ variables: {
 Mutation definition:
 
 ```ntd
-mutation:
-"mutation CreatePost($input: CreatePostInput!) {
+mutation CreatePost($input: CreatePostInput!) {
   createPost(input: $input) {
     id
     title
   }
-}"
+}
 variables: {
   input: {
     title: "R1Quest GraphQL example"

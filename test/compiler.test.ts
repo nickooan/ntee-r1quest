@@ -128,7 +128,10 @@ describe("compiler", () => {
 
   test("compiles multiline GraphQL strings directly in request body values", () => {
     expect(
-      compileFile("test/data/compiler-graphql-body.nts", CompileSourceType.File),
+      compileFile(
+        "test/data/compiler-graphql-body.nts",
+        CompileSourceType.File,
+      ),
     ).toEqual({
       headers: {},
       body: {
@@ -154,6 +157,44 @@ describe("compiler", () => {
           "query GetUser($id: ID!) {\n  user(id: $id) {\n    id\n    name\n  }\n}",
         variables: {
           id: 123,
+        },
+      },
+    })
+  })
+
+  test("compiles top-level GraphQL query sugar from definition files", () => {
+    expect(
+      compileFile(
+        "test/data/compiler-graphql-sugar-definition-body.nts",
+        CompileSourceType.File,
+      ),
+    ).toEqual({
+      headers: {},
+      body: {
+        query:
+          "query GetUser($id: ID!) {\n  user(id: $id) {\n    id\n    name\n  }\n}",
+        variables: {
+          id: 123,
+        },
+      },
+    })
+  })
+
+  test("compiles top-level GraphQL mutation sugar from definition files", () => {
+    expect(
+      compileFile(
+        "test/data/compiler-graphql-sugar-mutation-body.nts",
+        CompileSourceType.File,
+      ),
+    ).toEqual({
+      headers: {},
+      body: {
+        query:
+          "mutation CreatePost($input: CreatePostInput!) {\n  createPost(input: $input) {\n    id\n    title\n  }\n}",
+        variables: {
+          input: {
+            title: "Example",
+          },
         },
       },
     })

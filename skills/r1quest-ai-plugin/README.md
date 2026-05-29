@@ -13,6 +13,8 @@ and editing `ntee-r1quest` projects.
   `.ntd` and `.nts` files safely.
 - `r1quest-graphql-generator`: Generate GraphQL query and mutation examples
   using `.ntd` operation/variables files and `.nts` resolver actions.
+- `graphql-schema-r1quest-generator`: Generate a R1Quest GraphQL project from a
+  GraphQL schema path into a target output directory.
 
 ## Structure
 
@@ -28,6 +30,8 @@ r1quest-ai-plugin/
     r1quest-project-editor/
       SKILL.md
     r1quest-graphql-generator/
+      SKILL.md
+    graphql-schema-r1quest-generator/
       SKILL.md
 ```
 

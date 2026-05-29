@@ -1,5 +1,4 @@
-query:
-"query GetUserPosts($id: ID!, $page: Int!, $limit: Int!) {
+query GetUserPosts($id: ID!, $page: Int!, $limit: Int!) {
   user(id: $id) {
     id
     name
@@ -13,7 +12,7 @@ query:
       }
     }
   }
-}"
+}
 variables: {
   id: "1"
   page: 1

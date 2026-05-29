@@ -1,0 +1,6 @@
+ref ./compiler-graphql-sugar-definition.ntd
+
+body {
+  query: @i(query)
+  variables: @i(variables)
+}

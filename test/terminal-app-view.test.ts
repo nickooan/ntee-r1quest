@@ -11,7 +11,10 @@ import {
   resolveNextFileTreeSelectionIndex,
 } from "../src/runtime/file-manager/index.ts"
 import { buildTerminalViewport } from "../src/views/terminal-app.tsx"
-import { buildFilePaneLayout } from "../src/views/terminal/file-content.tsx"
+import {
+  buildFilePaneLayout,
+  buildGraphqlHighlightLines,
+} from "../src/views/terminal/file-content.tsx"
 
 describe("terminal app view", () => {
   test("builds a fixed viewport from scroll offsets", () => {
@@ -42,6 +45,35 @@ describe("terminal app view", () => {
       contentHeight: 8,
       lineNumberWidth: 3,
     })
+  })
+
+  test("detects multiline graphql query and mutation definition values", () => {
+    expect([
+      ...buildGraphqlHighlightLines([
+        "query:",
+        '"query GetPost($id: ID!) {',
+        "  post(id: $id) {",
+        "    title",
+        "  }",
+        '}"',
+        "variables: {}",
+        'mutation: "mutation CreatePost { createPost { id } }"',
+      ]),
+    ]).toEqual([1, 2, 3, 4, 5, 7])
+  })
+
+  test("detects graphql query and mutation shorthand blocks", () => {
+    expect([
+      ...buildGraphqlHighlightLines([
+        "query GetPost($id: ID!) {",
+        "  post(id: $id) {",
+        "    title",
+        "  }",
+        "}",
+        "variables: {}",
+        "mutation CreatePost { createPost { id } }",
+      ]),
+    ]).toEqual([0, 1, 2, 3, 4, 6])
   })
 
   test("builds a root file tree", () => {
