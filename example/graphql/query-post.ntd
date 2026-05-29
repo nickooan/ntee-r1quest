@@ -1,5 +1,4 @@
-query:
-"query GetPost($id: ID!) {
+query GetPost($id: ID!) {
   post(id: $id) {
     id
     title
@@ -10,7 +9,7 @@ query:
       email
     }
   }
-}"
+}
 variables: {
   id: "1"
 }

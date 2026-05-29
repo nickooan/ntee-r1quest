@@ -1,5 +1,4 @@
-query:
-"query GetUser($id: ID!) {
+query GetUser($id: ID!) {
   user(id: $id) {
     id
     name
@@ -13,7 +12,7 @@ query:
       bs
     }
   }
-}"
+}
 variables: {
   id: "1"
 }

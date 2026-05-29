@@ -1,5 +1,4 @@
-query:
-"query GetAlbumPhotos($id: ID!, $page: Int!, $limit: Int!) {
+query GetAlbumPhotos($id: ID!, $page: Int!, $limit: Int!) {
   album(id: $id) {
     id
     title
@@ -18,7 +17,7 @@ query:
       }
     }
   }
-}"
+}
 variables: {
   id: "1"
   page: 1

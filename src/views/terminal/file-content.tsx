@@ -33,12 +33,103 @@ type HighlightSegment = {
   dimColor?: boolean
 }
 
+type HighlightLanguage = "r1quest" | "graphql"
+
 const savePromptBackgroundColor = "black"
 const paddingX = 1
 const maxSuggestionOverlayItems = 6
 const syntaxPattern =
   /(@)(i|f|env)(\([^)]*\))|\b(true|false|null)\b|"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?|\/\/.*$/g
 const keywordPattern = /^(\s*)(ref|url|type|header|authorization|auth|body)\b/
+const graphqlStartPattern = /^\s*(query|mutation)\s*:\s*(?:"|$)/
+const graphqlStringStartPattern = /^\s*"/
+const graphqlSyntaxPattern =
+  /#.*$|"(?:\\.|[^"\\])*"|\$[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\b(query|mutation|subscription|fragment|on|true|false|null)\b|-?\d+(?:\.\d+)?|[!$():=@{}\[\],|]/g
+
+const hasClosingUnescapedQuote = (line: string, startIndex: number): boolean => {
+  for (let index = startIndex; index < line.length; index += 1) {
+    if (line[index] !== '"') {
+      continue
+    }
+
+    let slashCount = 0
+
+    for (
+      let slashIndex = index - 1;
+      slashIndex >= 0 && line[slashIndex] === "\\";
+      slashIndex -= 1
+    ) {
+      slashCount += 1
+    }
+
+    if (slashCount % 2 === 0) {
+      return true
+    }
+  }
+
+  return false
+}
+
+export const buildGraphqlHighlightLines = (lines: string[]): Set<number> => {
+  const graphqlLines = new Set<number>()
+  let pendingGraphqlValue = false
+  let insideGraphqlString = false
+
+  lines.forEach((line, lineIndex) => {
+    if (insideGraphqlString) {
+      graphqlLines.add(lineIndex)
+
+      if (hasClosingUnescapedQuote(line, 0)) {
+        insideGraphqlString = false
+      }
+
+      return
+    }
+
+    if (pendingGraphqlValue) {
+      if (!line.trim()) {
+        return
+      }
+
+      pendingGraphqlValue = false
+
+      if (!graphqlStringStartPattern.test(line)) {
+        return
+      }
+
+      graphqlLines.add(lineIndex)
+
+      const quoteIndex = line.indexOf('"')
+
+      if (!hasClosingUnescapedQuote(line, quoteIndex + 1)) {
+        insideGraphqlString = true
+      }
+
+      return
+    }
+
+    const graphqlStartMatch = line.match(graphqlStartPattern)
+
+    if (!graphqlStartMatch) {
+      return
+    }
+
+    const quoteIndex = line.indexOf('"')
+
+    if (quoteIndex === -1) {
+      pendingGraphqlValue = true
+      return
+    }
+
+    graphqlLines.add(lineIndex)
+
+    if (!hasClosingUnescapedQuote(line, quoteIndex + 1)) {
+      insideGraphqlString = true
+    }
+  })
+
+  return graphqlLines
+}
 
 export const buildFilePaneLayout = (
   width: number,
@@ -57,7 +148,52 @@ export const buildFilePaneLayout = (
   }
 }
 
-const highlightLine = (line: string): HighlightSegment[] => {
+const highlightGraphqlLine = (line: string): HighlightSegment[] => {
+  const segments: HighlightSegment[] = []
+  let cursor = 0
+
+  for (const match of line.matchAll(graphqlSyntaxPattern)) {
+    const start = match.index ?? 0
+    const token = match[0]
+
+    if (start > cursor) {
+      segments.push({ text: line.slice(cursor, start) })
+    }
+
+    if (token.startsWith("#")) {
+      segments.push({ text: token, dimColor: true })
+    } else if (token.startsWith('"')) {
+      segments.push({ text: token, color: "yellow" })
+    } else if (token.startsWith("$")) {
+      segments.push({ text: token, color: "green", bold: true })
+    } else if (token.startsWith("@")) {
+      segments.push({ text: token, color: "red", bold: true })
+    } else if (match[1]) {
+      segments.push({ text: token, color: "cyan", bold: true })
+    } else if (/^-?\d/.test(token)) {
+      segments.push({ text: token, color: "blue" })
+    } else {
+      segments.push({ text: token, dimColor: true })
+    }
+
+    cursor = start + token.length
+  }
+
+  if (cursor < line.length) {
+    segments.push({ text: line.slice(cursor) })
+  }
+
+  return segments
+}
+
+const highlightLine = (
+  line: string,
+  language: HighlightLanguage = "r1quest",
+): HighlightSegment[] => {
+  if (language === "graphql") {
+    return highlightGraphqlLine(line)
+  }
+
   const segments: HighlightSegment[] = []
   const keywordMatch = line.match(keywordPattern)
   const keywordStart = keywordMatch?.[1]?.length ?? -1
@@ -116,13 +252,15 @@ const highlightLine = (line: string): HighlightSegment[] => {
 const HighlightedText = ({
   text,
   keyPrefix,
+  language = "r1quest",
 }: {
   text: string
   keyPrefix: string
+  language?: HighlightLanguage
 }) => {
   return (
     <>
-      {highlightLine(text).map((segment, index) => (
+      {highlightLine(text, language).map((segment, index) => (
         <Text
           key={`${keyPrefix}-${index}-${segment.text}`}
           color={segment.color}
@@ -143,6 +281,7 @@ const HighlightedLine = ({
   scrollX,
   matches,
   focusedMatchIndex,
+  language = "r1quest",
 }: {
   line: string
   lineIndex: number
@@ -150,6 +289,7 @@ const HighlightedLine = ({
   scrollX: number
   matches: SearchMatch[]
   focusedMatchIndex: number
+  language?: HighlightLanguage
 }) => {
   const visibleStart = scrollX
   const visibleEnd = scrollX + width
@@ -179,6 +319,7 @@ const HighlightedLine = ({
           key={`text-${cursor}`}
           keyPrefix={`text-${lineIndex}-${cursor}`}
           text={line.slice(cursor, matchStart)}
+          language={language}
         />,
       )
     }
@@ -206,6 +347,7 @@ const HighlightedLine = ({
         key={`text-${cursor}`}
         keyPrefix={`text-${lineIndex}-${cursor}`}
         text={trailingText}
+        language={language}
       />,
     )
     children.push(
@@ -224,12 +366,14 @@ const EditableLine = ({
   scrollX,
   cursorX,
   input,
+  language = "r1quest",
 }: {
   line: string
   width: number
   scrollX: number
   cursorX: number
   input: string
+  language?: HighlightLanguage
 }) => {
   const cursorEnd = cursorX + Math.max(1, input.length)
   const visibleStart = scrollX
@@ -244,6 +388,7 @@ const EditableLine = ({
         scrollX={scrollX}
         matches={[]}
         focusedMatchIndex={0}
+        language={language}
       />
     )
   }
@@ -268,11 +413,11 @@ const EditableLine = ({
 
   return (
     <>
-      <HighlightedText keyPrefix="before" text={before} />
+      <HighlightedText keyPrefix="before" text={before} language={language} />
       <Text color="whiteBright" backgroundColor={input ? "green" : "white"}>
         {visibleCursorText}
       </Text>
-      <HighlightedText keyPrefix="after" text={after} />
+      <HighlightedText keyPrefix="after" text={after} language={language} />
       {" ".repeat(Math.max(0, width - renderedLength))}
     </>
   )
@@ -296,6 +441,7 @@ export const FileContent = ({
   suggestions = null,
 }: FileContentProps) => {
   const contentLines = content.split("\n")
+  const graphqlHighlightLines = buildGraphqlHighlightLines(contentLines)
   const { contentWidth, contentHeight, lineNumberWidth } = buildFilePaneLayout(
     width,
     height,
@@ -315,6 +461,9 @@ export const FileContent = ({
     >
       {lines.map((line, index) => {
         const lineIndex = scrollY + index
+        const language: HighlightLanguage = graphqlHighlightLines.has(lineIndex)
+          ? "graphql"
+          : "r1quest"
 
         return (
           <Text key={`${fileName}-${lineIndex}`}>
@@ -330,6 +479,7 @@ export const FileContent = ({
                 scrollX={scrollX}
                 cursorX={cursorX}
                 input={input}
+                language={language}
               />
             ) : (
               <HighlightedLine
@@ -339,6 +489,7 @@ export const FileContent = ({
                 scrollX={scrollX}
                 matches={searchMatches}
                 focusedMatchIndex={focusedMatchIndex}
+                language={language}
               />
             )}
             {" ".repeat(paddingX)}

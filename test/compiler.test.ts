@@ -159,6 +159,44 @@ describe("compiler", () => {
     })
   })
 
+  test("compiles top-level GraphQL query sugar from definition files", () => {
+    expect(
+      compileFile(
+        "test/data/compiler-graphql-sugar-definition-body.nts",
+        CompileSourceType.File,
+      ),
+    ).toEqual({
+      headers: {},
+      body: {
+        query:
+          "query GetUser($id: ID!) {\n  user(id: $id) {\n    id\n    name\n  }\n}",
+        variables: {
+          id: 123,
+        },
+      },
+    })
+  })
+
+  test("compiles top-level GraphQL mutation sugar from definition files", () => {
+    expect(
+      compileFile(
+        "test/data/compiler-graphql-sugar-mutation-body.nts",
+        CompileSourceType.File,
+      ),
+    ).toEqual({
+      headers: {},
+      body: {
+        query:
+          "mutation CreatePost($input: CreatePostInput!) {\n  createPost(input: $input) {\n    id\n    title\n  }\n}",
+        variables: {
+          input: {
+            title: "Example",
+          },
+        },
+      },
+    })
+  })
+
   test("compiles array body values", () => {
     expect(
       compileFile("test/data/compiler-array-body.nts", CompileSourceType.File),

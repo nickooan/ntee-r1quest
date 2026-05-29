@@ -357,9 +357,9 @@ export const semantics = scriptGrammar
 export const definitionSemantics = definitionGrammar
   .createSemantics()
   .addOperation("buildItermediateObject(intermediateObject)", {
-    Program(entries) {
-      for (const entry of entries.children) {
-        const [key, value] = entry.toEntry()
+    Program(items) {
+      for (const item of items.children) {
+        const [key, value] = item.toEntry()
         this.args.intermediateObject[key] = value
       }
 
@@ -367,8 +367,16 @@ export const definitionSemantics = definitionGrammar
     },
   })
   .addOperation<[string, ScopeValue]>("toEntry()", {
+    DefinitionItem(item) {
+      return item.toEntry()
+    },
+
     Entry(key, _colon, value) {
       return [key.toKey(), value.toValue()]
+    },
+
+    GraphqlOperation(operationType, _operationHead, _selectionSet) {
+      return [operationType.toKey(), this.sourceString.trim()]
     },
   })
   .addOperation<ScopeValue>("toValue()", {
@@ -428,6 +436,10 @@ export const definitionSemantics = definitionGrammar
     string(_open, _chars, _close) {
       // sourceString includes quotes, escapes, and may include raw newlines.
       return parseQuotedString(this.sourceString)
+    },
+
+    graphqlOperationType(_) {
+      return this.sourceString
     },
   })
 

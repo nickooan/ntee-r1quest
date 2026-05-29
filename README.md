@@ -630,14 +630,13 @@ while `.nts` files hold the HTTP request.
 Query definition:
 
 ```ntd
-query:
-"query GetPost($id: ID!) {
+query GetPost($id: ID!) {
   post(id: $id) {
     id
     title
     body
   }
-}"
+}
 variables: {
   id: "1"
 }
@@ -646,13 +645,12 @@ variables: {
 Mutation definition:
 
 ```ntd
-mutation:
-"mutation CreatePost($input: CreatePostInput!) {
+mutation CreatePost($input: CreatePostInput!) {
   createPost(input: $input) {
     id
     title
   }
-}"
+}
 variables: {
   input: {
     title: "R1Quest GraphQL example"

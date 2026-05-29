@@ -244,4 +244,26 @@ content: {
 
     expect(definitionGrammar.match(input).succeeded()).toBe(true)
   })
+
+  test("matches top-level GraphQL query and mutation sugar", () => {
+    const input = `query GetUser($id: ID!) {
+  user(id: $id) {
+    id
+    name
+  }
+}
+
+mutation CreatePost($input: CreatePostInput!) {
+  createPost(input: $input) {
+    id
+    title
+  }
+}
+
+variables: {
+  id: 123
+}`
+
+    expect(definitionGrammar.match(input).succeeded()).toBe(true)
+  })
 })

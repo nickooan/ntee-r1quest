@@ -1,0 +1,6 @@
+ref ./compiler-graphql-sugar-mutation.ntd
+
+body {
+  query: @i(mutation)
+  variables: @i(variables)
+}
