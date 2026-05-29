@@ -42,6 +42,7 @@ const syntaxPattern =
   /(@)(i|f|env)(\([^)]*\))|\b(true|false|null)\b|"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?|\/\/.*$/g
 const keywordPattern = /^(\s*)(ref|url|type|header|authorization|auth|body)\b/
 const graphqlStartPattern = /^\s*(query|mutation)\s*:\s*(?:"|$)/
+const graphqlSugarStartPattern = /^\s*(query|mutation)\b(?!\s*:)/
 const graphqlStringStartPattern = /^\s*"/
 const graphqlSyntaxPattern =
   /#.*$|"(?:\\.|[^"\\])*"|\$[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\b(query|mutation|subscription|fragment|on|true|false|null)\b|-?\d+(?:\.\d+)?|[!$():=@{}\[\],|]/g
@@ -73,12 +74,59 @@ const hasClosingUnescapedQuote = (
   return false
 }
 
+const getGraphqlBraceDelta = (line: string): number => {
+  let delta = 0
+  let insideString = false
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]
+
+    if (insideString) {
+      if (char === "\\" && index + 1 < line.length) {
+        index += 1
+      } else if (char === '"') {
+        insideString = false
+      }
+
+      continue
+    }
+
+    if (char === "#") {
+      break
+    }
+
+    if (char === '"') {
+      insideString = true
+    } else if (char === "{") {
+      delta += 1
+    } else if (char === "}") {
+      delta -= 1
+    }
+  }
+
+  return delta
+}
+
 export const buildGraphqlHighlightLines = (lines: string[]): Set<number> => {
   const graphqlLines = new Set<number>()
   let pendingGraphqlValue = false
   let insideGraphqlString = false
+  let insideGraphqlSugarBlock = false
+  let graphqlSugarBraceDepth = 0
 
   lines.forEach((line, lineIndex) => {
+    if (insideGraphqlSugarBlock) {
+      graphqlLines.add(lineIndex)
+      graphqlSugarBraceDepth += getGraphqlBraceDelta(line)
+
+      if (graphqlSugarBraceDepth <= 0) {
+        insideGraphqlSugarBlock = false
+        graphqlSugarBraceDepth = 0
+      }
+
+      return
+    }
+
     if (insideGraphqlString) {
       graphqlLines.add(lineIndex)
 
@@ -106,6 +154,19 @@ export const buildGraphqlHighlightLines = (lines: string[]): Set<number> => {
 
       if (!hasClosingUnescapedQuote(line, quoteIndex + 1)) {
         insideGraphqlString = true
+      }
+
+      return
+    }
+
+    if (graphqlSugarStartPattern.test(line)) {
+      graphqlLines.add(lineIndex)
+      graphqlSugarBraceDepth = getGraphqlBraceDelta(line)
+
+      if (graphqlSugarBraceDepth > 0) {
+        insideGraphqlSugarBlock = true
+      } else {
+        graphqlSugarBraceDepth = 0
       }
 
       return

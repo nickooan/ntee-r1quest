@@ -62,6 +62,20 @@ describe("terminal app view", () => {
     ]).toEqual([1, 2, 3, 4, 5, 7])
   })
 
+  test("detects graphql query and mutation shorthand blocks", () => {
+    expect([
+      ...buildGraphqlHighlightLines([
+        "query GetPost($id: ID!) {",
+        "  post(id: $id) {",
+        "    title",
+        "  }",
+        "}",
+        "variables: {}",
+        "mutation CreatePost { createPost { id } }",
+      ]),
+    ]).toEqual([0, 1, 2, 3, 4, 6])
+  })
+
   test("builds a root file tree", () => {
     const root = join(process.cwd(), "test/data")
 
