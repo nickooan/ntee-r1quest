@@ -22,9 +22,10 @@ graphql/
   query-user.ntd
   mutation-create-post.ntd
 request/
-  resolvers/
+  queries/
     query-post.nts
     query-user.nts
+  mutations/
     mutation-create-post.nts
 ```
 
@@ -200,13 +201,13 @@ After creating or editing GraphQL R1Quest files:
 4. Run a small query with one-shot execution when network access is allowed:
 
 ```bash
-r1q -r ./example -p request/resolvers/query-post.nts
+r1q -r ./example -p request/queries/query-post.nts
 ```
 
 or:
 
 ```bash
-npx ntee-r1quest -r ./example -p request/resolvers/query-post.nts
+npx ntee-r1quest -r ./example -p request/queries/query-post.nts
 ```
 
 Report whether validation was compile-only or live-executed.
