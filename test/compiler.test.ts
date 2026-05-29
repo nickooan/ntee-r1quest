@@ -128,7 +128,10 @@ describe("compiler", () => {
 
   test("compiles multiline GraphQL strings directly in request body values", () => {
     expect(
-      compileFile("test/data/compiler-graphql-body.nts", CompileSourceType.File),
+      compileFile(
+        "test/data/compiler-graphql-body.nts",
+        CompileSourceType.File,
+      ),
     ).toEqual({
       headers: {},
       body: {

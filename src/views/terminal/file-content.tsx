@@ -46,7 +46,10 @@ const graphqlStringStartPattern = /^\s*"/
 const graphqlSyntaxPattern =
   /#.*$|"(?:\\.|[^"\\])*"|\$[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\b(query|mutation|subscription|fragment|on|true|false|null)\b|-?\d+(?:\.\d+)?|[!$():=@{}\[\],|]/g
 
-const hasClosingUnescapedQuote = (line: string, startIndex: number): boolean => {
+const hasClosingUnescapedQuote = (
+  line: string,
+  startIndex: number,
+): boolean => {
   for (let index = startIndex; index < line.length; index += 1) {
     if (line[index] !== '"') {
       continue

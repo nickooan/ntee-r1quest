@@ -48,20 +48,18 @@ describe("terminal app view", () => {
   })
 
   test("detects multiline graphql query and mutation definition values", () => {
-    expect(
-      [
-        ...buildGraphqlHighlightLines([
-          "query:",
-          '"query GetPost($id: ID!) {',
-          "  post(id: $id) {",
-          "    title",
-          "  }",
-          '}"',
-          "variables: {}",
-          'mutation: "mutation CreatePost { createPost { id } }"',
-        ]),
-      ],
-    ).toEqual([1, 2, 3, 4, 5, 7])
+    expect([
+      ...buildGraphqlHighlightLines([
+        "query:",
+        '"query GetPost($id: ID!) {',
+        "  post(id: $id) {",
+        "    title",
+        "  }",
+        '}"',
+        "variables: {}",
+        'mutation: "mutation CreatePost { createPost { id } }"',
+      ]),
+    ]).toEqual([1, 2, 3, 4, 5, 7])
   })
 
   test("builds a root file tree", () => {
