@@ -17,6 +17,7 @@ import {
   serializeEditModeContent,
   type QueryModeState,
   type EditModeState,
+  type AiModeState,
   type SearchModeState,
   type ViewModeState,
   TerminalMode,
@@ -75,7 +76,60 @@ export type TerminalAppProps = {
   onExit?: () => void
 }
 
+type InputStateByMode = {
+  aiModeState: AiModeState
+  editModeState: EditModeState | null
+  queryModeState: QueryModeState
+  searchModeState: SearchModeState
+  viewModeState: ViewModeState
+}
+
 const cursorBlinkIdleMs = 30_000
+
+const resolveInputValue = (
+  mode: TerminalMode,
+  states: InputStateByMode,
+): string => {
+  if (mode === TerminalMode.Search) {
+    return states.searchModeState.input
+  }
+
+  if (mode === TerminalMode.Ai) {
+    return states.aiModeState.input
+  }
+
+  if (mode === TerminalMode.Edit) {
+    return states.editModeState?.input ?? ""
+  }
+
+  if (mode === TerminalMode.View) {
+    return states.viewModeState.command
+  }
+
+  return states.queryModeState.command
+}
+
+const resolveInputCursorX = (
+  mode: TerminalMode,
+  inputLength: number,
+  states: InputStateByMode,
+): number => {
+  let cursorX = inputLength
+
+  if (mode === TerminalMode.Edit) {
+    cursorX = states.editModeState?.inputCursorX ?? inputLength
+  } else if (mode === TerminalMode.Ai) {
+    cursorX = states.aiModeState.inputCursorX
+  } else if (mode === TerminalMode.Search) {
+    cursorX = states.searchModeState.inputCursorX ?? inputLength
+  } else if (mode === TerminalMode.View) {
+    cursorX = states.viewModeState.commandCursorX ?? inputLength
+  } else if (mode === TerminalMode.Query) {
+    cursorX = states.queryModeState.commandCursorX ?? inputLength
+  }
+
+  return Math.min(Math.max(cursorX, 0), inputLength)
+}
 
 const resolveResponsePaneTitle = (mode: TerminalMode): string => {
   if (mode === TerminalMode.View) {
@@ -241,32 +295,18 @@ export const TerminalApp = ({
     mode === TerminalMode.Search
       ? findSearchMatches(content, searchModeState.query)
       : []
-  const inputValue =
-    mode === TerminalMode.Search
-      ? searchModeState.input
-      : mode === TerminalMode.Ai
-        ? aiModeState.input
-        : mode === TerminalMode.Edit
-          ? (editModeState?.input ?? "")
-          : mode === TerminalMode.View
-            ? viewModeState.command
-            : queryModeState.command
-  const commandInputCursorX = Math.min(
-    Math.max(
-      mode === TerminalMode.Edit
-        ? (editModeState?.inputCursorX ?? inputValue.length)
-        : mode === TerminalMode.Ai
-          ? aiModeState.inputCursorX
-          : mode === TerminalMode.Search
-            ? (searchModeState.inputCursorX ?? inputValue.length)
-            : mode === TerminalMode.View
-              ? (viewModeState.commandCursorX ?? inputValue.length)
-              : mode === TerminalMode.Query
-                ? (queryModeState.commandCursorX ?? inputValue.length)
-                : inputValue.length,
-      0,
-    ),
+  const inputStates = {
+    aiModeState,
+    editModeState,
+    queryModeState,
+    searchModeState,
+    viewModeState,
+  }
+  const inputValue = resolveInputValue(mode, inputStates)
+  const commandInputCursorX = resolveInputCursorX(
+    mode,
     inputValue.length,
+    inputStates,
   )
   const inputBeforeCursor = inputValue.slice(0, commandInputCursorX)
   const inputAfterCursor = inputValue.slice(commandInputCursorX)
