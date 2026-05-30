@@ -326,7 +326,7 @@ const HighlightedText = ({
     <>
       {highlightLine(text, language).map((segment, index) => (
         <Text
-          key={`${keyPrefix}-${index}-${segment.text}`}
+          key={`${keyPrefix}-${index}`}
           color={segment.color}
           bold={segment.bold}
           dimColor={segment.dimColor}

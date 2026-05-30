@@ -141,7 +141,7 @@ export const buildAiMessageLines = (
 ): Array<{ key: string; role: AiChatMessage["role"]; content: string }> => {
   return messages.flatMap((message, messageIndex) => {
     return buildMessageLines(message, width).map((content, lineIndex) => ({
-      key: `${messageIndex}-${lineIndex}-${message.role}-${message.content}`,
+      key: `${messageIndex}-${lineIndex}-${message.role}`,
       role: message.role,
       content,
     }))

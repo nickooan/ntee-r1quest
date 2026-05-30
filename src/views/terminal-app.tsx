@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs"
 import type { AxiosResponse } from "axios"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Box, Text, render, useInput, useWindowSize } from "ink"
 import {
   findSearchMatches,
@@ -75,6 +75,8 @@ export type TerminalAppProps = {
   onExit?: () => void
 }
 
+const cursorBlinkIdleMs = 30_000
+
 const resolveResponsePaneTitle = (mode: TerminalMode): string => {
   if (mode === TerminalMode.View) {
     return "Reviewing"
@@ -110,6 +112,8 @@ export const TerminalApp = ({
   const { columns, rows } = useWindowSize()
   const [frameIndex, setFrameIndex] = useState(0)
   const [isCursorVisible, setIsCursorVisible] = useState(true)
+  const [isCursorBlinkActive, setIsCursorBlinkActive] = useState(true)
+  const [cursorActivityId, setCursorActivityId] = useState(0)
   const [mode, setMode] = useState(TerminalMode.Query)
   const [queryModeState, setQueryModeState] = useState<QueryModeState>({
     scrollX: 0,
@@ -162,8 +166,14 @@ export const TerminalApp = ({
       : queryModeState.command
   const sidebarCommand = resolveSidebarCommand(commandInput, selectedCommand)
   const highlightedSidebarCommand = keyboardSelectedCommand || sidebarCommand
-  const expandedPathsForInput = buildExpandedDirectoryPaths(sidebarCommand)
-  const fileTreeEntries = buildFileTreeEntries(root, expandedPathsForInput)
+  const expandedPathsForInput = useMemo(
+    () => buildExpandedDirectoryPaths(sidebarCommand),
+    [sidebarCommand],
+  )
+  const fileTreeEntries = useMemo(
+    () => buildFileTreeEntries(root, expandedPathsForInput),
+    [expandedPathsForInput, root],
+  )
   const sidebarWidth = Math.min(
     Math.max(12, Math.floor(width / 4)),
     Math.max(1, width - paneGap - 3),
@@ -308,6 +318,10 @@ export const TerminalApp = ({
   }, [isAiPending, isPending])
 
   useEffect(() => {
+    if (!isCursorBlinkActive) {
+      return
+    }
+
     const interval = setInterval(() => {
       setIsCursorVisible((currentValue) => !currentValue)
     }, 500)
@@ -315,7 +329,22 @@ export const TerminalApp = ({
     return () => {
       clearInterval(interval)
     }
-  }, [])
+  }, [isCursorBlinkActive])
+
+  useEffect(() => {
+    if (!isCursorBlinkActive || isPending || isAiPending) {
+      return
+    }
+
+    const timeout = setTimeout(() => {
+      setIsCursorBlinkActive(false)
+      setIsCursorVisible(true)
+    }, cursorBlinkIdleMs)
+
+    return () => {
+      clearTimeout(timeout)
+    }
+  }, [cursorActivityId, isAiPending, isCursorBlinkActive, isPending])
 
   useEffect(() => {
     if (!externalEventSocket) {
@@ -463,6 +492,10 @@ export const TerminalApp = ({
   }
 
   useInput((input, key) => {
+    setCursorActivityId((currentValue) => currentValue + 1)
+    setIsCursorBlinkActive(true)
+    setIsCursorVisible(true)
+
     if (isQuickSwitchKey(key) && quickSwitchMode()) {
       return
     }
