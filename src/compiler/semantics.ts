@@ -216,15 +216,15 @@ export const semantics = scriptGrammar
       )
     },
 
-    number(_sign, _digits, _dot, _fraction) {
+    number(_sign, _digits, _dot, _fraction, _terminator) {
       return Number(this.sourceString)
     },
 
-    boolean(_) {
+    boolean(_value, _terminator) {
       return this.sourceString === "true"
     },
 
-    null(_) {
+    null(_value, _terminator) {
       return null
     },
   })
@@ -275,15 +275,15 @@ export const semantics = scriptGrammar
       return undefined
     },
 
-    number(_sign, _digits, _dot, _fraction) {
+    number(_sign, _digits, _dot, _fraction, _terminator) {
       return undefined
     },
 
-    boolean(_) {
+    boolean(_value, _terminator) {
       return undefined
     },
 
-    null(_) {
+    null(_value, _terminator) {
       return undefined
     },
   })
@@ -341,15 +341,15 @@ export const semantics = scriptGrammar
       )
     },
 
-    number(_sign, _digits, _dot, _fraction) {
+    number(_sign, _digits, _dot, _fraction, _terminator) {
       return Number(this.sourceString)
     },
 
-    boolean(_) {
+    boolean(_value, _terminator) {
       return this.sourceString === "true"
     },
 
-    null(_) {
+    null(_value, _terminator) {
       return null
     },
   })
@@ -412,15 +412,15 @@ export const definitionSemantics = definitionGrammar
       return this.sourceString.trim()
     },
 
-    number(_sign, _digits, _dot, _fraction) {
+    number(_sign, _digits, _dot, _fraction, _terminator) {
       return Number(this.sourceString)
     },
 
-    boolean(_) {
+    boolean(_value, _terminator) {
       return this.sourceString === "true"
     },
 
-    null(_) {
+    null(_value, _terminator) {
       return null
     },
   })

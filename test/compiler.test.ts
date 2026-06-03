@@ -47,6 +47,17 @@ describe("compiler", () => {
     }
   })
 
+  test("builds definition values that start with primitive-looking text as bare strings", () => {
+    expect(buildItermediateObject("test/data/primitive-prefix.ntd", {})).toEqual(
+      {
+        id: "9f006820-df12-4456-8ce4-1bc96a2a3fcc",
+        "another-key": "asdfasdgasdg",
+        falseValue: "false-positive",
+        nullValue: "nullish",
+      },
+    )
+  })
+
   test("compiles an object body request", () => {
     expect(
       compileFile("test/data/compiler-object-body.nts", CompileSourceType.File),

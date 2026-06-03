@@ -132,6 +132,12 @@ R1Quest {
     | "]"
     | "}"
 
+  primitiveTerminator
+    = horizontalSpace (valueTerminator | headerValueTerminator | end)
+
+  horizontalSpace
+    = (" " | "\t")*
+
   macro
     = intermediateMacro
     | fileMacro
@@ -169,14 +175,13 @@ R1Quest {
     | "_"
 
   boolean
-    = "true"
-    | "false"
+    = ("true" | "false") &primitiveTerminator
 
   null
-    = "null"
+    = "null" &primitiveTerminator
 
   number
-    = "-"? digit+ ("." digit+)?
+    = "-"? digit+ ("." digit+)? &primitiveTerminator
 
   string
     = "\"" stringChar* "\""
