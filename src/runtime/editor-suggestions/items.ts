@@ -4,6 +4,7 @@ export type EditorSuggestionKind =
   | "definition"
   | "ref"
   | "header"
+  | "bodyKey"
 
 export type EditorSuggestionItem = {
   label: string
@@ -80,3 +81,20 @@ export const requestHeaderSuggestions: EditorSuggestionItem[] = [
   insertText: `${header}, `,
   kind: "header",
 }))
+
+export const buildCustomSuggestionItems = (
+  customSuggestions: string[],
+): EditorSuggestionItem[] => {
+  return [...new Set(customSuggestions)].flatMap((customSuggestion) => [
+    {
+      label: customSuggestion,
+      insertText: `${customSuggestion}, `,
+      kind: "header" as const,
+    },
+    {
+      label: customSuggestion,
+      insertText: `${customSuggestion}: `,
+      kind: "bodyKey" as const,
+    },
+  ])
+}

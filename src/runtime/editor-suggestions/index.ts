@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises"
 import { readFileSync, statSync } from "node:fs"
 import { basename, dirname, relative, resolve, sep } from "node:path"
 import {
+  buildCustomSuggestionItems,
   requestHeaderSuggestions,
   requestKeywordSuggestions,
   requestMacroSuggestions,
@@ -9,6 +10,7 @@ import {
 } from "./items.ts"
 
 export {
+  buildCustomSuggestionItems,
   requestHeaderSuggestions,
   requestKeywordSuggestions,
   requestMacroSuggestions,
@@ -93,6 +95,7 @@ export const getReferencedDefinitionKeys = (
 export const buildEditorSuggestionItems = (
   requestPath?: string,
   content = "",
+  customSuggestions: string[] = [],
 ): EditorSuggestionItem[] => {
   const definitionKeys =
     requestPath === undefined
@@ -108,10 +111,12 @@ export const buildEditorSuggestionItems = (
     insertText: `@i(${key})`,
     kind: "macro" as const,
   }))
+  const customSuggestionItems = buildCustomSuggestionItems(customSuggestions)
 
   return [
     ...requestKeywordSuggestions,
     ...requestHeaderSuggestions,
+    ...customSuggestionItems,
     ...requestMacroSuggestions,
     ...definitionMacroSuggestions,
     ...definitionSuggestions,

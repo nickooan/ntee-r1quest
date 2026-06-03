@@ -1,5 +1,5 @@
-root: ../data
-ai: claude
+sock: ./test.sock
 custom-suggestions:
   - some-style-id
   - x-trace-token
+  - x-correlation-id

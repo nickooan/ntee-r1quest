@@ -13,6 +13,7 @@ type ConfigFile = {
   root?: string | null
   ai?: string | null
   sock?: string | null
+  "custom-suggestions"?: string[] | null
 }
 
 type ConfigSource = {
@@ -25,6 +26,7 @@ export type RuntimeConfig = {
   root: string
   ai?: string
   sock?: string
+  customSuggestions: string[]
   parsedArgs: ParsedArgs
 }
 
@@ -134,6 +136,29 @@ const findConfigValue = (
   return undefined
 }
 
+const findConfigValues = (
+  sources: ConfigSource[],
+  key: keyof ConfigFile,
+): string[] => {
+  const values = new Set<string>()
+
+  for (const source of sources) {
+    const sourceValues = source.config[key]
+
+    if (!Array.isArray(sourceValues)) {
+      continue
+    }
+
+    for (const value of sourceValues) {
+      if (typeof value === "string" && value.length > 0) {
+        values.add(value)
+      }
+    }
+  }
+
+  return [...values]
+}
+
 export const loadRuntimeConfig = (args: string[] = []): RuntimeConfig => {
   const parsedArgs = parseArguments(args)
   const baseWorkingDirectory = process.cwd()
@@ -152,6 +177,7 @@ export const loadRuntimeConfig = (args: string[] = []): RuntimeConfig => {
   const sources = [...rootSources, ...baseSources]
   const inputAi = parsedArgs.ai ?? findConfigValue(sources, "ai")?.value
   const inputSock = findConfigValue(sources, "sock")
+  const customSuggestions = findConfigValues(sources, "custom-suggestions")
 
   return {
     root,
@@ -159,6 +185,7 @@ export const loadRuntimeConfig = (args: string[] = []): RuntimeConfig => {
     sock: inputSock
       ? resolvePathFrom(inputSock.source.directory, inputSock.value)
       : undefined,
+    customSuggestions,
     parsedArgs,
   }
 }

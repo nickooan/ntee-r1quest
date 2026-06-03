@@ -15,6 +15,7 @@ import {
   parseArguments,
   resolveAiAdaptor,
   resolveRoot,
+  resolveRuntimeConfig,
   resolveSock,
 } from "../src/runtime/command.ts"
 
@@ -187,6 +188,25 @@ describe("command runtime", () => {
 
     try {
       expect(resolveAiAdaptor(["-ai", "codex"])).toBe("codex")
+    } finally {
+      process.chdir(originalWorkingDirectory)
+    }
+  })
+
+  test("loads custom suggestions from .r1qconfig.yaml", () => {
+    const originalWorkingDirectory = process.cwd()
+    const configWorkingDirectory = join(
+      originalWorkingDirectory,
+      "test/config-cwd",
+    )
+
+    process.chdir(configWorkingDirectory)
+
+    try {
+      expect(resolveRuntimeConfig().customSuggestions).toEqual([
+        "some-style-id",
+        "x-trace-token",
+      ])
     } finally {
       process.chdir(originalWorkingDirectory)
     }

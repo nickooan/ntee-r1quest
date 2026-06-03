@@ -13,6 +13,7 @@ r1q
 !test/**/.r1qconfig.json
 !test/**/.r1qconfig.yaml
 !test/**/.r1qconfig.yml
+!example/.r1qconfig.yaml
 
 # code coverage
 coverage

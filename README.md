@@ -260,9 +260,15 @@ Example:
 root: ~/example-api-collection
 ai: codex
 sock: /tmp/ntee-r1quest.sock
+custom-suggestions:
+  - some-style-id
+  - x-trace-token
 ```
 
 Command-line options take precedence over config values.
+
+`custom-suggestions` adds user-defined editor suggestions for request header
+keys and object body keys.
 
 When `sock` is set, the terminal app listens on that Unix socket for external
 request events. A `-p` execution posts its formatted response to the socket when

@@ -219,6 +219,20 @@ const getEffectiveLine = (
   }
 }
 
+const isBodyKeySuggestionContext = (
+  beforeCursor: string,
+  replaceStart: number,
+): boolean => {
+  const beforePrefix = beforeCursor.slice(0, replaceStart)
+  const trimmedBeforePrefix = beforePrefix.trimEnd()
+
+  return (
+    /(?:^|\s)body\s+\{[^}]*$/.test(beforePrefix) ||
+    /[{,]\s*$/.test(trimmedBeforePrefix) ||
+    /^\s+$/.test(beforePrefix)
+  )
+}
+
 const findEditSuggestions = (
   state: EditModeState,
   suggestionItems: EditorSuggestionItem[],
@@ -230,6 +244,7 @@ const findEditSuggestions = (
   const definitionMatch = beforeCursor.match(/@i\(([A-Za-z0-9_-]*)$/)
   const macroMatch = beforeCursor.match(/@[A-Za-z]*$/)
   const keywordMatch = beforeCursor.match(/[A-Za-z][A-Za-z-]*$/)
+  const bodyKeyMatch = beforeCursor.match(/[A-Za-z][A-Za-z0-9_-]*$/)
 
   if (refMatch?.[1] !== undefined) {
     const prefix = refMatch[1]
@@ -308,6 +323,26 @@ const findEditSuggestions = (
           replaceStart,
           replaceEnd: cursorX,
         }
+  }
+
+  if (bodyKeyMatch?.[0]) {
+    const prefix = bodyKeyMatch[0]
+    const replaceStart = cursorX - prefix.length
+
+    if (isBodyKeySuggestionContext(beforeCursor, replaceStart)) {
+      const options = suggestionItems.filter((item) => {
+        return item.kind === "bodyKey" && item.label.startsWith(prefix)
+      })
+
+      return options.length === 0
+        ? null
+        : {
+            options,
+            selectedIndex: 0,
+            replaceStart,
+            replaceEnd: cursorX,
+          }
+    }
   }
 
   if (keywordMatch?.[0]) {
