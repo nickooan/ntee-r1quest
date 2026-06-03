@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, isAbsolute, join, normalize, resolve } from "node:path"
+import YAML from "yaml"
 
 export type ParsedArgs = {
   root?: string
@@ -59,9 +60,15 @@ const resolvePathFrom = (baseDirectory: string, inputPath: string): string => {
     : resolve(baseDirectory, expandedPath)
 }
 
+const configFileNames = [".r1qconfig.yaml", ".r1qconfig.yml"] as const
+
+const configPathsForDirectory = (directory: string): string[] => {
+  return configFileNames.map((fileName) => resolve(directory, fileName))
+}
+
 const configPaths = (): string[] => [
-  resolve(process.cwd(), ".r1qconfig.json"),
-  join(homedir(), ".ntee-r1quest", ".r1qconfig.json"),
+  ...configPathsForDirectory(process.cwd()),
+  ...configPathsForDirectory(join(homedir(), ".ntee-r1quest")),
 ]
 
 const readConfigSource = (configPath: string): ConfigSource | null => {
@@ -72,7 +79,7 @@ const readConfigSource = (configPath: string): ConfigSource | null => {
   return {
     path: configPath,
     directory: dirname(configPath),
-    config: JSON.parse(readFileSync(configPath, "utf8")) as ConfigFile,
+    config: (YAML.parse(readFileSync(configPath, "utf8")) ?? {}) as ConfigFile,
   }
 }
 
@@ -137,13 +144,12 @@ export const loadRuntimeConfig = (args: string[] = []): RuntimeConfig => {
     ? baseWorkingDirectory
     : (configRoot?.source.directory ?? baseWorkingDirectory)
   const root = resolvePathFrom(rootBaseDirectory, inputRoot)
-  const rootConfigPath = resolve(root, ".r1qconfig.json")
-  const rootSource = baseSources.some(
-    (source) => source.path === rootConfigPath,
+  const rootSources = readConfigSources(
+    configPathsForDirectory(root).filter(
+      (configPath) => !baseSources.some((source) => source.path === configPath),
+    ),
   )
-    ? null
-    : readConfigSource(rootConfigPath)
-  const sources = rootSource ? [rootSource, ...baseSources] : baseSources
+  const sources = [...rootSources, ...baseSources]
   const inputAi = parsedArgs.ai ?? findConfigValue(sources, "ai")?.value
   const inputSock = findConfigValue(sources, "sock")
 

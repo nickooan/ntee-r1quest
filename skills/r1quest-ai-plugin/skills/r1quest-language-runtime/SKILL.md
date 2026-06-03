@@ -104,14 +104,14 @@ Rules:
 - `-p` accepts paths with or without `.nts`.
 - The path is resolved under the request root from `-r`, config, or cwd.
 - `ref` and `@f(...)` paths still resolve relative to the `.nts` file.
-- If `.r1qconfig.json` defines `sock`, one-shot execution posts the formatted
+- If `.r1qconfig.yaml` defines `sock`, one-shot execution posts the formatted
   response to the socket for an open terminal app.
 
 ## Validation Workflow
 
 When checking a request:
 
-1. Identify the request root from `-r`, `.r1qconfig.json`, or the cwd.
+1. Identify the request root from `-r`, `.r1qconfig.yaml`, or the cwd.
 2. Locate the target `.nts` file, adding `.nts` if omitted.
 3. Read all referenced `.ntd` files.
 4. Check that all `@i(key)` macros are defined by referenced `.ntd` files.

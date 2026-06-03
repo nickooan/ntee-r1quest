@@ -55,7 +55,7 @@ Nested request paths work too:
 @query >folder-1/get-post
 ```
 
-If `-r` is omitted, `ntee-r1quest` looks for `.r1qconfig.json`, then falls back
+If `-r` is omitted, `ntee-r1quest` looks for `.r1qconfig.yaml`, then falls back
 to the current directory as the request root.
 
 Run one request without opening the terminal app:
@@ -227,7 +227,7 @@ Supported adapters:
 - `codex`
 - `claude` for Claude Code
 
-If `-ai` is not provided, `ntee-r1quest` reads `.r1qconfig.json`. If no adapter
+If `-ai` is not provided, `ntee-r1quest` reads `.r1qconfig.yaml`. If no adapter
 is declared, `@ai` shows a configuration error instead of choosing one
 implicitly.
 
@@ -236,29 +236,30 @@ implicitly.
 Config lookup checks the current directory first:
 
 ```text
-./.r1qconfig.json
+./.r1qconfig.yaml
 ```
 
 When a request root is resolved, its config is also loaded:
 
 ```text
-<request-root>/.r1qconfig.json
+<request-root>/.r1qconfig.yaml
 ```
 
 Then it checks the home config:
 
 ```text
-~/.ntee-r1quest/.r1qconfig.json
+~/.ntee-r1quest/.r1qconfig.yaml
 ```
+
+`.r1qconfig.yml` is also accepted. `.r1qconfig.json` is not a valid config file
+name.
 
 Example:
 
-```json
-{
-  "root": "~/example-api-collection",
-  "ai": "codex",
-  "sock": "/tmp/ntee-r1quest.sock"
-}
+```yaml
+root: ~/example-api-collection
+ai: codex
+sock: /tmp/ntee-r1quest.sock
 ```
 
 Command-line options take precedence over config values.

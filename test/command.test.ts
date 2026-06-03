@@ -144,7 +144,7 @@ describe("command runtime", () => {
     )
   })
 
-  test("uses .r1qconfig.json root from the current directory", () => {
+  test("uses .r1qconfig.yaml root from the current directory", () => {
     const originalWorkingDirectory = process.cwd()
     const configWorkingDirectory = join(
       originalWorkingDirectory,
@@ -160,7 +160,7 @@ describe("command runtime", () => {
     }
   })
 
-  test("uses .r1qconfig.json ai adaptor from the current directory", () => {
+  test("uses .r1qconfig.yaml ai adaptor from the current directory", () => {
     const originalWorkingDirectory = process.cwd()
     const configWorkingDirectory = join(
       originalWorkingDirectory,
@@ -176,7 +176,7 @@ describe("command runtime", () => {
     }
   })
 
-  test("uses -ai before .r1qconfig.json ai adaptor", () => {
+  test("uses -ai before .r1qconfig.yaml ai adaptor", () => {
     const originalWorkingDirectory = process.cwd()
     const configWorkingDirectory = join(
       originalWorkingDirectory,
@@ -192,7 +192,7 @@ describe("command runtime", () => {
     }
   })
 
-  test("resolves .r1qconfig.json sock from the current directory", () => {
+  test("resolves .r1qconfig.yaml sock from the current directory", () => {
     const originalWorkingDirectory = process.cwd()
     const configWorkingDirectory = join(
       originalWorkingDirectory,
@@ -203,6 +203,23 @@ describe("command runtime", () => {
 
     try {
       expect(resolveSock()).toBe(join(configWorkingDirectory, "r1q.sock"))
+    } finally {
+      process.chdir(originalWorkingDirectory)
+    }
+  })
+
+  test("ignores .r1qconfig.json files", () => {
+    const originalWorkingDirectory = process.cwd()
+    const configWorkingDirectory = join(
+      originalWorkingDirectory,
+      "test/config-json-only",
+    )
+
+    process.chdir(configWorkingDirectory)
+
+    try {
+      expect(resolveRoot()).toBe(configWorkingDirectory)
+      expect(resolveAiAdaptor()).toBeUndefined()
     } finally {
       process.chdir(originalWorkingDirectory)
     }

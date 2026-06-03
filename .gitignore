@@ -8,6 +8,11 @@ dist
 *.tgz
 r1q
 .r1qconfig.json
+.r1qconfig.yaml
+.r1qconfig.yml
+!test/**/.r1qconfig.json
+!test/**/.r1qconfig.yaml
+!test/**/.r1qconfig.yml
 
 # code coverage
 coverage
