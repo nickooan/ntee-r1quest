@@ -1,0 +1,15 @@
+{
+  "name": "r1quest-ai",
+  "description": "Marketplace for the ntee-r1quest AI plugin (skills for generating and editing R1Quest request projects).",
+  "owner": {
+    "name": "ntee-r1quest"
+  },
+  "plugins": [
+    {
+      "name": "r1quest-ai-plugin",
+      "description": "AI skills for generating, understanding, running, and editing ntee-r1quest request projects.",
+      "version": "0.1.0",
+      "source": "./plugin"
+    }
+  ]
+}

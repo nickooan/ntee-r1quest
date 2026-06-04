@@ -19,38 +19,32 @@ and editing `ntee-r1quest` projects.
 ## Structure
 
 ```text
-r1quest-ai-plugin/
+r1quest-ai-plugin/             # marketplace root
   .claude-plugin/
-    plugin.json
-  skills/
-    openapi-r1quest-generator/
-      SKILL.md
-    r1quest-language-runtime/
-      SKILL.md
-    r1quest-project-editor/
-      SKILL.md
-    r1quest-graphql-generator/
-      SKILL.md
-    graphql-schema-r1quest-generator/
-      SKILL.md
+    marketplace.json           # marketplace manifest (lists the plugin below)
+  plugin/                      # the plugin itself
+    .claude-plugin/
+      plugin.json              # plugin manifest
+    skills/
+      openapi-r1quest-generator/
+        SKILL.md
+      r1quest-language-runtime/
+        SKILL.md
+      r1quest-project-editor/
+        SKILL.md
+      r1quest-graphql-generator/
+        SKILL.md
+      graphql-schema-r1quest-generator/
+        SKILL.md
 ```
 
-## Local Claude Code Install
+## Install via Local Marketplace
 
-From this repository root:
-
-```bash
-claude plugin install ./skills/r1quest-ai-plugin
-```
-
-Or add it through a local marketplace that points to this plugin directory.
-
-## Validate
-
-From this plugin directory:
+Add this directory as a marketplace and install the plugin:
 
 ```bash
-claude plugin validate
+/plugin marketplace add /Users/nick.an/workspace/ntee-r1quest/skills/r1quest-ai-plugin
+/plugin install r1quest-ai-plugin@r1quest-ai
 ```
 
 The skills appear under the plugin namespace after install.
