@@ -745,53 +745,64 @@ r1q -r ./example/request -ai claude
 
 ## R1Quest AI Plugin
 
-This repo includes a Claude Code plugin with AI skills for generating,
-understanding, running, and editing `ntee-r1quest` projects:
+This repo includes a local Claude Code marketplace containing the R1Quest AI
+plugin. The plugin provides skills for generating, understanding, running, and
+editing `ntee-r1quest` projects.
+
+Available skills:
+
+- `openapi-r1quest-generator`: Generate request projects from Swagger/OpenAPI
+  v3 YAML or JSON files.
+- `r1quest-language-runtime`: Understand `.ntd` and `.nts` syntax, macros,
+  request keywords, config behavior, and one-shot `-p` execution.
+- `r1quest-project-editor`: Scan and safely update an existing request root.
+- `r1quest-graphql-generator`: Generate GraphQL query and mutation examples.
+- `graphql-schema-r1quest-generator`: Generate a GraphQL request project from a
+  GraphQL schema or introspection JSON file.
+
+The Claude plugin uses a marketplace root with the plugin stored under
+`plugin/`:
 
 ```text
-skills/r1quest-ai-plugin/
-  .claude-plugin/plugin.json
-  skills/openapi-r1quest-generator/SKILL.md
-  skills/r1quest-language-runtime/SKILL.md
-  skills/r1quest-project-editor/SKILL.md
+skills/r1quest-ai-plugin/             # marketplace root
+  .claude-plugin/
+    marketplace.json
+  plugin/
+    .claude-plugin/
+      plugin.json
+    skills/
+      openapi-r1quest-generator/
+      r1quest-language-runtime/
+      r1quest-project-editor/
+      r1quest-graphql-generator/
+      graphql-schema-r1quest-generator/
 ```
 
-The OpenAPI generator skill creates a project shape like:
-
-```text
-<output-dir>/<project-name>/
-  data/
-    common.ntd
-    auth.ntd
-    <operation-name>.ntd
-  get-property.nts
-  create-property.nts
-```
-
-Install it into Claude Code from this repository root:
+From this repository root, add the local marketplace and install the plugin
+inside Claude Code:
 
 ```bash
-claude plugin install ./skills/r1quest-ai-plugin
+/plugin marketplace add ./skills/r1quest-ai-plugin
+/plugin install r1quest-ai-plugin@r1quest-ai
 ```
 
-Import individual skills into Codex globally:
+The installed skills appear under the plugin namespace.
+
+To use individual skills with Codex, import them from the plugin's `skills`
+directory:
 
 ```bash
 mkdir -p ~/.codex/skills
-cp -R skills/r1quest-ai-plugin/skills/openapi-r1quest-generator ~/.codex/skills/openapi-r1quest-generator
-cp -R skills/r1quest-ai-plugin/skills/r1quest-language-runtime ~/.codex/skills/r1quest-language-runtime
-cp -R skills/r1quest-ai-plugin/skills/r1quest-project-editor ~/.codex/skills/r1quest-project-editor
+cp -R skills/r1quest-ai-plugin/plugin/skills/* ~/.codex/skills/
 ```
 
 Or with `CODEX_HOME`:
 
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-cp -R skills/r1quest-ai-plugin/skills/openapi-r1quest-generator "${CODEX_HOME:-$HOME/.codex}/skills/openapi-r1quest-generator"
-cp -R skills/r1quest-ai-plugin/skills/r1quest-language-runtime "${CODEX_HOME:-$HOME/.codex}/skills/r1quest-language-runtime"
-cp -R skills/r1quest-ai-plugin/skills/r1quest-project-editor "${CODEX_HOME:-$HOME/.codex}/skills/r1quest-project-editor"
+cp -R skills/r1quest-ai-plugin/plugin/skills/* "${CODEX_HOME:-$HOME/.codex}/skills/"
 ```
 
 Once installed, ask Claude Code or Codex to generate requests from OpenAPI,
-explain `.ntd`/`.nts` syntax, run one-shot `-p` requests, or update files in an
-existing request root.
+generate requests from a GraphQL schema, explain `.ntd`/`.nts` syntax, run
+one-shot `-p` requests, or update files in an existing request root.
