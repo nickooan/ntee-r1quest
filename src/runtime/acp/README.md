@@ -3,7 +3,7 @@
 ```text
 Terminal UI
   |
-  | new CodexAcpAdapter / ClaudeCodeAcpAdapter
+  | new CodexAcpAdapter / ClaudeCodeAcpAdapter / CursorAcpAdapter
   v
 ACP Adapter
   |-- run()
@@ -30,13 +30,15 @@ ACP Adapter
 Agent ACP Process
   | Codex: @zed-industries/codex-acp
   | Claude: @agentclientprotocol/claude-agent-acp
+  | Cursor: agent acp
 ```
 
 ## Files
 
 - `codex-adapt.ts` starts and talks to the Codex ACP process.
 - `claude-code-adapt.ts` starts and talks to the Claude Code ACP process.
-- `conversation-manager.ts` tracks prompt conversations shared by both adapters.
+- `cursor-adapt.ts` starts Cursor CLI in ACP mode and talks to the process.
+- `conversation-manager.ts` tracks prompt conversations shared by all adapters.
 - `index.ts` exports adapter classes, constructors, and public types.
 
 ## Adapter Lifecycle
@@ -44,7 +46,7 @@ Agent ACP Process
 Adapters expose the same public API so the UI can switch providers through
 `getAdaptor()` without changing prompt, permission, or lifecycle code.
 
-`run()` starts the provider ACP binary with `node`, creates an
+`run()` starts the provider ACP process, creates an
 `ndJsonStream`, initializes the ACP connection, and creates a new ACP session.
 Concurrent startup calls share `runPromise`, so rapid prompt submission does not
 spawn duplicate agent processes.
@@ -167,9 +169,10 @@ finishes, it falls back to the most recently created pending conversation. This
 matters when a user sends another prompt while an earlier prompt is still
 running.
 
-Conversation data is intentionally provider-neutral. Both Codex and Claude
-adapters alias the shared `AcpConversation` type to provider-specific public
-names such as `CodexAcpConversation` and `ClaudeCodeAcpConversation`.
+Conversation data is intentionally provider-neutral. All adapters alias the
+shared `AcpConversation` type to provider-specific public names such as
+`CodexAcpConversation`, `ClaudeCodeAcpConversation`, and
+`CursorAcpConversation`.
 
 ## UI Pending State
 

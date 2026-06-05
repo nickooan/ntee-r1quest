@@ -74,4 +74,3 @@ not available.
   `patch`, or `delete`.
 - After execution, report the resolved collection, request path, command used,
   and response status or error.
-

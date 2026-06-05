@@ -16,6 +16,7 @@ export type AiProps = {
   scrollY?: number
   permissionMessage?: string
   isPending?: boolean
+  isOffline?: boolean
   pendingFrameIndex?: number
 }
 
@@ -148,29 +149,34 @@ export const buildAiMessageLines = (
   })
 }
 
-const buildVisibleMessageLines = (
+export const buildVisibleAiMessageLines = (
   messages: AiChatMessage[],
   height: number,
   width: number,
   scrollY: number,
   pendingFrameIndex?: number,
+  isOffline = false,
 ): Array<{ key: string; role: AiChatMessage["role"]; content: string }> => {
   const lines = buildAiMessageLines(messages, width)
-  const nextLines =
-    pendingFrameIndex === undefined
-      ? lines
-      : [
-          ...lines,
-          {
-            key: `pending-${pendingFrameIndex}`,
-            role: "assistant" as const,
-            content:
-              `AI is thinking${pendingFrames[pendingFrameIndex % pendingFrames.length]}`.padStart(
-                width,
-                " ",
-              ),
-          },
-        ]
+  const nextLines = [...lines]
+
+  if (isOffline) {
+    nextLines.push({
+      key: "offline",
+      role: "assistant" as const,
+      content: "AI is offline".padStart(width, " "),
+    })
+  } else if (pendingFrameIndex !== undefined) {
+    nextLines.push({
+      key: `pending-${pendingFrameIndex}`,
+      role: "assistant" as const,
+      content:
+        `AI is thinking${pendingFrames[pendingFrameIndex % pendingFrames.length]}`.padStart(
+          width,
+          " ",
+        ),
+    })
+  }
   const maxScrollY = Math.max(0, nextLines.length - height)
   const safeScrollY = maxScrollY - Math.min(Math.max(scrollY, 0), maxScrollY)
 
@@ -239,16 +245,18 @@ export const Ai = ({
   scrollY = 0,
   permissionMessage,
   isPending = false,
+  isOffline = false,
   pendingFrameIndex = 0,
 }: AiProps) => {
   const { modalWidth, modalHeight, left, top, contentWidth, contentHeight } =
     buildAiLayout(width, height)
-  const visibleMessages = buildVisibleMessageLines(
+  const visibleMessages = buildVisibleAiMessageLines(
     messages,
     contentHeight,
     contentWidth,
     scrollY,
     isPending ? pendingFrameIndex : undefined,
+    isOffline,
   )
   const inputPrefix = "> "
   const inputContentWidth = Math.max(0, contentWidth - inputPrefix.length)
@@ -307,7 +315,12 @@ export const Ai = ({
       {visibleMessages.map((line) => (
         <Text key={line.key}>
           {" ".repeat(paddingX)}
-          <Text bold={line.role === "user"}>{line.content}</Text>
+          <Text
+            bold={line.role === "user"}
+            color={line.key === "offline" ? "red" : undefined}
+          >
+            {line.content}
+          </Text>
           {" ".repeat(paddingX)}
         </Text>
       ))}

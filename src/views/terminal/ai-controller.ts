@@ -38,6 +38,7 @@ export const useAiController = ({
   const [aiModeState, setAiModeState] =
     useState<AiModeState>(createAiModeState())
   const [isAiPending, setIsAiPending] = useState(false)
+  const [isAiOffline, setIsAiOffline] = useState(false)
   const [aiConversations, setAiConversations] = useState<
     CodexAcpConversation[]
   >([])
@@ -83,6 +84,7 @@ export const useAiController = ({
     }
 
     const Adaptor = getAdaptor(aiAdaptor)
+    let isAdapterReady = false
     const adapter = new Adaptor({
       cwd: root ?? process.cwd(),
       onResponse: (response) => {
@@ -129,6 +131,14 @@ export const useAiController = ({
 
         setLocalError(error)
         setIsAiPending(false)
+
+        if (!isAdapterReady) {
+          aiAdapterRef.current = undefined
+          adapter.stop()
+          setAiPermissionRequest(undefined)
+          setAiConversations([])
+          setIsAiOffline(true)
+        }
       },
       onExit: () => {
         if (aiAdapterRef.current !== adapter) {
@@ -139,11 +149,12 @@ export const useAiController = ({
         setAiPermissionRequest(undefined)
         setAiConversations([])
         setIsAiPending(false)
-        setMode(TerminalMode.Query)
+        setIsAiOffline(true)
       },
     })
 
     aiAdapterRef.current = adapter
+    setIsAiOffline(false)
     setAiModeState((currentState) => ({
       ...currentState,
       scrollY: 0,
@@ -154,13 +165,27 @@ export const useAiController = ({
     setLocalError(undefined)
     setMode(TerminalMode.Ai)
 
-    void adapter.run().catch((error: unknown) => {
-      if (aiAdapterRef.current !== adapter) {
-        return
-      }
+    void adapter
+      .run()
+      .then(() => {
+        if (aiAdapterRef.current === adapter) {
+          isAdapterReady = true
+          setIsAiOffline(false)
+        }
+      })
+      .catch((error: unknown) => {
+        if (aiAdapterRef.current !== adapter) {
+          return
+        }
 
-      setLocalError(error)
-    })
+        aiAdapterRef.current = undefined
+        adapter.stop()
+        setAiPermissionRequest(undefined)
+        setAiConversations([])
+        setIsAiPending(false)
+        setIsAiOffline(true)
+        setLocalError(error)
+      })
   }
 
   const closeAiMode = () => {
@@ -220,6 +245,7 @@ export const useAiController = ({
     aiModeState,
     setAiModeState,
     isAiPending,
+    isAiOffline,
     aiConversations,
     aiPermissionRequest,
     startAiMode,

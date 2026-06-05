@@ -98,7 +98,7 @@ export type InitializeHomeConfigResult = {
 
 export type HomeConfigInput = {
   root: string | null
-  ai?: "codex" | "claude"
+  ai?: "codex" | "claude" | "cursor"
 }
 
 export const initializeHomeConfig = (
