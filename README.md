@@ -833,6 +833,20 @@ mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
 cp -R skills/r1quest-ai-plugin/plugin/skills/* "${CODEX_HOME:-$HOME/.codex}/skills/"
 ```
 
-Once installed, ask Claude Code or Codex to generate requests from OpenAPI,
-generate requests from a GraphQL schema, explain `.ntd`/`.nts` syntax, run
-one-shot `-p` requests, or update files in an existing request root.
+To use individual skills globally with Cursor CLI:
+
+```bash
+mkdir -p ~/.cursor/skills
+cp -R skills/r1quest-ai-plugin/plugin/skills/* ~/.cursor/skills/
+```
+
+Or install them only for the current project:
+
+```bash
+mkdir -p .cursor/skills
+cp -R skills/r1quest-ai-plugin/plugin/skills/* .cursor/skills/
+```
+
+Once installed, ask Claude Code, Codex, or Cursor to generate requests from
+OpenAPI, generate requests from a GraphQL schema, explain `.ntd`/`.nts` syntax,
+run one-shot `-p` requests, or update files in an existing request root.
