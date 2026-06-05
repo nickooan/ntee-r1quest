@@ -1,0 +1,5 @@
+root: ../data
+ai: claude
+custom-suggestions:
+  - some-style-id
+  - x-trace-token

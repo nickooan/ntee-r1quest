@@ -12,6 +12,7 @@ import {
   type EditorSuggestionItem,
 } from "../../runtime/editor-suggestions/index.ts"
 import type { OpenViewFile } from "../../runtime/file-manager/index.ts"
+import { getRuntimeConfig } from "../../runtime/config.ts"
 
 type UseEditSuggestionsParams = {
   mode: TerminalMode
@@ -41,6 +42,7 @@ export const useEditSuggestions = ({
     ...editSuggestionItems,
     ...editRefSuggestionItems,
   ]
+  const customSuggestions = getRuntimeConfig().customSuggestions
 
   useEffect(() => {
     if (
@@ -99,18 +101,24 @@ export const useEditSuggestions = ({
   }, [editRefSuggestionFragment, editSuggestionItems, mode, openViewFile?.path])
 
   const createEditModeForOpenFile = (file: OpenViewFile): EditModeState => {
-    setEditSuggestionItems(buildEditorSuggestionItems(file.path, file.content))
+    setEditSuggestionItems(
+      buildEditorSuggestionItems(file.path, file.content, customSuggestions),
+    )
     setEditRefSuggestionItems([])
     return createEditModeState(file.content)
   }
 
   const preloadEditSuggestions = (file: OpenViewFile) => {
-    setEditSuggestionItems(buildEditorSuggestionItems(file.path, file.content))
+    setEditSuggestionItems(
+      buildEditorSuggestionItems(file.path, file.content, customSuggestions),
+    )
     setEditRefSuggestionItems([])
   }
 
   const rebuildEditSuggestions = (filePath: string, content: string) => {
-    setEditSuggestionItems(buildEditorSuggestionItems(filePath, content))
+    setEditSuggestionItems(
+      buildEditorSuggestionItems(filePath, content, customSuggestions),
+    )
     setEditRefSuggestionItems([])
   }
 

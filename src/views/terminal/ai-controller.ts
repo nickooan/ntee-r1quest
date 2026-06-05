@@ -67,7 +67,7 @@ export const useAiController = ({
 
       setLocalError(
         new Error(
-          `AI agent undeclared. Update .r1qconfig.json with an "ai" value or start the app with -ai ${supportedAdaptors}.`,
+          `AI agent undeclared. Update .r1qconfig.yaml with an "ai" value or start the app with -ai ${supportedAdaptors}.`,
         ),
       )
       return

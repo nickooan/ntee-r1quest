@@ -423,6 +423,73 @@ describe("edit mode key helpers", () => {
     expect(appliedResult.state.cursorX).toBe(21)
   })
 
+  test("suggests and applies custom header names after header keyword", () => {
+    const typedResult = handleEditModeInput(
+      "header x-tr",
+      defaultKey,
+      createEditModeState(""),
+      [
+        {
+          label: "x-trace-token",
+          insertText: "x-trace-token, ",
+          kind: "header",
+        },
+        {
+          label: "x-trace-token",
+          insertText: "x-trace-token: ",
+          kind: "bodyKey",
+        },
+      ],
+    )
+    const appliedResult = handleEditModeInput(
+      "",
+      key({ tab: true }),
+      typedResult.state,
+    )
+
+    expect(typedResult.state.suggestions?.options[0]?.label).toBe(
+      "x-trace-token",
+    )
+    expect(serializeEditModeContent(appliedResult.state)).toBe(
+      "header x-trace-token, ",
+    )
+  })
+
+  test("suggests and applies custom body keys in object bodies", () => {
+    const typedResult = handleEditModeInput(
+      "some",
+      defaultKey,
+      {
+        ...createEditModeState("body { "),
+        cursorX: 7,
+      },
+      [
+        {
+          label: "some-style-id",
+          insertText: "some-style-id, ",
+          kind: "header",
+        },
+        {
+          label: "some-style-id",
+          insertText: "some-style-id: ",
+          kind: "bodyKey",
+        },
+      ],
+    )
+    const appliedResult = handleEditModeInput(
+      "",
+      key({ tab: true }),
+      typedResult.state,
+    )
+
+    expect(typedResult.state.suggestions?.options[0]?.label).toBe(
+      "some-style-id",
+    )
+    expect(serializeEditModeContent(appliedResult.state)).toBe(
+      "body { some-style-id: ",
+    )
+  })
+
   test("applies suggestions with enter before normal edit submit", () => {
     const typedResult = handleEditModeInput(
       "hea",

@@ -55,8 +55,25 @@ Nested request paths work too:
 @query >folder-1/get-post
 ```
 
-If `-r` is omitted, `ntee-r1quest` looks for `.r1qconfig.json`, then falls back
+If `-r` is omitted, `ntee-r1quest` looks for `.r1qconfig.yaml`, then falls back
 to the current directory as the request root.
+
+Initialize the home config without opening the terminal app:
+
+```bash
+npx ntee-r1quest --init
+```
+
+This opens a short config wizard when `~/.ntee-r1quest/r1qconfig.yaml` is
+missing. The collection path defaults to `null`, and the AI agent can be left
+empty or set to Codex or Claude. After completion, it prints the paths it
+created.
+
+Print the installed version without opening the terminal app:
+
+```bash
+npx ntee-r1quest --version
+```
 
 Run one request without opening the terminal app:
 
@@ -227,7 +244,7 @@ Supported adapters:
 - `codex`
 - `claude` for Claude Code
 
-If `-ai` is not provided, `ntee-r1quest` reads `.r1qconfig.json`. If no adapter
+If `-ai` is not provided, `ntee-r1quest` reads `.r1qconfig.yaml`. If no adapter
 is declared, `@ai` shows a configuration error instead of choosing one
 implicitly.
 
@@ -236,32 +253,39 @@ implicitly.
 Config lookup checks the current directory first:
 
 ```text
-./.r1qconfig.json
+./.r1qconfig.yaml
 ```
 
 When a request root is resolved, its config is also loaded:
 
 ```text
-<request-root>/.r1qconfig.json
+<request-root>/.r1qconfig.yaml
 ```
 
 Then it checks the home config:
 
 ```text
-~/.ntee-r1quest/.r1qconfig.json
+~/.ntee-r1quest/r1qconfig.yaml
 ```
+
+`.r1qconfig.yml` is also accepted. `.r1qconfig.json` is not a valid config file
+name.
 
 Example:
 
-```json
-{
-  "root": "~/example-api-collection",
-  "ai": "codex",
-  "sock": "/tmp/ntee-r1quest.sock"
-}
+```yaml
+root: ~/example-api-collection
+ai: codex
+sock: /tmp/ntee-r1quest.sock
+custom-suggestions:
+  - some-style-id
+  - x-trace-token
 ```
 
 Command-line options take precedence over config values.
+
+`custom-suggestions` adds user-defined editor suggestions for request header
+keys and object body keys.
 
 When `sock` is set, the terminal app listens on that Unix socket for external
 request events. A `-p` execution posts its formatted response to the socket when
@@ -738,53 +762,67 @@ r1q -r ./example/request -ai claude
 
 ## R1Quest AI Plugin
 
-This repo includes a Claude Code plugin with AI skills for generating,
-understanding, running, and editing `ntee-r1quest` projects:
+This repo includes a local Claude Code marketplace containing the R1Quest AI
+plugin. The plugin provides skills for generating, understanding, running, and
+editing `ntee-r1quest` projects.
+
+Available skills:
+
+- `openapi-r1quest-generator`: Generate request projects from Swagger/OpenAPI
+  v3 YAML or JSON files.
+- `r1quest-language-runtime`: Understand `.ntd` and `.nts` syntax, macros,
+  request keywords, config behavior, and one-shot `-p` execution.
+- `r1quest-one-shot-runner`: Locate and execute one named request from an
+  existing R1Quest collection.
+- `r1quest-project-editor`: Scan and safely update an existing request root.
+- `r1quest-graphql-generator`: Generate GraphQL query and mutation examples.
+- `graphql-schema-r1quest-generator`: Generate a GraphQL request project from a
+  GraphQL schema or introspection JSON file.
+
+The Claude plugin uses a marketplace root with the plugin stored under
+`plugin/`:
 
 ```text
-skills/r1quest-ai-plugin/
-  .claude-plugin/plugin.json
-  skills/openapi-r1quest-generator/SKILL.md
-  skills/r1quest-language-runtime/SKILL.md
-  skills/r1quest-project-editor/SKILL.md
+skills/r1quest-ai-plugin/             # marketplace root
+  .claude-plugin/
+    marketplace.json
+  plugin/
+    .claude-plugin/
+      plugin.json
+    skills/
+      openapi-r1quest-generator/
+      r1quest-language-runtime/
+      r1quest-one-shot-runner/
+      r1quest-project-editor/
+      r1quest-graphql-generator/
+      graphql-schema-r1quest-generator/
 ```
 
-The OpenAPI generator skill creates a project shape like:
-
-```text
-<output-dir>/<project-name>/
-  data/
-    common.ntd
-    auth.ntd
-    <operation-name>.ntd
-  get-property.nts
-  create-property.nts
-```
-
-Install it into Claude Code from this repository root:
+From this repository root, add the local marketplace and install the plugin
+inside Claude Code:
 
 ```bash
-claude plugin install ./skills/r1quest-ai-plugin
+/plugin marketplace add ./skills/r1quest-ai-plugin
+/plugin install r1quest-ai-plugin@r1quest-ai
 ```
 
-Import individual skills into Codex globally:
+The installed skills appear under the plugin namespace.
+
+To use individual skills with Codex, import them from the plugin's `skills`
+directory:
 
 ```bash
 mkdir -p ~/.codex/skills
-cp -R skills/r1quest-ai-plugin/skills/openapi-r1quest-generator ~/.codex/skills/openapi-r1quest-generator
-cp -R skills/r1quest-ai-plugin/skills/r1quest-language-runtime ~/.codex/skills/r1quest-language-runtime
-cp -R skills/r1quest-ai-plugin/skills/r1quest-project-editor ~/.codex/skills/r1quest-project-editor
+cp -R skills/r1quest-ai-plugin/plugin/skills/* ~/.codex/skills/
 ```
 
 Or with `CODEX_HOME`:
 
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-cp -R skills/r1quest-ai-plugin/skills/openapi-r1quest-generator "${CODEX_HOME:-$HOME/.codex}/skills/openapi-r1quest-generator"
-cp -R skills/r1quest-ai-plugin/skills/r1quest-language-runtime "${CODEX_HOME:-$HOME/.codex}/skills/r1quest-language-runtime"
-cp -R skills/r1quest-ai-plugin/skills/r1quest-project-editor "${CODEX_HOME:-$HOME/.codex}/skills/r1quest-project-editor"
+cp -R skills/r1quest-ai-plugin/plugin/skills/* "${CODEX_HOME:-$HOME/.codex}/skills/"
 ```
 
 Once installed, ask Claude Code or Codex to generate requests from OpenAPI,
-explain `.ntd`/`.nts` syntax, run one-shot `-p` requests, or update files in an
-existing request root.
+generate requests from a GraphQL schema, explain `.ntd`/`.nts` syntax, run
+one-shot `-p` requests, or update files in an existing request root.

@@ -35,6 +35,24 @@ describe("editor suggestions", () => {
     )
   })
 
+  test("builds custom header and body key suggestions", () => {
+    const suggestions = buildEditorSuggestionItems(undefined, "", [
+      "some-style-id",
+      "x-trace-token",
+    ])
+
+    expect(suggestions).toContainEqual({
+      label: "some-style-id",
+      insertText: "some-style-id, ",
+      kind: "header",
+    })
+    expect(suggestions).toContainEqual({
+      label: "some-style-id",
+      insertText: "some-style-id: ",
+      kind: "bodyKey",
+    })
+  })
+
   test("builds dynamic ref suggestions from the typed path fragment", async () => {
     const requestPath = resolve("test/data/post.nts")
 
