@@ -1,19 +1,28 @@
 #!/usr/bin/env node
 import type { AxiosResponse } from "axios"
+import { existsSync } from "node:fs"
 import React, { useMemo, useState } from "react"
 import { render } from "ink"
 import {
   execute,
   executePathArgument,
+  parseArguments,
+  resolveImmediateCommandOutput,
   resolveRuntimeConfig,
 } from "./src/runtime/command.ts"
 import { resolveAdaptorName } from "./src/runtime/acp/index.ts"
-import type { RuntimeConfig } from "./src/runtime/config.ts"
+import {
+  getHomeConfigPath,
+  initializeHomeConfig,
+  type InitializeHomeConfigResult,
+  type RuntimeConfig,
+} from "./src/runtime/config.ts"
 import {
   buildExternalRequestEvent,
   postExternalRequestEvent,
 } from "./src/runtime/external-event/index.ts"
 import { VERSION } from "./src/runtime/version.ts"
+import { ConfigGenerator } from "./src/views/config-generator/index.tsx"
 import { formatError, formatResponse } from "./src/views/response.tsx"
 import { TerminalApp } from "./src/views/terminal-app.tsx"
 
@@ -60,6 +69,55 @@ const runPathArgument = async (
 
     return true
   }
+}
+
+const formatInitializeResult = (result: InitializeHomeConfigResult): string => {
+  const output: string[] = []
+
+  if (result.createdDirectory) {
+    output.push(`Created directory: ${result.createdDirectory}`)
+  }
+
+  if (result.createdConfig) {
+    output.push(`Created config: ${result.createdConfig}`)
+  }
+
+  if (output.length === 0) {
+    output.push(`Already initialized: ${result.configPath}`)
+  }
+
+  return `${output.join("\n")}\n`
+}
+
+const runInitArgument = async (args: string[]): Promise<boolean> => {
+  if (!parseArguments(args).init) {
+    return false
+  }
+
+  const configPath = getHomeConfigPath()
+
+  if (existsSync(configPath)) {
+    process.stdout.write(`Already initialized: ${configPath}\n`)
+    return true
+  }
+
+  let result: InitializeHomeConfigResult | undefined
+  const instance = render(
+    React.createElement(ConfigGenerator, {
+      configPath,
+      onComplete: (config) => {
+        result = initializeHomeConfig(undefined, config)
+      },
+    }),
+  )
+
+  await instance.waitUntilExit()
+
+  if (result) {
+    process.stdout.write(formatInitializeResult(result))
+  }
+
+  return true
 }
 
 const CommandApp = ({ config }: { config: RuntimeConfig }) => {
@@ -111,10 +169,20 @@ const CommandApp = ({ config }: { config: RuntimeConfig }) => {
 
 if (import.meta.main) {
   const args = process.argv.slice(2)
-  const config = resolveRuntimeConfig(args)
-  const didRunPathArgument = await runPathArgument(args, config)
+  const immediateCommandOutput = resolveImmediateCommandOutput(args)
 
-  if (!didRunPathArgument) {
-    render(React.createElement(CommandApp, { config }))
+  if (immediateCommandOutput !== undefined) {
+    process.stdout.write(immediateCommandOutput)
+  } else {
+    const didRunInitArgument = await runInitArgument(args)
+
+    if (!didRunInitArgument) {
+      const config = resolveRuntimeConfig(args)
+      const didRunPathArgument = await runPathArgument(args, config)
+
+      if (!didRunPathArgument) {
+        render(React.createElement(CommandApp, { config }))
+      }
+    }
   }
 }

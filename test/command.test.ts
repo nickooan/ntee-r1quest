@@ -6,6 +6,8 @@ import {
   expect,
   test,
 } from "@jest/globals"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
@@ -14,10 +16,13 @@ import {
   executePathArgument,
   parseArguments,
   resolveAiAdaptor,
+  resolveImmediateCommandOutput,
   resolveRoot,
   resolveRuntimeConfig,
   resolveSock,
 } from "../src/runtime/command.ts"
+import { APP_NAME, VERSION } from "../src/runtime/version.ts"
+import { initializeHomeConfig } from "../src/runtime/config.ts"
 
 const server = setupServer()
 
@@ -49,6 +54,61 @@ describe("command runtime", () => {
     expect(parseArguments(["-p", "users/get.nts"])).toEqual({
       path: "users/get.nts",
     })
+  })
+
+  test("parses init and version flags", () => {
+    expect(parseArguments(["--init", "--version"])).toEqual({
+      init: true,
+      version: true,
+    })
+  })
+
+  test("initializes missing home config files from selected values", () => {
+    const homeDirectory = mkdtempSync(join(tmpdir(), "r1quest-home-"))
+
+    try {
+      const configDirectory = join(homeDirectory, ".ntee-r1quest")
+      const configPath = join(configDirectory, "r1qconfig.yaml")
+      const result = initializeHomeConfig(homeDirectory, {
+        root: "~/collections/example",
+        ai: "claude",
+      })
+
+      expect(result).toEqual({
+        configPath,
+        createdDirectory: configDirectory,
+        createdConfig: configPath,
+      })
+      expect(readFileSync(configPath, "utf8")).toBe(
+        "root: ~/collections/example\nai: claude\n",
+      )
+    } finally {
+      rmSync(homeDirectory, { recursive: true, force: true })
+    }
+  })
+
+  test("does not overwrite an existing home config", () => {
+    const homeDirectory = mkdtempSync(join(tmpdir(), "r1quest-home-"))
+
+    try {
+      initializeHomeConfig(homeDirectory, { root: null })
+      initializeHomeConfig(homeDirectory, { root: "/replacement", ai: "codex" })
+
+      expect(
+        readFileSync(
+          join(homeDirectory, ".ntee-r1quest/r1qconfig.yaml"),
+          "utf8",
+        ),
+      ).toBe("root: null\n")
+    } finally {
+      rmSync(homeDirectory, { recursive: true, force: true })
+    }
+  })
+
+  test("prints the current app version", () => {
+    expect(resolveImmediateCommandOutput(["--version"])).toBe(
+      `${APP_NAME} ${VERSION}\n`,
+    )
   })
 
   test("resolves -r relative to the current working directory", () => {

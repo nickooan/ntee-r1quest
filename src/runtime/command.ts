@@ -4,11 +4,25 @@ import { resolveAdaptorName, type AcpAdaptorName } from "./acp/index.ts"
 import {
   initializeRuntimeConfig,
   loadRuntimeConfig,
+  parseArguments,
   type RuntimeConfig,
 } from "./config.ts"
 import { execute as executeRequest } from "./request.ts"
+import { APP_NAME, VERSION } from "./version.ts"
 
 export { parseArguments } from "./config.ts"
+
+export const resolveImmediateCommandOutput = (
+  args: string[] = [],
+): string | undefined => {
+  const parsedArgs = parseArguments(args)
+
+  if (parsedArgs.version) {
+    return `${APP_NAME} ${VERSION}\n`
+  }
+
+  return undefined
+}
 
 type ExecuteOptions = {
   root: string

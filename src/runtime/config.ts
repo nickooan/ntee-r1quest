@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, isAbsolute, join, normalize, resolve } from "node:path"
 import YAML from "yaml"
@@ -7,6 +7,8 @@ export type ParsedArgs = {
   root?: string
   ai?: string
   path?: string
+  init?: boolean
+  version?: boolean
 }
 
 type ConfigFile = {
@@ -32,11 +34,18 @@ export type RuntimeConfig = {
 
 const argumentNames = ["-r", "-ai", "-p"] as const
 type ArgumentName = (typeof argumentNames)[number]
+const flagNames = ["--init", "--version"] as const
+type FlagName = (typeof flagNames)[number]
 
-const argumentKeys: Record<ArgumentName, keyof ParsedArgs> = {
+const argumentKeys: Record<ArgumentName, "root" | "ai" | "path"> = {
   "-r": "root",
   "-ai": "ai",
   "-p": "path",
+}
+
+const flagKeys: Record<FlagName, "init" | "version"> = {
+  "--init": "init",
+  "--version": "version",
 }
 
 let cachedConfig: RuntimeConfig | undefined
@@ -64,14 +73,58 @@ const resolvePathFrom = (baseDirectory: string, inputPath: string): string => {
 
 const configFileNames = [".r1qconfig.yaml", ".r1qconfig.yml"] as const
 
+export const getHomeConfigDirectory = (homeDirectory = homedir()): string => {
+  return join(homeDirectory, ".ntee-r1quest")
+}
+
+export const getHomeConfigPath = (homeDirectory = homedir()): string => {
+  return join(getHomeConfigDirectory(homeDirectory), "r1qconfig.yaml")
+}
+
 const configPathsForDirectory = (directory: string): string[] => {
   return configFileNames.map((fileName) => resolve(directory, fileName))
 }
 
 const configPaths = (): string[] => [
   ...configPathsForDirectory(process.cwd()),
-  ...configPathsForDirectory(join(homedir(), ".ntee-r1quest")),
+  getHomeConfigPath(),
 ]
+
+export type InitializeHomeConfigResult = {
+  configPath: string
+  createdDirectory?: string
+  createdConfig?: string
+}
+
+export type HomeConfigInput = {
+  root: string | null
+  ai?: "codex" | "claude"
+}
+
+export const initializeHomeConfig = (
+  homeDirectory = homedir(),
+  config: HomeConfigInput = {
+    root: null,
+  },
+): InitializeHomeConfigResult => {
+  const configDirectory = getHomeConfigDirectory(homeDirectory)
+  const configPath = getHomeConfigPath(homeDirectory)
+  const result: InitializeHomeConfigResult = {
+    configPath,
+  }
+
+  if (!existsSync(configDirectory)) {
+    mkdirSync(configDirectory, { recursive: true })
+    result.createdDirectory = configDirectory
+  }
+
+  if (!existsSync(configPath)) {
+    writeFileSync(configPath, YAML.stringify(config), "utf8")
+    result.createdConfig = configPath
+  }
+
+  return result
+}
 
 const readConfigSource = (configPath: string): ConfigSource | null => {
   if (!existsSync(configPath)) {
@@ -95,6 +148,10 @@ const isArgumentName = (argument: string): argument is ArgumentName => {
   return argumentNames.includes(argument as ArgumentName)
 }
 
+const isFlagName = (argument: string): argument is FlagName => {
+  return flagNames.includes(argument as FlagName)
+}
+
 export const parseArguments = (args: string[]): ParsedArgs => {
   const parsedArgs: ParsedArgs = {}
 
@@ -102,6 +159,10 @@ export const parseArguments = (args: string[]): ParsedArgs => {
     const argument = args[index]
 
     if (!argument || !isArgumentName(argument)) {
+      if (argument && isFlagName(argument)) {
+        parsedArgs[flagKeys[argument]] = true
+      }
+
       continue
     }
 
