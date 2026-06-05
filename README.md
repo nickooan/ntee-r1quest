@@ -66,7 +66,7 @@ npx ntee-r1quest --init
 
 This opens a short config wizard when `~/.ntee-r1quest/r1qconfig.yaml` is
 missing. The collection path defaults to `null`, and the AI agent can be left
-empty or set to Codex or Claude. After completion, it prints the paths it
+empty or set to Codex, Claude, or Cursor. After completion, it prints the paths it
 created.
 
 Print the installed version without opening the terminal app:
@@ -239,10 +239,20 @@ or:
 npx ntee-r1quest -r ./example/request -ai claude
 ```
 
+or:
+
+```bash
+npx ntee-r1quest -r ./example/request -ai cursor
+```
+
 Supported adapters:
 
 - `codex`
 - `claude` for Claude Code
+- `cursor` for Cursor CLI
+
+The Cursor adapter requires the Cursor CLI `agent` command to be installed and
+authenticated. It starts Cursor as an ACP server with `agent acp`.
 
 If `-ai` is not provided, `ntee-r1quest` reads `.r1qconfig.yaml`. If no adapter
 is declared, `@ai` shows a configuration error instead of choosing one

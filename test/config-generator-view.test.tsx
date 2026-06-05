@@ -23,6 +23,7 @@ describe("config generator view", () => {
     expect(output).toContain("None")
     expect(output).toContain("Codex")
     expect(output).toContain("Claude")
+    expect(output).toContain("Cursor")
   })
 
   test("builds config values with no defaults selected", () => {
@@ -32,6 +33,10 @@ describe("config generator view", () => {
     expect(buildHomeConfigInput("~/collections/example", 2)).toEqual({
       root: "~/collections/example",
       ai: "claude",
+    })
+    expect(buildHomeConfigInput("~/collections/example", 3)).toEqual({
+      root: "~/collections/example",
+      ai: "cursor",
     })
   })
 })

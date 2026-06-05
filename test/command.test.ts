@@ -253,6 +253,10 @@ describe("command runtime", () => {
     }
   })
 
+  test("resolves the Cursor AI adaptor", () => {
+    expect(resolveAiAdaptor(["-ai", "cursor"])).toBe("cursor")
+  })
+
   test("loads custom suggestions from .r1qconfig.yaml", () => {
     const originalWorkingDirectory = process.cwd()
     const configWorkingDirectory = join(

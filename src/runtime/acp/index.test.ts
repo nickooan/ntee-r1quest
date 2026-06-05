@@ -2,6 +2,7 @@ import { describe, expect, test } from "@jest/globals"
 import {
   ClaudeCodeAcpAdapter,
   CodexAcpAdapter,
+  CursorAcpAdapter,
   getAdaptor,
   listAdaptors,
   resolveAdaptorName,
@@ -22,8 +23,15 @@ describe("ACP adaptor selector", () => {
     expect(new Adaptor()).toBeInstanceOf(ClaudeCodeAcpAdapter)
   })
 
+  test("returns the Cursor ACP adaptor constructor", () => {
+    const Adaptor = getAdaptor("cursor")
+
+    expect(Adaptor).toBe(CursorAcpAdapter)
+    expect(new Adaptor()).toBeInstanceOf(CursorAcpAdapter)
+  })
+
   test("lists available adaptors", () => {
-    expect(listAdaptors()).toEqual(["codex", "claude"])
+    expect(listAdaptors()).toEqual(["codex", "claude", "cursor"])
   })
 
   test("normalizes and validates adaptor names", () => {

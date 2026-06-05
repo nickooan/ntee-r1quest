@@ -11,6 +11,7 @@ const aiOptions = [
   { label: "None", value: undefined },
   { label: "Codex", value: "codex" },
   { label: "Claude", value: "claude" },
+  { label: "Cursor", value: "cursor" },
 ] as const
 
 export const buildHomeConfigInput = (

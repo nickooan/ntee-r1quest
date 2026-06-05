@@ -1,5 +1,6 @@
 import { ClaudeCodeAcpAdapter } from "./claude-code-adapt.ts"
 import { CodexAcpAdapter } from "./codex-adapt.ts"
+import { CursorAcpAdapter } from "./cursor-adapt.ts"
 
 export {
   ClaudeCodeAcpAdapter,
@@ -23,10 +24,22 @@ export {
   type CodexAcpResponse,
   type CodexAcpWriteInput,
 } from "./codex-adapt.ts"
+export {
+  CursorAcpAdapter,
+  initCursorAcp,
+  type CursorAcpAdapterOptions,
+  type CursorAcpConversation,
+  type CursorAcpConversationStatus,
+  type CursorAcpPermissionDecision,
+  type CursorAcpPermissionRequest,
+  type CursorAcpResponse,
+  type CursorAcpWriteInput,
+} from "./cursor-adapt.ts"
 
 const acpAdaptors = {
   codex: CodexAcpAdapter,
   claude: ClaudeCodeAcpAdapter,
+  cursor: CursorAcpAdapter,
 } as const
 
 export type AcpAdaptorName = keyof typeof acpAdaptors
