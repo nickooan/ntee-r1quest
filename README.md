@@ -772,6 +772,8 @@ Available skills:
   v3 YAML or JSON files.
 - `r1quest-language-runtime`: Understand `.ntd` and `.nts` syntax, macros,
   request keywords, config behavior, and one-shot `-p` execution.
+- `r1quest-one-shot-runner`: Locate and execute one named request from an
+  existing R1Quest collection.
 - `r1quest-project-editor`: Scan and safely update an existing request root.
 - `r1quest-graphql-generator`: Generate GraphQL query and mutation examples.
 - `graphql-schema-r1quest-generator`: Generate a GraphQL request project from a
@@ -790,6 +792,7 @@ skills/r1quest-ai-plugin/             # marketplace root
     skills/
       openapi-r1quest-generator/
       r1quest-language-runtime/
+      r1quest-one-shot-runner/
       r1quest-project-editor/
       r1quest-graphql-generator/
       graphql-schema-r1quest-generator/
