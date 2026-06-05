@@ -200,6 +200,7 @@ export const TerminalApp = ({
     aiModeState,
     setAiModeState,
     isAiPending,
+    isAiOffline,
     aiPermissionRequest,
     startAiMode,
     closeAiMode,
@@ -314,7 +315,7 @@ export const TerminalApp = ({
   const aiLayout = buildAiLayout(width, height)
   const aiMessageLineCount =
     buildAiMessageLines(aiModeState.messages, aiLayout.contentWidth).length +
-    (isAiPending ? 1 : 0)
+    (isAiPending || isAiOffline ? 1 : 0)
   const aiMaxScrollY = Math.max(0, aiMessageLineCount - aiLayout.contentHeight)
   const {
     activeEditSuggestionItems,
@@ -1254,6 +1255,7 @@ export const TerminalApp = ({
           messages={aiModeState.messages}
           scrollY={aiModeState.scrollY}
           isPending={isAiPending}
+          isOffline={isAiOffline}
           pendingFrameIndex={frameIndex}
           permissionMessage={
             aiPermissionRequest
