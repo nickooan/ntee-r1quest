@@ -1,6 +1,6 @@
 {
   "name": "ntee-r1quest",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "homepage": "https://codeberg.org/nickoan/ntee-r1quest",
   "license": "GPL-3.0-only",
   "main": "dist/index.js",
