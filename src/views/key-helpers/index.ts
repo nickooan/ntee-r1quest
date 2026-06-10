@@ -50,6 +50,7 @@ export {
 export {
   TerminalMode,
   isAppExitCommand,
+  isAppReloadCommand,
   resolveModeCommand,
   resolveQuickSwitchMode,
 } from "./mode.ts"

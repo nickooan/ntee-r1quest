@@ -6,7 +6,7 @@ import {
   moveInputCursor,
   removeInputBeforeCursor,
 } from "./generic-key-actions.ts"
-import { isAppExitCommand } from "./mode.ts"
+import { isAppExitCommand, isAppReloadCommand } from "./mode.ts"
 
 export type AiChatMessage = {
   role: "user" | "assistant"
@@ -28,6 +28,7 @@ export type AiModeResult = {
   state: AiModeState
   shouldExitAi?: boolean
   shouldExitApp?: boolean
+  shouldReloadApp?: boolean
 }
 
 export const createAiModeState = (): AiModeState => {
@@ -123,6 +124,17 @@ export const handleAiModeInput = (
           inputCursorX: 0,
         },
         shouldExitApp: true,
+      }
+    }
+
+    if (isAppReloadCommand(trimmedInput)) {
+      return {
+        state: {
+          ...state,
+          input: "",
+          inputCursorX: 0,
+        },
+        shouldReloadApp: true,
       }
     }
 

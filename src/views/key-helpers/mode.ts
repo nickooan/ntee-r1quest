@@ -12,6 +12,7 @@ export const viewModeCommands = new Set(["@view", "@v"])
 export const editModeCommands = new Set(["@edit", "@e"])
 export const aiModeCommands = new Set(["@ai", "@a"])
 export const appExitCommands = new Set(["@exit", "@quit"])
+export const appReloadCommands = new Set(["@reload"])
 export const quickSwitchModeSequence = [
   TerminalMode.Query,
   TerminalMode.View,
@@ -21,6 +22,10 @@ export const quickSwitchModeSequence = [
 
 export const isAppExitCommand = (command: string): boolean => {
   return appExitCommands.has(command)
+}
+
+export const isAppReloadCommand = (command: string): boolean => {
+  return appReloadCommands.has(command)
 }
 
 export const resolveModeCommand = (command: string): TerminalMode | null => {

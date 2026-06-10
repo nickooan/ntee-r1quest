@@ -11,6 +11,7 @@ import {
   handleSearchModeInput,
   handleViewModeInput,
   isAppExitCommand,
+  isAppReloadCommand,
   isQuickSwitchKey,
   resolveModeCommand,
   resolveQuickSwitchMode,
@@ -73,6 +74,7 @@ export type TerminalAppProps = {
   width?: number
   aiAdaptor?: AcpAdaptorName
   onCommand?: (command: string) => void | Promise<void>
+  onReload?: () => void
   onExit?: () => void
 }
 
@@ -85,6 +87,29 @@ type InputStateByMode = {
 }
 
 const cursorBlinkIdleMs = 30_000
+
+const createQueryModeState = (): QueryModeState => ({
+  scrollX: 0,
+  scrollY: 0,
+  command: "",
+  commandCursorX: 0,
+})
+
+const createSearchModeState = (): SearchModeState => ({
+  scrollX: 0,
+  scrollY: 0,
+  input: "",
+  inputCursorX: 0,
+  query: "",
+  focusedMatchIndex: 0,
+})
+
+const createViewModeState = (): ViewModeState => ({
+  command: "",
+  commandCursorX: 0,
+  scrollX: 0,
+  scrollY: 0,
+})
 
 const resolveInputValue = (
   mode: TerminalMode,
@@ -159,6 +184,7 @@ export const TerminalApp = ({
   width: fixedWidth,
   aiAdaptor,
   onCommand,
+  onReload,
   onExit = () => {
     process.exit(0)
   },
@@ -169,26 +195,13 @@ export const TerminalApp = ({
   const [isCursorBlinkActive, setIsCursorBlinkActive] = useState(true)
   const [cursorActivityId, setCursorActivityId] = useState(0)
   const [mode, setMode] = useState(TerminalMode.Query)
-  const [queryModeState, setQueryModeState] = useState<QueryModeState>({
-    scrollX: 0,
-    scrollY: 0,
-    command: "",
-    commandCursorX: 0,
-  })
-  const [searchModeState, setSearchModeState] = useState<SearchModeState>({
-    scrollX: 0,
-    scrollY: 0,
-    input: "",
-    inputCursorX: 0,
-    query: "",
-    focusedMatchIndex: 0,
-  })
-  const [viewModeState, setViewModeState] = useState<ViewModeState>({
-    command: "",
-    commandCursorX: 0,
-    scrollX: 0,
-    scrollY: 0,
-  })
+  const [queryModeState, setQueryModeState] =
+    useState<QueryModeState>(createQueryModeState)
+  const [searchModeState, setSearchModeState] = useState<SearchModeState>(
+    createSearchModeState,
+  )
+  const [viewModeState, setViewModeState] =
+    useState<ViewModeState>(createViewModeState)
   const [editModeState, setEditModeState] = useState<EditModeState | null>(null)
   const [openViewFile, setOpenViewFile] = useState<OpenViewFile | null>(null)
   const [localError, setLocalError] = useState<unknown>()
@@ -205,6 +218,7 @@ export const TerminalApp = ({
     startAiMode,
     closeAiMode,
     stopAiMode,
+    resetAiMode,
     respondToAiPermission,
     writeAiInput,
   } = useAiController({
@@ -458,6 +472,47 @@ export const TerminalApp = ({
     onExit()
   }
 
+  const resetTerminalState = () => {
+    resetAiMode()
+    setFrameIndex(0)
+    setIsCursorVisible(true)
+    setIsCursorBlinkActive(true)
+    setCursorActivityId((currentValue) => currentValue + 1)
+    setMode(TerminalMode.Query)
+    setQueryModeState(createQueryModeState())
+    setSearchModeState(createSearchModeState())
+    setViewModeState(createViewModeState())
+    setEditModeState(null)
+    setOpenViewFile(null)
+    setLocalError(undefined)
+    setExternalEvent(null)
+    setSelectedCommand("")
+    setKeyboardSelectedCommand("")
+  }
+
+  const reloadApp = () => {
+    resetTerminalState()
+    onReload?.()
+  }
+
+  const handleAppCommand = (command: string | undefined): boolean => {
+    if (command === undefined) {
+      return false
+    }
+
+    if (isAppExitCommand(command)) {
+      exitApp()
+      return true
+    }
+
+    if (isAppReloadCommand(command)) {
+      reloadApp()
+      return true
+    }
+
+    return false
+  }
+
   const runQueryCommand = (command: string) => {
     setOpenViewFile(null)
     setEditModeState(null)
@@ -577,6 +632,11 @@ export const TerminalApp = ({
 
       if (result.shouldExitApp) {
         exitApp()
+        return
+      }
+
+      if (result.shouldReloadApp) {
+        reloadApp()
         return
       }
 
@@ -739,11 +799,7 @@ export const TerminalApp = ({
           ? null
           : resolveModeCommand(result.selectedCommand)
 
-      if (
-        result.selectedCommand !== undefined &&
-        isAppExitCommand(result.selectedCommand)
-      ) {
-        exitApp()
+      if (handleAppCommand(result.selectedCommand)) {
         return
       }
 
@@ -830,11 +886,7 @@ export const TerminalApp = ({
           ? null
           : resolveModeCommand(result.submittedQuery)
 
-      if (
-        result.submittedQuery !== undefined &&
-        isAppExitCommand(result.submittedQuery)
-      ) {
-        exitApp()
+      if (handleAppCommand(result.submittedQuery)) {
         return
       }
 
@@ -996,11 +1048,7 @@ export const TerminalApp = ({
           ? null
           : resolveModeCommand(result.selectedCommand)
 
-      if (
-        result.selectedCommand !== undefined &&
-        isAppExitCommand(result.selectedCommand)
-      ) {
-        exitApp()
+      if (handleAppCommand(result.selectedCommand)) {
         return
       }
 
@@ -1132,8 +1180,7 @@ export const TerminalApp = ({
     const nextMode =
       result.command === undefined ? null : resolveModeCommand(result.command)
 
-    if (result.command !== undefined && isAppExitCommand(result.command)) {
-      exitApp()
+    if (handleAppCommand(result.command)) {
       return
     }
 

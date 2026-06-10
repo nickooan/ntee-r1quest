@@ -104,6 +104,7 @@ Switch modes by typing a mode command and pressing Enter:
 | `@edit`   | `@e`    | Edit the currently reviewed file.                   |
 | `@search` | `@s`    | Search the current Result or reviewed file content. |
 | `@ai`     | `@a`    | Open the AI chat overlay.                           |
+| `@reload` |         | Reload config and restart the terminal runtime.     |
 | `@exit`   | `@quit` | Exit the app.                                       |
 
 You can also press Shift+Tab to cycle modes:
@@ -123,6 +124,7 @@ the overlay closes and the AI session remains available.
 | ---------------- | ------------------------------------------------------- |
 | Shift+Tab        | Quick-switch through query, view, search, and AI modes. |
 | Enter            | Submit the current mode input or selected item.         |
+| `@reload`        | Reload config and restart the terminal runtime.         |
 | `@exit`, `@quit` | Exit the app safely.                                    |
 
 ### Query Mode

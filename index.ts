@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import type { AxiosResponse } from "axios"
 import { existsSync } from "node:fs"
-import React, { useMemo, useState } from "react"
+import React, { useMemo, useRef, useState } from "react"
 import { render } from "ink"
 import {
   execute,
@@ -120,7 +120,15 @@ const runInitArgument = async (args: string[]): Promise<boolean> => {
   return true
 }
 
-const CommandApp = ({ config }: { config: RuntimeConfig }) => {
+const CommandApp = ({
+  args,
+  initialConfig,
+}: {
+  args: string[]
+  initialConfig: RuntimeConfig
+}) => {
+  const [config, setConfig] = useState(initialConfig)
+  const [reloadId, setReloadId] = useState(0)
   const root = config.root
   const aiAdaptor = useMemo(
     () => (config.ai ? resolveAdaptorName(config.ai) : undefined),
@@ -133,10 +141,13 @@ const CommandApp = ({ config }: { config: RuntimeConfig }) => {
   const [requestDurationMs, setRequestDurationMs] = useState<
     number | undefined
   >()
+  const commandRunIdRef = useRef(0)
 
   const runCommand = async (command: string) => {
+    const commandRunId = commandRunIdRef.current + 1
     const requestStartTime = Date.now()
 
+    commandRunIdRef.current = commandRunId
     setIsPending(true)
     setResponse(undefined)
     setError(undefined)
@@ -145,16 +156,38 @@ const CommandApp = ({ config }: { config: RuntimeConfig }) => {
     try {
       const nextResponse = await execute(command, root)
 
-      setResponse(nextResponse)
+      if (commandRunIdRef.current === commandRunId) {
+        setResponse(nextResponse)
+      }
+    } catch (nextError) {
+      if (commandRunIdRef.current === commandRunId) {
+        setError(nextError)
+      }
+    } finally {
+      if (commandRunIdRef.current === commandRunId) {
+        setRequestDurationMs(Date.now() - requestStartTime)
+        setIsPending(false)
+      }
+    }
+  }
+
+  const reloadRuntime = () => {
+    commandRunIdRef.current += 1
+    setResponse(undefined)
+    setError(undefined)
+    setIsPending(false)
+    setRequestDurationMs(undefined)
+
+    try {
+      setConfig(resolveRuntimeConfig(args))
+      setReloadId((currentValue) => currentValue + 1)
     } catch (nextError) {
       setError(nextError)
-    } finally {
-      setRequestDurationMs(Date.now() - requestStartTime)
-      setIsPending(false)
     }
   }
 
   return React.createElement(TerminalApp, {
+    key: reloadId,
     response,
     error,
     isPending,
@@ -164,6 +197,7 @@ const CommandApp = ({ config }: { config: RuntimeConfig }) => {
     externalEventSocket,
     requestDurationMs,
     onCommand: runCommand,
+    onReload: reloadRuntime,
   })
 }
 
@@ -181,7 +215,7 @@ if (import.meta.main) {
       const didRunPathArgument = await runPathArgument(args, config)
 
       if (!didRunPathArgument) {
-        render(React.createElement(CommandApp, { config }))
+        render(React.createElement(CommandApp, { args, initialConfig: config }))
       }
     }
   }

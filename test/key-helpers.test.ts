@@ -10,6 +10,7 @@ import {
   handleSearchModeInput,
   handleViewModeInput,
   isAppExitCommand,
+  isAppReloadCommand,
   serializeEditModeContent,
   resolveModeCommand,
   resolveQuickSwitchMode,
@@ -82,6 +83,7 @@ describe("mode commands", () => {
     expect(resolveModeCommand("@a")).toBe(TerminalMode.Ai)
     expect(isAppExitCommand("@exit")).toBe(true)
     expect(isAppExitCommand("@quit")).toBe(true)
+    expect(isAppReloadCommand("@reload")).toBe(true)
   })
 
   test("resolves quick switch modes in query, view, search, ai order", () => {
@@ -168,6 +170,17 @@ describe("ai mode key helpers", () => {
     expect(exitResult.state.input).toBe("")
     expect(exitResult.state.messages).toEqual([])
     expect(quitResult.shouldExitApp).toBe(true)
+  })
+
+  test("handles app reload commands in ai mode", () => {
+    const reloadResult = handleAiModeInput("", key({ return: true }), {
+      ...createAiModeState(),
+      input: "@reload",
+    })
+
+    expect(reloadResult.shouldReloadApp).toBe(true)
+    expect(reloadResult.state.input).toBe("")
+    expect(reloadResult.state.messages).toEqual([])
   })
 
   test("scrolls chat history with up and down arrows", () => {

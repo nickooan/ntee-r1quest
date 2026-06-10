@@ -196,6 +196,18 @@ export const useAiController = ({
     aiAdapterRef.current?.stop()
   }
 
+  const resetAiMode = () => {
+    const adapter = aiAdapterRef.current
+
+    aiAdapterRef.current = undefined
+    adapter?.stop()
+    setAiModeState(createAiModeState())
+    setIsAiPending(false)
+    setIsAiOffline(false)
+    setAiConversations([])
+    setAiPermissionRequest(undefined)
+  }
+
   const respondToAiPermission = (decision: "allow" | "reject") => {
     if (!aiPermissionRequest) {
       return
@@ -251,6 +263,7 @@ export const useAiController = ({
     startAiMode,
     closeAiMode,
     stopAiMode,
+    resetAiMode,
     respondToAiPermission,
     writeAiInput,
   }
