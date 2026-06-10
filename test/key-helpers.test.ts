@@ -9,12 +9,7 @@ import {
   handleQueryModeInput,
   handleSearchModeInput,
   handleViewModeInput,
-  isAppExitCommand,
-  isAppReloadCommand,
   serializeEditModeContent,
-  resolveModeCommand,
-  resolveQuickSwitchMode,
-  TerminalMode,
   type QueryModeLimits,
   type QueryModeState,
   type SearchModeState,
@@ -68,32 +63,6 @@ const key = (keyValues: Partial<Key>): Key => {
     ...keyValues,
   }
 }
-
-describe("mode commands", () => {
-  test("resolves long and short mode commands", () => {
-    expect(resolveModeCommand("@query")).toBe(TerminalMode.Query)
-    expect(resolveModeCommand("@q")).toBe(TerminalMode.Query)
-    expect(resolveModeCommand("@search")).toBe(TerminalMode.Search)
-    expect(resolveModeCommand("@s")).toBe(TerminalMode.Search)
-    expect(resolveModeCommand("@view")).toBe(TerminalMode.View)
-    expect(resolveModeCommand("@v")).toBe(TerminalMode.View)
-    expect(resolveModeCommand("@edit")).toBe(TerminalMode.Edit)
-    expect(resolveModeCommand("@e")).toBe(TerminalMode.Edit)
-    expect(resolveModeCommand("@ai")).toBe(TerminalMode.Ai)
-    expect(resolveModeCommand("@a")).toBe(TerminalMode.Ai)
-    expect(isAppExitCommand("@exit")).toBe(true)
-    expect(isAppExitCommand("@quit")).toBe(true)
-    expect(isAppReloadCommand("@reload")).toBe(true)
-  })
-
-  test("resolves quick switch modes in query, view, search, ai order", () => {
-    expect(resolveQuickSwitchMode(TerminalMode.Query)).toBe(TerminalMode.View)
-    expect(resolveQuickSwitchMode(TerminalMode.View)).toBe(TerminalMode.Search)
-    expect(resolveQuickSwitchMode(TerminalMode.Search)).toBe(TerminalMode.Ai)
-    expect(resolveQuickSwitchMode(TerminalMode.Ai)).toBe(TerminalMode.Query)
-    expect(resolveQuickSwitchMode(TerminalMode.Edit)).toBeNull()
-  })
-})
 
 describe("ai mode key helpers", () => {
   test("handles input, submit, and exit", () => {

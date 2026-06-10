@@ -6,7 +6,7 @@ import {
   moveInputCursor,
   removeInputBeforeCursor,
 } from "./generic-key-actions.ts"
-import { isAppExitCommand, isAppReloadCommand } from "./mode.ts"
+import { resolveAppInputCommand } from "../../runtime/app-command.ts"
 
 export type AiChatMessage = {
   role: "user" | "assistant"
@@ -116,7 +116,9 @@ export const handleAiModeInput = (
       }
     }
 
-    if (isAppExitCommand(trimmedInput)) {
+    const appCommand = resolveAppInputCommand(trimmedInput)
+
+    if (appCommand.type === "app" && appCommand.command === "exit") {
       return {
         state: {
           ...state,
@@ -127,7 +129,7 @@ export const handleAiModeInput = (
       }
     }
 
-    if (isAppReloadCommand(trimmedInput)) {
+    if (appCommand.type === "app" && appCommand.command === "reload") {
       return {
         state: {
           ...state,

@@ -9,7 +9,7 @@ import {
   parseArguments,
   resolveImmediateCommandOutput,
   resolveRuntimeConfig,
-} from "./src/runtime/command.ts"
+} from "./src/runtime/cli-command.ts"
 import { resolveAdaptorName } from "./src/runtime/acp/index.ts"
 import {
   getHomeConfigPath,

@@ -20,13 +20,13 @@ import {
   resolveRoot,
   resolveRuntimeConfig,
   resolveSock,
-} from "../src/runtime/command.ts"
+} from "../src/runtime/cli-command.ts"
 import { APP_NAME, VERSION } from "../src/runtime/version.ts"
 import { initializeHomeConfig } from "../src/runtime/config.ts"
 
 const server = setupServer()
 
-describe("command runtime", () => {
+describe("CLI command runtime", () => {
   beforeAll(() => {
     server.listen({
       onUnhandledRequest: "error",

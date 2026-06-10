@@ -5,11 +5,8 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react"
-import {
-  createAiModeState,
-  TerminalMode,
-  type AiModeState,
-} from "../key-helpers/index.ts"
+import { createAiModeState, type AiModeState } from "../key-helpers/index.ts"
+import { TerminalMode } from "../../runtime/app-command.ts"
 import {
   getAdaptor,
   listAdaptors,

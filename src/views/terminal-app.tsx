@@ -10,19 +10,19 @@ import {
   handleEditModeInput,
   handleSearchModeInput,
   handleViewModeInput,
-  isAppExitCommand,
-  isAppReloadCommand,
   isQuickSwitchKey,
-  resolveModeCommand,
-  resolveQuickSwitchMode,
   serializeEditModeContent,
   type QueryModeState,
   type EditModeState,
   type AiModeState,
   type SearchModeState,
   type ViewModeState,
-  TerminalMode,
 } from "./key-helpers/index.ts"
+import {
+  resolveQuickSwitchMode,
+  resolveAppInputCommand,
+  TerminalMode,
+} from "../runtime/app-command.ts"
 import { Ai, buildAiLayout, buildAiMessageLines } from "./ai.tsx"
 import type { AcpAdaptorName } from "../runtime/acp/index.ts"
 import {
@@ -500,12 +500,18 @@ export const TerminalApp = ({
       return false
     }
 
-    if (isAppExitCommand(command)) {
+    const appCommand = resolveAppInputCommand(command)
+
+    if (appCommand.type !== "app") {
+      return false
+    }
+
+    if (appCommand.command === "exit") {
       exitApp()
       return true
     }
 
-    if (isAppReloadCommand(command)) {
+    if (appCommand.command === "reload") {
       reloadApp()
       return true
     }
@@ -794,10 +800,11 @@ export const TerminalApp = ({
 
       setKeyboardSelectedCommand("")
 
-      const nextMode =
+      const nextCommand =
         result.selectedCommand === undefined
-          ? null
-          : resolveModeCommand(result.selectedCommand)
+          ? undefined
+          : resolveAppInputCommand(result.selectedCommand)
+      const nextMode = nextCommand?.type === "mode" ? nextCommand.mode : null
 
       if (handleAppCommand(result.selectedCommand)) {
         return
@@ -881,10 +888,11 @@ export const TerminalApp = ({
         limits,
         searchMatches,
       )
-      const nextMode =
+      const nextCommand =
         result.submittedQuery === undefined
-          ? null
-          : resolveModeCommand(result.submittedQuery)
+          ? undefined
+          : resolveAppInputCommand(result.submittedQuery)
+      const nextMode = nextCommand?.type === "mode" ? nextCommand.mode : null
 
       if (handleAppCommand(result.submittedQuery)) {
         return
@@ -1043,10 +1051,11 @@ export const TerminalApp = ({
 
       setKeyboardSelectedCommand("")
 
-      const nextMode =
+      const nextCommand =
         result.selectedCommand === undefined
-          ? null
-          : resolveModeCommand(result.selectedCommand)
+          ? undefined
+          : resolveAppInputCommand(result.selectedCommand)
+      const nextMode = nextCommand?.type === "mode" ? nextCommand.mode : null
 
       if (handleAppCommand(result.selectedCommand)) {
         return
@@ -1177,8 +1186,11 @@ export const TerminalApp = ({
 
     setKeyboardSelectedCommand("")
 
-    const nextMode =
-      result.command === undefined ? null : resolveModeCommand(result.command)
+    const nextCommand =
+      result.command === undefined
+        ? undefined
+        : resolveAppInputCommand(result.command)
+    const nextMode = nextCommand?.type === "mode" ? nextCommand.mode : null
 
     if (handleAppCommand(result.command)) {
       return
@@ -1222,11 +1234,9 @@ export const TerminalApp = ({
 
     setQueryModeState(result.state)
 
-    if (result.command !== undefined && nextMode === null) {
-      if (result.command.trim()) {
-        setSelectedCommand(result.command)
-      }
-      runQueryCommand(result.command)
+    if (nextCommand?.type === "request") {
+      setSelectedCommand(nextCommand.path)
+      runQueryCommand(nextCommand.path)
     }
   })
 
