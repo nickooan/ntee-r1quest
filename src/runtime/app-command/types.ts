@@ -1,0 +1,37 @@
+export enum TerminalMode {
+  Query = "query",
+  Search = "search",
+  View = "view",
+  Edit = "edit",
+  Ai = "ai",
+}
+
+export type AppActionCommand = "exit" | "reload"
+
+export type ParsedAppCommandInput = {
+  source: string
+  name: string
+  args: string[]
+}
+
+export type AppCommand =
+  | {
+      type: "mode"
+      mode: TerminalMode
+    }
+  | {
+      type: "app"
+      command: AppActionCommand
+    }
+  | {
+      type: "request"
+      path: string
+    }
+  | {
+      type: "empty"
+    }
+
+export interface AppCommandDefinition {
+  identify(input: ParsedAppCommandInput): boolean
+  resolve(input: ParsedAppCommandInput): AppCommand
+}

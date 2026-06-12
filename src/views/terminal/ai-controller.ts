@@ -6,7 +6,7 @@ import {
   type SetStateAction,
 } from "react"
 import { createAiModeState, type AiModeState } from "../key-helpers/index.ts"
-import { TerminalMode } from "../../runtime/app-command.ts"
+import { TerminalMode } from "../../runtime/app-command/index.ts"
 import {
   getAdaptor,
   listAdaptors,

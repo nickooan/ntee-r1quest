@@ -5,7 +5,7 @@ import {
   refreshEditModeSuggestions,
   type EditModeState,
 } from "../key-helpers/index.ts"
-import { TerminalMode } from "../../runtime/app-command.ts"
+import { TerminalMode } from "../../runtime/app-command/index.ts"
 import {
   buildEditorSuggestionItems,
   buildRefSuggestionItems,

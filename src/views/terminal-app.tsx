@@ -22,7 +22,7 @@ import {
   resolveQuickSwitchMode,
   resolveAppInputCommand,
   TerminalMode,
-} from "../runtime/app-command.ts"
+} from "../runtime/app-command/index.ts"
 import { Ai, buildAiLayout, buildAiMessageLines } from "./ai.tsx"
 import type { AcpAdaptorName } from "../runtime/acp/index.ts"
 import {

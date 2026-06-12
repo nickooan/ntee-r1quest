@@ -6,7 +6,7 @@ import {
   moveInputCursor,
   removeInputBeforeCursor,
 } from "./generic-key-actions.ts"
-import { resolveAppInputCommand } from "../../runtime/app-command.ts"
+import { resolveAppInputCommand } from "../../runtime/app-command/index.ts"
 
 export type AiChatMessage = {
   role: "user" | "assistant"
