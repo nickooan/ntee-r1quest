@@ -1,7 +1,52 @@
-import { readdirSync } from "node:fs"
+import { readdirSync, statSync } from "node:fs"
 import { resolve } from "node:path"
 import { isInsideRoot } from "./path.ts"
 import type { FileTreeEntry } from "./types.ts"
+
+type DirectoryEntry = {
+  name: string
+  isDirectory: boolean
+  isFile: boolean
+}
+
+type CachedDirectory = {
+  mtimeMs: number
+  entries: DirectoryEntry[]
+}
+
+// Cache directory listings keyed by absolute path, invalidated by the
+// directory's mtime (which changes on add/remove/rename). buildFileTreeEntries
+// runs on every keystroke that changes the command path, so this avoids a
+// recursive readdir + sort of the whole tree each time — only a cheap stat
+// remains on a cache hit.
+const directoryCache = new Map<string, CachedDirectory>()
+
+const readDirectorySorted = (directoryPath: string): DirectoryEntry[] => {
+  const stats = statSync(directoryPath)
+  const cached = directoryCache.get(directoryPath)
+
+  if (cached && cached.mtimeMs === stats.mtimeMs) {
+    return cached.entries
+  }
+
+  const entries = readdirSync(directoryPath, { withFileTypes: true })
+    .map((entry) => ({
+      name: entry.name,
+      isDirectory: entry.isDirectory(),
+      isFile: entry.isFile(),
+    }))
+    .sort((left, right) => {
+      if (left.isDirectory !== right.isDirectory) {
+        return left.isDirectory ? -1 : 1
+      }
+
+      return left.name.localeCompare(right.name)
+    })
+
+  directoryCache.set(directoryPath, { mtimeMs: stats.mtimeMs, entries })
+
+  return entries
+}
 
 export const buildFileTreeEntries = (
   root: string | undefined,
@@ -22,22 +67,14 @@ export const buildFileTreeEntries = (
     }
 
     try {
-      const directoryEntries = readdirSync(resolvedDirectory, {
-        withFileTypes: true,
-      }).sort((left, right) => {
-        if (left.isDirectory() !== right.isDirectory()) {
-          return left.isDirectory() ? -1 : 1
-        }
-
-        return left.name.localeCompare(right.name)
-      })
+      const directoryEntries = readDirectorySorted(resolvedDirectory)
 
       for (const entry of directoryEntries) {
         const relativeEntryPath = directoryPath
           ? `${directoryPath}/${entry.name}`
           : entry.name
 
-        if (entry.isDirectory()) {
+        if (entry.isDirectory) {
           const isExpanded = expandedDirectoryPaths.has(relativeEntryPath)
 
           entries.push({
@@ -56,7 +93,7 @@ export const buildFileTreeEntries = (
           continue
         }
 
-        if (!entry.isFile()) {
+        if (!entry.isFile) {
           continue
         }
 
@@ -94,34 +131,43 @@ export const findFileTreeMatchIndex = (
     return -1
   }
 
-  const exactIndex = entries.findIndex((entry) => {
-    return (
-      entry.commandValue.toLowerCase() === normalizedInput ||
-      entry.name.toLowerCase() === normalizedInput
-    )
-  })
+  // Single pass that lowercases each entry once and keeps the best match by
+  // priority (exact > prefix > substring), instead of up to three full
+  // findIndex passes each re-lowercasing every entry.
+  let startsWithIndex = -1
+  let includesIndex = -1
 
-  if (exactIndex !== -1) {
-    return exactIndex
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index]
+
+    if (!entry) {
+      continue
+    }
+
+    const commandValue = entry.commandValue.toLowerCase()
+    const name = entry.name.toLowerCase()
+
+    if (commandValue === normalizedInput || name === normalizedInput) {
+      return index
+    }
+
+    if (
+      startsWithIndex === -1 &&
+      (commandValue.startsWith(normalizedInput) ||
+        name.startsWith(normalizedInput))
+    ) {
+      startsWithIndex = index
+    }
+
+    if (
+      includesIndex === -1 &&
+      (commandValue.includes(normalizedInput) || name.includes(normalizedInput))
+    ) {
+      includesIndex = index
+    }
   }
 
-  const startsWithIndex = entries.findIndex((entry) => {
-    return (
-      entry.commandValue.toLowerCase().startsWith(normalizedInput) ||
-      entry.name.toLowerCase().startsWith(normalizedInput)
-    )
-  })
-
-  if (startsWithIndex !== -1) {
-    return startsWithIndex
-  }
-
-  return entries.findIndex((entry) => {
-    return (
-      entry.commandValue.toLowerCase().includes(normalizedInput) ||
-      entry.name.toLowerCase().includes(normalizedInput)
-    )
-  })
+  return startsWithIndex !== -1 ? startsWithIndex : includesIndex
 }
 
 export const buildFileTreeViewport = (
