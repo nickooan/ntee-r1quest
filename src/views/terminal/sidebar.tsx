@@ -1,4 +1,4 @@
-import React from "react"
+import React, { memo } from "react"
 import { Box, Text } from "ink"
 import {
   buildFileTreeViewport,
@@ -15,12 +15,12 @@ type SidebarProps = {
   height: number
 }
 
-export const Sidebar = ({
+export const Sidebar = memo(function Sidebar({
   entries,
   highlightedIndex,
   width,
   height,
-}: SidebarProps) => {
+}: SidebarProps) {
   const viewportHeight = Math.max(1, height - 2)
   const viewport = buildFileTreeViewport(
     entries,
@@ -92,4 +92,4 @@ export const Sidebar = ({
       ))}
     </Box>
   )
-}
+})

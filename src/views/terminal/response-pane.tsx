@@ -1,9 +1,14 @@
-import React from "react"
+import React, { memo, useMemo } from "react"
 import { Box, Text } from "ink"
 import type { SearchMatch } from "../key-helpers/index.ts"
 import { paneBorderColor } from "./constants.ts"
 import { FileContent, type FileContentProps } from "./file-content.tsx"
 import { PaneTitle } from "./pane-title.tsx"
+import {
+  buildMatchesByLine,
+  noLineMatches,
+  type LineMatch,
+} from "./search-matches.ts"
 import type { Viewport } from "./viewport.ts"
 
 type ResponsePaneProps = {
@@ -22,39 +27,29 @@ type ResponsePaneProps = {
 
 type VisibleLineProps = {
   line: string
-  lineIndex: number
   scrollX: number
   width: number
-  matches: SearchMatch[]
+  lineMatches: LineMatch[]
   focusedMatchIndex: number
 }
 
 const VisibleLine = ({
   line,
-  lineIndex,
   scrollX,
   width,
-  matches,
+  lineMatches,
   focusedMatchIndex,
 }: VisibleLineProps) => {
   const visibleStart = scrollX
   const visibleEnd = scrollX + width
-  const lineMatches = matches
-    .map((match, matchIndex) => ({
-      ...match,
-      matchIndex,
-    }))
-    .filter(
-      (match) =>
-        match.lineIndex === lineIndex &&
-        match.end > visibleStart &&
-        match.start < visibleEnd,
-    )
-    .sort((left, right) => left.start - right.start)
   const children: React.ReactNode[] = []
   let cursor = visibleStart
 
   for (const match of lineMatches) {
+    if (match.end <= visibleStart || match.start >= visibleEnd) {
+      continue
+    }
+
     const matchStart = Math.max(match.start, visibleStart)
     const matchEnd = Math.min(match.end, visibleEnd)
     const isFocusedMatch = match.matchIndex === focusedMatchIndex
@@ -93,7 +88,7 @@ const VisibleLine = ({
   return <>{children}</>
 }
 
-export const ResponsePane = ({
+export const ResponsePane = memo(function ResponsePane({
   title,
   contentLines,
   viewport,
@@ -102,8 +97,12 @@ export const ResponsePane = ({
   width,
   height,
   fileContent,
-}: ResponsePaneProps) => {
+}: ResponsePaneProps) {
   const contentWidth = Math.max(1, width - 2)
+  const matchesByLine = useMemo(
+    () => buildMatchesByLine(searchMatches),
+    [searchMatches],
+  )
 
   return (
     <Box
@@ -124,19 +123,22 @@ export const ResponsePane = ({
           focusedMatchIndex={focusedMatchIndex}
         />
       ) : (
-        viewport.lines.map((line, index) => (
-          <Box key={`${viewport.safeScrollY}-${index}`} width={contentWidth}>
-            <VisibleLine
-              line={contentLines[viewport.safeScrollY + index] ?? ""}
-              lineIndex={viewport.safeScrollY + index}
-              scrollX={viewport.safeScrollX}
-              width={contentWidth}
-              matches={searchMatches}
-              focusedMatchIndex={focusedMatchIndex}
-            />
-          </Box>
-        ))
+        viewport.lines.map((line, index) => {
+          const lineIndex = viewport.safeScrollY + index
+
+          return (
+            <Box key={`${viewport.safeScrollY}-${index}`} width={contentWidth}>
+              <VisibleLine
+                line={contentLines[lineIndex] ?? ""}
+                scrollX={viewport.safeScrollX}
+                width={contentWidth}
+                lineMatches={matchesByLine.get(lineIndex) ?? noLineMatches}
+                focusedMatchIndex={focusedMatchIndex}
+              />
+            </Box>
+          )
+        })
       )}
     </Box>
   )
-}
+})

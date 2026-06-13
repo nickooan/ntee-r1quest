@@ -1,6 +1,11 @@
-import React from "react"
+import React, { useMemo } from "react"
 import { Box, Text } from "ink"
 import type { EditSuggestionState, SearchMatch } from "../key-helpers/index.ts"
+import {
+  buildMatchesByLine,
+  noLineMatches,
+  type LineMatch,
+} from "./search-matches.ts"
 
 export type FilePaneLayout = {
   contentWidth: number
@@ -343,7 +348,7 @@ const HighlightedLine = ({
   lineIndex,
   width,
   scrollX,
-  matches,
+  lineMatches,
   focusedMatchIndex,
   language = "r1quest",
 }: {
@@ -351,28 +356,20 @@ const HighlightedLine = ({
   lineIndex: number
   width: number
   scrollX: number
-  matches: SearchMatch[]
+  lineMatches: LineMatch[]
   focusedMatchIndex: number
   language?: HighlightLanguage
 }) => {
   const visibleStart = scrollX
   const visibleEnd = scrollX + width
-  const lineMatches = matches
-    .map((match, matchIndex) => ({
-      ...match,
-      matchIndex,
-    }))
-    .filter(
-      (match) =>
-        match.lineIndex === lineIndex &&
-        match.end > visibleStart &&
-        match.start < visibleEnd,
-    )
-    .sort((left, right) => left.start - right.start)
   const children: React.ReactNode[] = []
   let cursor = visibleStart
 
   for (const match of lineMatches) {
+    if (match.end <= visibleStart || match.start >= visibleEnd) {
+      continue
+    }
+
     const matchStart = Math.max(match.start, visibleStart)
     const matchEnd = Math.min(match.end, visibleEnd)
     const isFocusedMatch = match.matchIndex === focusedMatchIndex
@@ -450,7 +447,7 @@ const EditableLine = ({
         lineIndex={0}
         width={width}
         scrollX={scrollX}
-        matches={[]}
+        lineMatches={noLineMatches}
         focusedMatchIndex={0}
         language={language}
       />
@@ -504,8 +501,15 @@ export const FileContent = ({
   selectedSaveAction = "yes",
   suggestions = null,
 }: FileContentProps) => {
-  const contentLines = content.split("\n")
-  const graphqlHighlightLines = buildGraphqlHighlightLines(contentLines)
+  const contentLines = useMemo(() => content.split("\n"), [content])
+  const graphqlHighlightLines = useMemo(
+    () => buildGraphqlHighlightLines(contentLines),
+    [contentLines],
+  )
+  const matchesByLine = useMemo(
+    () => buildMatchesByLine(searchMatches),
+    [searchMatches],
+  )
   const { contentWidth, contentHeight, lineNumberWidth } = buildFilePaneLayout(
     width,
     height,
@@ -551,7 +555,7 @@ export const FileContent = ({
                 lineIndex={lineIndex}
                 width={contentWidth}
                 scrollX={scrollX}
-                matches={searchMatches}
+                lineMatches={matchesByLine.get(lineIndex) ?? noLineMatches}
                 focusedMatchIndex={focusedMatchIndex}
                 language={language}
               />

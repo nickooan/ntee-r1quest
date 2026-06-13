@@ -332,6 +332,32 @@ export const TerminalApp = ({
         : [],
     [mode, content, searchModeState.query],
   )
+  const fileContent = useMemo(
+    () =>
+      openViewFile && openFileContent
+        ? {
+            fileName: openViewFile.fileName,
+            content: openFileContent,
+            scrollX: contentScrollX,
+            scrollY: contentScrollY,
+            isEditing: mode === TerminalMode.Edit,
+            cursorX: editModeState?.cursorX,
+            cursorY: editModeState?.cursorY,
+            input: editModeState?.input,
+            suggestions: editModeState?.suggestions,
+            isSavePromptOpen: editModeState?.isSavePromptOpen,
+            selectedSaveAction: editModeState?.selectedSaveAction,
+          }
+        : undefined,
+    [
+      openViewFile,
+      openFileContent,
+      contentScrollX,
+      contentScrollY,
+      mode,
+      editModeState,
+    ],
+  )
   const inputStates = {
     aiModeState,
     editModeState,
@@ -1285,23 +1311,7 @@ export const TerminalApp = ({
           focusedMatchIndex={searchModeState.focusedMatchIndex}
           width={responsePaneWidth}
           height={viewHeight}
-          fileContent={
-            openViewFile && openFileContent
-              ? {
-                  fileName: openViewFile.fileName,
-                  content: openFileContent,
-                  scrollX: contentScrollX,
-                  scrollY: contentScrollY,
-                  isEditing: mode === TerminalMode.Edit,
-                  cursorX: editModeState?.cursorX,
-                  cursorY: editModeState?.cursorY,
-                  input: editModeState?.input,
-                  suggestions: editModeState?.suggestions,
-                  isSavePromptOpen: editModeState?.isSavePromptOpen,
-                  selectedSaveAction: editModeState?.selectedSaveAction,
-                }
-              : undefined
-          }
+          fileContent={fileContent}
         />
       </Box>
       <Box

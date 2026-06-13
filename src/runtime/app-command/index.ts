@@ -1,6 +1,10 @@
 import { appCommands } from "./commands/index.ts"
 import { parseAppCommandInput } from "./input.ts"
-import { TerminalMode, type AppActionCommand, type AppCommand } from "./types.ts"
+import {
+  TerminalMode,
+  type AppActionCommand,
+  type AppCommand,
+} from "./types.ts"
 
 export {
   AiCommand,
@@ -27,9 +31,7 @@ export const quickSwitchModeSequence = [
   TerminalMode.Ai,
 ] as const
 
-export const resolveAppCommand = (
-  command: string,
-): AppActionCommand | null => {
+export const resolveAppCommand = (command: string): AppActionCommand | null => {
   const input = parseAppCommandInput(command)
 
   if (!input) {

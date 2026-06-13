@@ -1,4 +1,4 @@
-import React, { useMemo } from "react"
+import React, { memo, useMemo } from "react"
 import { Box, Text } from "ink"
 import { BlinkingCursor } from "./terminal/blinking-cursor.tsx"
 
@@ -237,7 +237,7 @@ const PermissionModal = ({
   )
 }
 
-export const Ai = ({
+export const Ai = memo(function Ai({
   width,
   height,
   input,
@@ -250,7 +250,7 @@ export const Ai = ({
   isPending = false,
   isOffline = false,
   pendingFrameIndex = 0,
-}: AiProps) => {
+}: AiProps) {
   const { modalWidth, modalHeight, left, top, contentWidth, contentHeight } =
     buildAiLayout(width, height)
   const visibleMessages = useMemo(
@@ -373,4 +373,4 @@ export const Ai = ({
       )}
     </Box>
   )
-}
+})
