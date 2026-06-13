@@ -18,6 +18,7 @@ export type AppCommand =
   | {
       type: "mode"
       mode: TerminalMode
+      args?: string[]
     }
   | {
       type: "app"

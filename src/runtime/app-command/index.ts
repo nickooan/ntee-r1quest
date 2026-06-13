@@ -24,10 +24,11 @@ export {
   type ParsedAppCommandInput,
 } from "./types.ts"
 
+// Search is intentionally excluded: it is entered explicitly via `@s`/`@search`
+// (optionally with a query) and left with Esc back to the previous mode.
 export const quickSwitchModeSequence = [
   TerminalMode.Query,
   TerminalMode.View,
-  TerminalMode.Search,
   TerminalMode.Ai,
 ] as const
 

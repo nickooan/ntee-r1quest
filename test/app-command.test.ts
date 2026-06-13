@@ -64,11 +64,28 @@ describe("app commands", () => {
     })
   })
 
-  test("resolves quick switch modes in query, view, search, ai order", () => {
+  test("carries trailing text as args on a mode command", () => {
+    expect(resolveAppInputCommand("@search uuid")).toEqual({
+      type: "mode",
+      mode: TerminalMode.Search,
+      args: ["uuid"],
+    })
+    expect(resolveAppInputCommand("@s some text here")).toEqual({
+      type: "mode",
+      mode: TerminalMode.Search,
+      args: ["some", "text", "here"],
+    })
+    expect(resolveAppInputCommand("@search")).toEqual({
+      type: "mode",
+      mode: TerminalMode.Search,
+    })
+  })
+
+  test("resolves quick switch modes in query, view, ai order without search", () => {
     expect(resolveQuickSwitchMode(TerminalMode.Query)).toBe(TerminalMode.View)
-    expect(resolveQuickSwitchMode(TerminalMode.View)).toBe(TerminalMode.Search)
-    expect(resolveQuickSwitchMode(TerminalMode.Search)).toBe(TerminalMode.Ai)
+    expect(resolveQuickSwitchMode(TerminalMode.View)).toBe(TerminalMode.Ai)
     expect(resolveQuickSwitchMode(TerminalMode.Ai)).toBe(TerminalMode.Query)
+    expect(resolveQuickSwitchMode(TerminalMode.Search)).toBeNull()
     expect(resolveQuickSwitchMode(TerminalMode.Edit)).toBeNull()
   })
 })

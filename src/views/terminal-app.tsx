@@ -58,6 +58,7 @@ import { useEditSuggestions } from "./terminal/edit-suggestions.ts"
 import { buildFilePaneLayout } from "./terminal/file-content.tsx"
 import { useFileNavigation } from "./terminal/file-navigation.ts"
 import { ResponsePane } from "./terminal/response-pane.tsx"
+import { SearchNotFoundOverlay } from "./terminal/search-not-found-overlay.tsx"
 import { Sidebar } from "./terminal/sidebar.tsx"
 import { buildTerminalViewport, normalizeLines } from "./terminal/viewport.ts"
 
@@ -200,6 +201,10 @@ export const TerminalApp = ({
   const [searchModeState, setSearchModeState] = useState<SearchModeState>(
     createSearchModeState,
   )
+  const [searchPreviousMode, setSearchPreviousMode] = useState<TerminalMode>(
+    TerminalMode.Query,
+  )
+  const [searchNotFound, setSearchNotFound] = useState(false)
   const [viewModeState, setViewModeState] =
     useState<ViewModeState>(createViewModeState)
   const [editModeState, setEditModeState] = useState<EditModeState | null>(null)
@@ -455,6 +460,7 @@ export const TerminalApp = ({
       setOpenViewFile(null)
       setEditModeState(null)
       setLocalError(nextError)
+      setSearchNotFound(false)
       setMode((currentMode) =>
         currentMode === TerminalMode.Ai ? currentMode : TerminalMode.Query,
       )
@@ -496,6 +502,7 @@ export const TerminalApp = ({
             query: "",
             focusedMatchIndex: 0,
           }))
+          setSearchNotFound(false)
           setMode((currentMode) =>
             currentMode === TerminalMode.Ai ? currentMode : TerminalMode.Query,
           )
@@ -524,6 +531,8 @@ export const TerminalApp = ({
     setMode(TerminalMode.Query)
     setQueryModeState(createQueryModeState())
     setSearchModeState(createSearchModeState())
+    setSearchPreviousMode(TerminalMode.Query)
+    setSearchNotFound(false)
     setViewModeState(createViewModeState())
     setEditModeState(null)
     setOpenViewFile(null)
@@ -601,26 +610,6 @@ export const TerminalApp = ({
       return true
     }
 
-    if (nextMode === TerminalMode.Search) {
-      const scrollX = openViewFile
-        ? viewModeState.scrollX
-        : queryModeState.scrollX
-      const scrollY = openViewFile
-        ? viewModeState.scrollY
-        : queryModeState.scrollY
-
-      setMode(TerminalMode.Search)
-      setSearchModeState({
-        scrollX,
-        scrollY,
-        input: "",
-        inputCursorX: 0,
-        query: "",
-        focusedMatchIndex: 0,
-      })
-      return true
-    }
-
     if (nextMode === TerminalMode.Ai) {
       startAiMode()
       setSearchModeState({
@@ -634,6 +623,65 @@ export const TerminalApp = ({
     }
 
     return false
+  }
+
+  // Enter search mode, optionally with an initial query (e.g. from `@s uuid`).
+  // Remembers the mode we came from so Esc can return to it, and raises the
+  // "nothing found" overlay when a non-empty query has no matches.
+  const openSearchMode = (
+    query: string,
+    fromMode: TerminalMode,
+    scrollX: number,
+    scrollY: number,
+  ) => {
+    const limits = {
+      maxScrollX: activeMaxScrollX,
+      maxScrollY: activeMaxScrollY,
+      viewWidth: activeContentWidth,
+      viewHeight: activeContentHeight,
+    }
+    const matches = query ? findSearchMatches(content, query) : []
+    const baseState: SearchModeState = {
+      scrollX,
+      scrollY,
+      input: "",
+      inputCursorX: 0,
+      query,
+      focusedMatchIndex: 0,
+    }
+
+    setSearchPreviousMode(fromMode)
+    setMode(TerminalMode.Search)
+    setSearchModeState(
+      query ? focusSearchMatch(baseState, limits, matches, 0) : baseState,
+    )
+    setKeyboardSelectedCommand("")
+    setSearchNotFound(query !== "" && matches.length === 0)
+  }
+
+  const exitSearchToPreviousMode = () => {
+    const targetMode = searchPreviousMode
+    const { scrollX, scrollY } = searchModeState
+
+    setSearchNotFound(false)
+    setSearchModeState({
+      ...searchModeState,
+      input: "",
+      inputCursorX: 0,
+      query: "",
+      focusedMatchIndex: 0,
+    })
+    setKeyboardSelectedCommand("")
+    setMode(targetMode)
+
+    if (targetMode === TerminalMode.Query) {
+      setQueryModeState({ ...queryModeState, scrollX, scrollY })
+    } else if (
+      targetMode === TerminalMode.View ||
+      targetMode === TerminalMode.Edit
+    ) {
+      setViewModeState({ ...viewModeState, command: "", scrollX, scrollY })
+    }
   }
 
   useInput((input, key) => {
@@ -879,18 +927,18 @@ export const TerminalApp = ({
       }
 
       if (nextMode === TerminalMode.Search) {
-        setMode(TerminalMode.Search)
-        setSearchModeState({
-          scrollX: result.state.scrollX,
-          scrollY: result.state.scrollY,
-          input: "",
-          query: "",
-          focusedMatchIndex: 0,
-        })
         setViewModeState({
           ...result.state,
           command: "",
         })
+        openSearchMode(
+          nextCommand?.type === "mode"
+            ? (nextCommand.args?.join(" ") ?? "")
+            : "",
+          mode,
+          result.state.scrollX,
+          result.state.scrollY,
+        )
         return
       }
 
@@ -917,6 +965,25 @@ export const TerminalApp = ({
     }
 
     if (mode === TerminalMode.Search) {
+      if (searchNotFound) {
+        if (key.return) {
+          setSearchNotFound(false)
+          return
+        }
+
+        if (key.escape) {
+          exitSearchToPreviousMode()
+          return
+        }
+
+        return
+      }
+
+      if (key.escape) {
+        exitSearchToPreviousMode()
+        return
+      }
+
       const limits = {
         maxScrollX: activeMaxScrollX,
         maxScrollY: activeMaxScrollY,
@@ -937,6 +1004,18 @@ export const TerminalApp = ({
       const nextMode = nextCommand?.type === "mode" ? nextCommand.mode : null
 
       if (handleAppCommand(result.submittedQuery)) {
+        return
+      }
+
+      if (nextMode === TerminalMode.Search) {
+        openSearchMode(
+          nextCommand?.type === "mode"
+            ? (nextCommand.args?.join(" ") ?? "")
+            : "",
+          searchPreviousMode,
+          result.state.scrollX,
+          result.state.scrollY,
+        )
         return
       }
 
@@ -1029,6 +1108,10 @@ export const TerminalApp = ({
           ? result.state
           : focusSearchMatch(result.state, limits, nextMatches, 0)
 
+      if (result.submittedQuery !== undefined) {
+        setSearchNotFound(result.state.query !== "" && nextMatches.length === 0)
+      }
+
       setSearchModeState(nextState)
       return
     }
@@ -1114,19 +1197,19 @@ export const TerminalApp = ({
       }
 
       if (nextMode === TerminalMode.Search) {
-        setMode(TerminalMode.Search)
-        setSearchModeState({
-          scrollX: queryModeState.scrollX,
-          scrollY: queryModeState.scrollY,
-          input: "",
-          query: "",
-          focusedMatchIndex: 0,
-        })
         setViewModeState({
           command: "",
           scrollX: 0,
           scrollY: 0,
         })
+        openSearchMode(
+          nextCommand?.type === "mode"
+            ? (nextCommand.args?.join(" ") ?? "")
+            : "",
+          TerminalMode.View,
+          queryModeState.scrollX,
+          queryModeState.scrollY,
+        )
         return
       }
 
@@ -1239,15 +1322,13 @@ export const TerminalApp = ({
     }
 
     if (nextMode === TerminalMode.Search) {
-      setMode(TerminalMode.Search)
-      setSearchModeState({
-        scrollX: result.state.scrollX,
-        scrollY: result.state.scrollY,
-        input: "",
-        query: "",
-        focusedMatchIndex: 0,
-      })
       setQueryModeState(result.state)
+      openSearchMode(
+        nextCommand?.type === "mode" ? (nextCommand.args?.join(" ") ?? "") : "",
+        TerminalMode.Query,
+        result.state.scrollX,
+        result.state.scrollY,
+      )
       return
     }
 
@@ -1349,6 +1430,13 @@ export const TerminalApp = ({
               ? formatAcpPermissionMessage(aiPermissionRequest)
               : undefined
           }
+        />
+      )}
+      {mode === TerminalMode.Search && searchNotFound && (
+        <SearchNotFoundOverlay
+          width={width}
+          height={height}
+          query={searchModeState.query}
         />
       )}
     </Box>

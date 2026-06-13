@@ -19,10 +19,14 @@ export abstract class AliasAppCommand implements AppCommandDefinition {
 export abstract class ModeAppCommand extends AliasAppCommand {
   protected abstract readonly mode: TerminalMode
 
-  resolve(): AppCommand {
+  resolve(input: ParsedAppCommandInput): AppCommand {
     return {
       type: "mode",
       mode: this.mode,
+      // Trailing text after the alias (e.g. `@s uuid`) is carried as args so a
+      // mode like search can act on it immediately. Omitted when empty so
+      // arg-less commands keep their plain `{ type, mode }` shape.
+      args: input.args.length > 0 ? input.args : undefined,
     }
   }
 }
