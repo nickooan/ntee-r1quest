@@ -50,6 +50,7 @@ import {
   requestStatsHeight,
 } from "./terminal/constants.ts"
 import { formatAcpPermissionMessage } from "./terminal/ai-session.ts"
+import { BlinkingCursor } from "./terminal/blinking-cursor.tsx"
 import { useAiController } from "./terminal/ai-controller.ts"
 import { formatTerminalContent } from "./terminal/content.ts"
 import { resolveEditScroll } from "./terminal/edit-scroll.ts"
@@ -191,7 +192,6 @@ export const TerminalApp = ({
 }: TerminalAppProps) => {
   const { columns, rows } = useWindowSize()
   const [frameIndex, setFrameIndex] = useState(0)
-  const [isCursorVisible, setIsCursorVisible] = useState(true)
   const [isCursorBlinkActive, setIsCursorBlinkActive] = useState(true)
   const [cursorActivityId, setCursorActivityId] = useState(0)
   const [mode, setMode] = useState(TerminalMode.Query)
@@ -258,19 +258,24 @@ export const TerminalApp = ({
     fileTreeEntries,
     highlightedSidebarCommand,
   )
-  const responseContent = formatTerminalContent({
-    response,
-    error: localError ?? error,
-    externalContent: externalEvent?.responseContent,
-    isPending,
-    frameIndex,
-  })
+  const externalContent = externalEvent?.responseContent
+  const responseContent = useMemo(
+    () =>
+      formatTerminalContent({
+        response,
+        error: localError ?? error,
+        externalContent,
+        isPending,
+        frameIndex,
+      }),
+    [response, localError, error, externalContent, isPending, frameIndex],
+  )
   const openFileContent =
     openViewFile && mode === TerminalMode.Edit && editModeState
       ? serializeEditModeContent(editModeState)
       : openViewFile?.content
   const content = openFileContent ?? responseContent
-  const contentLines = normalizeLines(content)
+  const contentLines = useMemo(() => normalizeLines(content), [content])
   const filePaneLayout = openViewFile
     ? buildFilePaneLayout(responsePaneWidth, viewHeight, contentLines.length)
     : null
@@ -278,9 +283,13 @@ export const TerminalApp = ({
     filePaneLayout?.contentWidth ?? responseContentWidth
   const activeContentHeight =
     filePaneLayout?.contentHeight ?? responseContentHeight
-  const activeMaxLineWidth = contentLines.reduce(
-    (currentMax, line) => Math.max(currentMax, line.length),
-    0,
+  const activeMaxLineWidth = useMemo(
+    () =>
+      contentLines.reduce(
+        (currentMax, line) => Math.max(currentMax, line.length),
+        0,
+      ),
+    [contentLines],
   )
   const activeMaxScrollX = Math.max(0, activeMaxLineWidth - activeContentWidth)
   const activeMaxScrollY = Math.max(
@@ -299,17 +308,30 @@ export const TerminalApp = ({
       : openViewFile
         ? viewModeState.scrollY
         : queryModeState.scrollY
-  const viewport = buildTerminalViewport(
-    content,
-    responseContentWidth,
-    responseContentHeight,
-    contentScrollX,
-    contentScrollY,
+  const viewport = useMemo(
+    () =>
+      buildTerminalViewport(
+        content,
+        responseContentWidth,
+        responseContentHeight,
+        contentScrollX,
+        contentScrollY,
+      ),
+    [
+      content,
+      responseContentWidth,
+      responseContentHeight,
+      contentScrollX,
+      contentScrollY,
+    ],
   )
-  const searchMatches =
-    mode === TerminalMode.Search
-      ? findSearchMatches(content, searchModeState.query)
-      : []
+  const searchMatches = useMemo(
+    () =>
+      mode === TerminalMode.Search
+        ? findSearchMatches(content, searchModeState.query)
+        : [],
+    [mode, content, searchModeState.query],
+  )
   const inputStates = {
     aiModeState,
     editModeState,
@@ -326,10 +348,21 @@ export const TerminalApp = ({
   const inputBeforeCursor = inputValue.slice(0, commandInputCursorX)
   const inputAfterCursor = inputValue.slice(commandInputCursorX)
   const promptValue = `@${mode} >`
-  const aiLayout = buildAiLayout(width, height)
-  const aiMessageLineCount =
-    buildAiMessageLines(aiModeState.messages, aiLayout.contentWidth).length +
-    (isAiPending || isAiOffline ? 1 : 0)
+  const aiLayout = useMemo(() => buildAiLayout(width, height), [width, height])
+  const aiMessageLineCount = useMemo(
+    () =>
+      mode === TerminalMode.Ai
+        ? buildAiMessageLines(aiModeState.messages, aiLayout.contentWidth)
+            .length + (isAiPending || isAiOffline ? 1 : 0)
+        : 0,
+    [
+      mode,
+      aiModeState.messages,
+      aiLayout.contentWidth,
+      isAiPending,
+      isAiOffline,
+    ],
+  )
   const aiMaxScrollY = Math.max(0, aiMessageLineCount - aiLayout.contentHeight)
   const {
     activeEditSuggestionItems,
@@ -373,27 +406,12 @@ export const TerminalApp = ({
   }, [isAiPending, isPending])
 
   useEffect(() => {
-    if (!isCursorBlinkActive) {
-      return
-    }
-
-    const interval = setInterval(() => {
-      setIsCursorVisible((currentValue) => !currentValue)
-    }, 500)
-
-    return () => {
-      clearInterval(interval)
-    }
-  }, [isCursorBlinkActive])
-
-  useEffect(() => {
     if (!isCursorBlinkActive || isPending || isAiPending) {
       return
     }
 
     const timeout = setTimeout(() => {
       setIsCursorBlinkActive(false)
-      setIsCursorVisible(true)
     }, cursorBlinkIdleMs)
 
     return () => {
@@ -475,7 +493,6 @@ export const TerminalApp = ({
   const resetTerminalState = () => {
     resetAiMode()
     setFrameIndex(0)
-    setIsCursorVisible(true)
     setIsCursorBlinkActive(true)
     setCursorActivityId((currentValue) => currentValue + 1)
     setMode(TerminalMode.Query)
@@ -596,7 +613,6 @@ export const TerminalApp = ({
   useInput((input, key) => {
     setCursorActivityId((currentValue) => currentValue + 1)
     setIsCursorBlinkActive(true)
-    setIsCursorVisible(true)
 
     if (isQuickSwitchKey(key) && quickSwitchMode()) {
       return
@@ -1297,9 +1313,12 @@ export const TerminalApp = ({
         <Text backgroundColor={commandBackgroundColor}>
           {inputBeforeCursor}
         </Text>
-        <Text bold backgroundColor={commandBackgroundColor}>
-          {isCursorVisible ? "_" : " "}
-        </Text>
+        <BlinkingCursor
+          active={isCursorBlinkActive}
+          activityId={cursorActivityId}
+          bold
+          backgroundColor={commandBackgroundColor}
+        />
         <Text backgroundColor={commandBackgroundColor}>{inputAfterCursor}</Text>
       </Box>
       {mode === TerminalMode.Ai && (
@@ -1308,7 +1327,8 @@ export const TerminalApp = ({
           height={height}
           input={aiModeState.input}
           inputCursorX={aiModeState.inputCursorX}
-          isCursorVisible={isCursorVisible}
+          cursorBlinkActive={isCursorBlinkActive}
+          cursorActivityId={cursorActivityId}
           messages={aiModeState.messages}
           scrollY={aiModeState.scrollY}
           isPending={isAiPending}

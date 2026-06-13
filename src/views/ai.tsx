@@ -1,5 +1,6 @@
-import React from "react"
+import React, { useMemo } from "react"
 import { Box, Text } from "ink"
+import { BlinkingCursor } from "./terminal/blinking-cursor.tsx"
 
 export type AiChatMessage = {
   role: "user" | "assistant"
@@ -11,7 +12,8 @@ export type AiProps = {
   height: number
   input: string
   inputCursorX?: number
-  isCursorVisible?: boolean
+  cursorBlinkActive?: boolean
+  cursorActivityId?: number
   messages?: AiChatMessage[]
   scrollY?: number
   permissionMessage?: string
@@ -240,7 +242,8 @@ export const Ai = ({
   height,
   input,
   inputCursorX = input.length,
-  isCursorVisible = true,
+  cursorBlinkActive = true,
+  cursorActivityId = 0,
   messages = [],
   scrollY = 0,
   permissionMessage,
@@ -250,13 +253,25 @@ export const Ai = ({
 }: AiProps) => {
   const { modalWidth, modalHeight, left, top, contentWidth, contentHeight } =
     buildAiLayout(width, height)
-  const visibleMessages = buildVisibleAiMessageLines(
-    messages,
-    contentHeight,
-    contentWidth,
-    scrollY,
-    isPending ? pendingFrameIndex : undefined,
-    isOffline,
+  const visibleMessages = useMemo(
+    () =>
+      buildVisibleAiMessageLines(
+        messages,
+        contentHeight,
+        contentWidth,
+        scrollY,
+        isPending ? pendingFrameIndex : undefined,
+        isOffline,
+      ),
+    [
+      messages,
+      contentHeight,
+      contentWidth,
+      scrollY,
+      isPending,
+      pendingFrameIndex,
+      isOffline,
+    ],
   )
   const inputPrefix = "> "
   const inputContentWidth = Math.max(0, contentWidth - inputPrefix.length)
@@ -335,7 +350,11 @@ export const Ai = ({
         {" ".repeat(paddingX)}
         <Text color="cyan">{inputPrefix}</Text>
         {inputBeforeCursor}
-        <Text bold>{isCursorVisible ? "_" : " "}</Text>
+        <BlinkingCursor
+          active={cursorBlinkActive}
+          activityId={cursorActivityId}
+          bold
+        />
         {inputAfterCursor}
         {" ".repeat(Math.max(0, contentWidth - inputLineLength))}
         {" ".repeat(paddingX)}
