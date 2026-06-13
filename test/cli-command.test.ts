@@ -4,6 +4,7 @@ import {
   beforeAll,
   describe,
   expect,
+  jest,
   test,
 } from "@jest/globals"
 import { mkdtempSync, readFileSync, rmSync } from "node:fs"
@@ -11,7 +12,26 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
-import {
+import { APP_NAME, VERSION } from "../src/runtime/version.ts"
+
+// Isolate the global-config lookup from the developer's real
+// ~/.ntee-r1quest/r1qconfig.yaml: mock os.homedir() to an empty temp dir so
+// these tests see no ambient home config. (Setting process.env.HOME doesn't
+// work inside the jest VM, and spying on the read-only ESM namespace throws,
+// so we mock the module and import the subjects under test dynamically.)
+const isolatedHome = mkdtempSync(join(tmpdir(), "r1quest-home-isolate-"))
+
+jest.unstable_mockModule("node:os", () => {
+  const actual = jest.requireActual<typeof import("node:os")>("node:os")
+
+  return {
+    ...actual,
+    default: { ...actual, homedir: () => isolatedHome },
+    homedir: () => isolatedHome,
+  }
+})
+
+const {
   execute,
   executePathArgument,
   parseArguments,
@@ -20,9 +40,8 @@ import {
   resolveRoot,
   resolveRuntimeConfig,
   resolveSock,
-} from "../src/runtime/cli-command.ts"
-import { APP_NAME, VERSION } from "../src/runtime/version.ts"
-import { initializeHomeConfig } from "../src/runtime/config.ts"
+} = await import("../src/runtime/cli-command.ts")
+const { initializeHomeConfig } = await import("../src/runtime/config.ts")
 
 const server = setupServer()
 
@@ -39,6 +58,7 @@ describe("CLI command runtime", () => {
 
   afterAll(() => {
     server.close()
+    rmSync(isolatedHome, { recursive: true, force: true })
   })
 
   test("parses root and ai arguments and ignores request file arguments", () => {

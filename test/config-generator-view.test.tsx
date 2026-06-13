@@ -6,13 +6,22 @@ import {
   ConfigGenerator,
 } from "../src/views/config-generator/index.tsx"
 
+// Strip ANSI color escapes. The prompt label and the cursor are adjacent Text
+// nodes of different colors, so when ink emits color (TTY/FORCE_COLOR) an escape
+// sequence lands between them — breaking substring assertions that span the two.
+const stripAnsi = (value: string): string =>
+  // eslint-disable-next-line no-control-regex
+  value.replace(/\u001b\[[0-9;]*m/g, "")
+
 describe("config generator view", () => {
   test("renders collection and ai choices", () => {
-    const output = renderToString(
-      <ConfigGenerator
-        configPath="/home/test/.ntee-r1quest/r1qconfig.yaml"
-        onComplete={() => {}}
-      />,
+    const output = stripAnsi(
+      renderToString(
+        <ConfigGenerator
+          configPath="/home/test/.ntee-r1quest/r1qconfig.yaml"
+          onComplete={() => {}}
+        />,
+      ),
     )
 
     expect(output).toContain("R1Quest Config Generator")
