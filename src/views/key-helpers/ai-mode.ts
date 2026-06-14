@@ -7,6 +7,11 @@ import {
   removeInputBeforeCursor,
 } from "./generic-key-actions.ts"
 import { resolveAppInputCommand } from "../../runtime/app-command/index.ts"
+import {
+  matchCustomCommands,
+  resolveCustomCommandPrompt,
+  type CustomCommand,
+} from "../../runtime/custom-command/index.ts"
 
 export type AiChatMessage = {
   role: "user" | "assistant"
@@ -18,14 +23,17 @@ export type AiModeState = {
   inputCursorX: number
   messages: AiChatMessage[]
   scrollY: number
+  commandSuggestionIndex: number
 }
 
 export type AiModeLimits = {
   maxScrollY?: number
+  customCommands?: CustomCommand[]
 }
 
 export type AiModeResult = {
   state: AiModeState
+  submittedPrompt?: string
   shouldExitAi?: boolean
   shouldExitApp?: boolean
   shouldReloadApp?: boolean
@@ -37,6 +45,7 @@ export const createAiModeState = (): AiModeState => {
     inputCursorX: 0,
     messages: [],
     scrollY: 0,
+    commandSuggestionIndex: 0,
   }
 }
 
@@ -54,6 +63,45 @@ export const handleAiModeInput = (
     return {
       state,
       shouldExitAi: true,
+    }
+  }
+
+  const customCommands = limits.customCommands ?? []
+  const suggestions = matchCustomCommands(customCommands, state.input)
+
+  // While the suggestion popup is open, Tab/Enter accept the highlighted
+  // command (inserting `/name ` so args can be typed, rather than submitting a
+  // half-typed name), and the arrows move the highlight instead of scrolling.
+  if (suggestions.length > 0) {
+    const suggestionIndex = clampValue(
+      state.commandSuggestionIndex,
+      0,
+      suggestions.length - 1,
+    )
+
+    if (key.tab || key.return) {
+      const completion = `/${suggestions[suggestionIndex]?.name ?? ""} `
+
+      return {
+        state: {
+          ...state,
+          input: completion,
+          inputCursorX: completion.length,
+          commandSuggestionIndex: 0,
+        },
+      }
+    }
+
+    if (key.upArrow || key.downArrow) {
+      const move = key.downArrow ? 1 : -1
+
+      return {
+        state: {
+          ...state,
+          commandSuggestionIndex:
+            (suggestionIndex + move + suggestions.length) % suggestions.length,
+        },
+      }
     }
   }
 
@@ -99,6 +147,7 @@ export const handleAiModeInput = (
         ...state,
         input: nextInput.input,
         inputCursorX: nextInput.inputCursorX,
+        commandSuggestionIndex: 0,
       },
     }
   }
@@ -140,19 +189,26 @@ export const handleAiModeInput = (
       }
     }
 
+    // A `/name args` slash command expands into its instruction; anything else
+    // is sent verbatim. The expanded text is both shown in the chat and sent.
+    const submittedPrompt =
+      resolveCustomCommandPrompt(customCommands, trimmedInput) ?? trimmedInput
+
     return {
       state: {
         input: "",
         inputCursorX: 0,
         scrollY: 0,
+        commandSuggestionIndex: 0,
         messages: [
           ...state.messages,
           {
             role: "user",
-            content: trimmedInput,
+            content: submittedPrompt,
           },
         ],
       },
+      submittedPrompt,
     }
   }
 
@@ -172,6 +228,7 @@ export const handleAiModeInput = (
         ...state,
         input: nextInput.input,
         inputCursorX: nextInput.inputCursorX,
+        commandSuggestionIndex: 0,
       },
     }
   }

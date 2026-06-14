@@ -174,6 +174,86 @@ describe("ai mode key helpers", () => {
       }).state.scrollY,
     ).toBe(0)
   })
+
+  const customCommands = [
+    {
+      name: "for-test",
+      description: "use for testing",
+      instruction: "asdgasdfasd $1 asdgasdfasgd $2 asdgasdfg $3",
+    },
+    {
+      name: "format",
+      description: "format helper",
+      instruction: "format $1",
+    },
+  ]
+
+  test("expands a custom slash command on submit", () => {
+    const result = handleAiModeInput(
+      "",
+      key({ return: true }),
+      { ...createAiModeState(), input: "/for-test one two three" },
+      { customCommands },
+    )
+
+    expect(result.submittedPrompt).toBe(
+      "asdgasdfasd one asdgasdfasgd two asdgasdfg three",
+    )
+    expect(result.state.messages).toEqual([
+      {
+        role: "user",
+        content: "asdgasdfasd one asdgasdfasgd two asdgasdfg three",
+      },
+    ])
+  })
+
+  test("sends an unknown slash command verbatim", () => {
+    const result = handleAiModeInput(
+      "",
+      key({ return: true }),
+      { ...createAiModeState(), input: "/unknown a b" },
+      { customCommands },
+    )
+
+    expect(result.submittedPrompt).toBe("/unknown a b")
+  })
+
+  test("accepts the highlighted command suggestion with tab or enter", () => {
+    const tabResult = handleAiModeInput(
+      "",
+      key({ tab: true }),
+      { ...createAiModeState(), input: "/f", commandSuggestionIndex: 1 },
+      { customCommands },
+    )
+
+    expect(tabResult.state.input).toBe("/format ")
+    expect(tabResult.state.inputCursorX).toBe("/format ".length)
+
+    // Enter accepts the suggestion (rather than submitting the half-typed name)
+    // while the popup is open, and does not send a prompt.
+    const enterResult = handleAiModeInput(
+      "",
+      key({ return: true }),
+      { ...createAiModeState(), input: "/f", commandSuggestionIndex: 0 },
+      { customCommands },
+    )
+
+    expect(enterResult.state.input).toBe("/for-test ")
+    expect(enterResult.submittedPrompt).toBeUndefined()
+    expect(enterResult.state.messages).toEqual([])
+  })
+
+  test("moves the suggestion highlight with arrows instead of scrolling", () => {
+    const movedDown = handleAiModeInput(
+      "",
+      key({ downArrow: true }),
+      { ...createAiModeState(), input: "/f", scrollY: 0 },
+      { customCommands },
+    )
+
+    expect(movedDown.state.commandSuggestionIndex).toBe(1)
+    expect(movedDown.state.scrollY).toBe(0)
+  })
 })
 
 describe("view mode key helpers", () => {

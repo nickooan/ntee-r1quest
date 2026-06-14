@@ -22,6 +22,10 @@ import {
   resolveAppInputCommand,
   TerminalMode,
 } from "../runtime/app-command/index.ts"
+import {
+  matchCustomCommands,
+  type CustomCommand,
+} from "../runtime/custom-command/index.ts"
 import { Ai } from "./ai.tsx"
 import type { AcpAdaptorName } from "../runtime/acp/index.ts"
 import {
@@ -66,6 +70,7 @@ export type TerminalAppProps = {
   height?: number
   width?: number
   aiAdaptor?: AcpAdaptorName
+  customCommands?: CustomCommand[]
   onCommand?: (command: string) => void | Promise<void>
   onReload?: () => void
   onExit?: () => void
@@ -107,6 +112,7 @@ export const TerminalApp = ({
   height: fixedHeight,
   width: fixedWidth,
   aiAdaptor,
+  customCommands = [],
   onCommand,
   onReload,
   onExit = () => {
@@ -518,9 +524,9 @@ export const TerminalApp = ({
         return
       }
 
-      const submittedInput = key.return ? aiModeState.input.trim() : ""
       const result = handleAiModeInput(input, key, aiModeState, {
         maxScrollY: aiMaxScrollY,
+        customCommands,
       })
 
       if (result.shouldExitAi) {
@@ -540,8 +546,8 @@ export const TerminalApp = ({
         return
       }
 
-      if (submittedInput) {
-        writeAiInput(submittedInput)
+      if (result.submittedPrompt) {
+        writeAiInput(result.submittedPrompt)
       }
 
       return
@@ -1215,6 +1221,11 @@ export const TerminalApp = ({
           cursorActivityId={cursorActivityId}
           messages={aiModeState.messages}
           scrollY={aiModeState.scrollY}
+          commandSuggestions={matchCustomCommands(
+            customCommands,
+            aiModeState.input,
+          )}
+          commandSuggestionIndex={aiModeState.commandSuggestionIndex}
           isPending={isAiPending}
           isOffline={isAiOffline}
           pendingFrameIndex={frameIndex}

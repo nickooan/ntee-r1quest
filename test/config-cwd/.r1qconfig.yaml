@@ -3,3 +3,8 @@ ai: claude
 custom-suggestions:
   - some-style-id
   - x-trace-token
+custom-ai-commands:
+  - name: for-test
+    description: use for testing
+    instruction: asdgasdfasd $1 asdgasdfasgd $2 asdgasdfg $3
+  - name: incomplete

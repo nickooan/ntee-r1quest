@@ -296,6 +296,29 @@ describe("CLI command runtime", () => {
     }
   })
 
+  test("loads custom commands from .r1qconfig.yaml and skips invalid entries", () => {
+    const originalWorkingDirectory = process.cwd()
+    const configWorkingDirectory = join(
+      originalWorkingDirectory,
+      "test/config-cwd",
+    )
+
+    process.chdir(configWorkingDirectory)
+
+    try {
+      // "incomplete" has no instruction and is dropped.
+      expect(resolveRuntimeConfig().customCommands).toEqual([
+        {
+          name: "for-test",
+          description: "use for testing",
+          instruction: "asdgasdfasd $1 asdgasdfasgd $2 asdgasdfg $3",
+        },
+      ])
+    } finally {
+      process.chdir(originalWorkingDirectory)
+    }
+  })
+
   test("resolves .r1qconfig.yaml sock from the current directory", () => {
     const originalWorkingDirectory = process.cwd()
     const configWorkingDirectory = join(

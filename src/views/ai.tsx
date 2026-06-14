@@ -1,5 +1,6 @@
 import React, { memo, useMemo } from "react"
 import { Box, Text } from "ink"
+import type { CustomCommand } from "../runtime/custom-command/index.ts"
 import { BlinkingCursor } from "./terminal/blinking-cursor.tsx"
 
 export type AiChatMessage = {
@@ -16,6 +17,8 @@ export type AiProps = {
   cursorActivityId?: number
   messages?: AiChatMessage[]
   scrollY?: number
+  commandSuggestions?: CustomCommand[]
+  commandSuggestionIndex?: number
   permissionMessage?: string
   isPending?: boolean
   isOffline?: boolean
@@ -237,6 +240,65 @@ const PermissionModal = ({
   )
 }
 
+const maxCommandSuggestionItems = 6
+
+const CommandSuggestionsOverlay = ({
+  modalWidth,
+  modalHeight,
+  suggestions,
+  selectedIndex,
+}: {
+  modalWidth: number
+  modalHeight: number
+  suggestions: CustomCommand[]
+  selectedIndex: number
+}) => {
+  const visibleCount = Math.min(suggestions.length, maxCommandSuggestionItems)
+  const safeIndex = Math.min(Math.max(selectedIndex, 0), suggestions.length - 1)
+  const startIndex = Math.min(
+    Math.max(0, safeIndex - visibleCount + 1),
+    Math.max(0, suggestions.length - visibleCount),
+  )
+  const visibleSuggestions = suggestions.slice(
+    startIndex,
+    startIndex + visibleCount,
+  )
+  const overlayWidth = Math.max(1, modalWidth - 4)
+  // Sit just above the input line near the bottom of the modal.
+  const top = Math.max(1, modalHeight - 3 - visibleCount)
+
+  return (
+    <Box
+      position="absolute"
+      left={2}
+      top={top}
+      width={overlayWidth}
+      height={visibleCount}
+      flexDirection="column"
+    >
+      {visibleSuggestions.map((command, index) => {
+        const isSelected = startIndex + index === safeIndex
+        const description = command.description
+          ? `  ${command.description}`
+          : ""
+        const text = `/${command.name}${description}`
+          .slice(0, overlayWidth)
+          .padEnd(overlayWidth, " ")
+
+        return (
+          <Text
+            key={command.name}
+            color={isSelected ? "white" : "black"}
+            backgroundColor={isSelected ? "#006400" : "white"}
+          >
+            {text}
+          </Text>
+        )
+      })}
+    </Box>
+  )
+}
+
 export const Ai = memo(function Ai({
   width,
   height,
@@ -246,6 +308,8 @@ export const Ai = memo(function Ai({
   cursorActivityId = 0,
   messages = [],
   scrollY = 0,
+  commandSuggestions = [],
+  commandSuggestionIndex = 0,
   permissionMessage,
   isPending = false,
   isOffline = false,
@@ -364,6 +428,14 @@ export const Ai = memo(function Ai({
           {" ".repeat(Math.max(1, modalWidth - 2))}
         </Text>
       ))}
+      {!permissionMessage && commandSuggestions.length > 0 && (
+        <CommandSuggestionsOverlay
+          modalWidth={modalWidth}
+          modalHeight={modalHeight}
+          suggestions={commandSuggestions}
+          selectedIndex={commandSuggestionIndex}
+        />
+      )}
       {permissionMessage && (
         <PermissionModal
           width={modalWidth}

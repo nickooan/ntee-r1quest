@@ -12,6 +12,7 @@ import {
 } from "./src/runtime/cli-command.ts"
 import { resolveAdaptorName } from "./src/runtime/acp/index.ts"
 import {
+  clearRuntimeConfigCache,
   getHomeConfigPath,
   initializeHomeConfig,
   type InitializeHomeConfigResult,
@@ -179,6 +180,9 @@ const CommandApp = ({
     setRequestDurationMs(undefined)
 
     try {
+      // Drop the cached config so a reload re-scans config files (root, ai,
+      // custom-ai-commands, ...) from disk instead of returning the boot snapshot.
+      clearRuntimeConfigCache()
       setConfig(resolveRuntimeConfig(args))
       setReloadId((currentValue) => currentValue + 1)
     } catch (nextError) {
@@ -194,6 +198,7 @@ const CommandApp = ({
     root,
     version: VERSION,
     aiAdaptor,
+    customCommands: config.customCommands,
     externalEventSocket,
     requestDurationMs,
     onCommand: runCommand,
