@@ -49,6 +49,7 @@
     "@zed-industries/codex-acp": "^0.14.0",
     "axios": "^1.16.1",
     "ink": "^7.0.1",
+    "lmdb": "^3.5.5",
     "ohm-js": "^17.5.0",
     "react": "^19.2.5",
     "yaml": "^2.9.0"
