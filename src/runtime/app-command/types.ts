@@ -4,6 +4,7 @@ export enum TerminalMode {
   View = "view",
   Edit = "edit",
   Ai = "ai",
+  History = "history",
 }
 
 export type AppActionCommand = "exit" | "reload" | "clean-cache"

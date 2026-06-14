@@ -22,11 +22,37 @@ export type ApiCallResponse = {
 }
 
 export type ApiCallRecord = {
+  // "<path> [<method>]", e.g. "/a/b/c [get]". Also the cache key, so the same
+  // path called with different methods are stored as distinct entries.
+  endpoint: string
+  path: string
+  method: string
   at: number
   durationMs: number
   request: ApiCallRequest
   response: ApiCallResponse
 }
+
+type RecordApiCallInput = Omit<ApiCallRecord, "endpoint" | "path" | "method">
+
+const derivePath = (url: string | undefined): string => {
+  if (!url) {
+    return "(unknown)"
+  }
+
+  try {
+    // A base handles relative URLs; absolute URLs ignore it.
+    return new URL(url, "http://localhost").pathname || url
+  } catch {
+    return url
+  }
+}
+
+/** Builds the "<path> [<method>]" endpoint label used as the cache key. */
+export const formatEndpointLabel = (
+  url: string | undefined,
+  method: string | undefined,
+): string => `${derivePath(url)} [${(method ?? "get").toLowerCase()}]`
 
 type CacheHandles = {
   root: RootDatabase
@@ -35,7 +61,6 @@ type CacheHandles = {
 }
 
 let handles: CacheHandles | null = null
-let apiSequence = 0
 
 // Cache is best-effort: it must never break the app, so opens and writes that
 // fail are swallowed and the feature simply degrades to a no-op.
@@ -143,8 +168,12 @@ export const suggestInputs = (prefix: string, limit = 6): string[] => {
   }
 }
 
-/** Records a successful API call with its request and response details. */
-export const recordApiCall = (record: ApiCallRecord): void => {
+/**
+ * Records a successful API call, keyed by its "<path> [<method>]" endpoint so
+ * the latest request/response for each endpoint+method is cached (a repeat call
+ * overwrites the previous entry).
+ */
+export const recordApiCall = (record: RecordApiCallInput): void => {
   const cache = ensureOpen()
 
   if (!cache) {
@@ -152,21 +181,18 @@ export const recordApiCall = (record: ApiCallRecord): void => {
   }
 
   try {
-    // Keys are time-ordered; a sequence suffix keeps calls within the same
-    // millisecond distinct and stably ordered.
-    apiSequence = (apiSequence + 1) % 1_000_000
-    const key = `${record.at.toString().padStart(16, "0")}-${apiSequence
-      .toString()
-      .padStart(6, "0")}`
+    const method = (record.request.method ?? "get").toLowerCase()
+    const path = derivePath(record.request.url)
+    const endpoint = `${path} [${method}]`
 
-    void cache.api.put(key, record)
+    void cache.api.put(endpoint, { ...record, endpoint, path, method })
   } catch {
     // ignore cache write failures
   }
 }
 
-/** Returns recorded API calls, most recent first. */
-export const listApiHistory = (limit = 100): ApiCallRecord[] => {
+/** Returns all cached endpoints (one per path+method), in label order. */
+export const listApiEndpoints = (): ApiCallRecord[] => {
   const cache = ensureOpen()
 
   if (!cache) {
@@ -176,17 +202,28 @@ export const listApiHistory = (limit = 100): ApiCallRecord[] => {
   try {
     const records: ApiCallRecord[] = []
 
-    for (const { value } of cache.api.getRange({ reverse: true })) {
+    for (const { value } of cache.api.getRange()) {
       records.push(value)
-
-      if (records.length >= limit) {
-        break
-      }
     }
 
     return records
   } catch {
     return []
+  }
+}
+
+/** Returns the cached call for an endpoint label, or undefined. */
+export const getApiCall = (endpoint: string): ApiCallRecord | undefined => {
+  const cache = ensureOpen()
+
+  if (!cache) {
+    return undefined
+  }
+
+  try {
+    return cache.api.get(endpoint)
+  } catch {
+    return undefined
   }
 }
 

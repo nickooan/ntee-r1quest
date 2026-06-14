@@ -1,7 +1,7 @@
 import type { FileTreeEntry } from "../../runtime/file-manager/index.ts"
 import { suggestInputs } from "../../runtime/cache/index.ts"
 
-export type InputSuggestionSource = "cache" | "file" | "directory"
+export type InputSuggestionSource = "cache" | "file" | "directory" | "endpoint"
 
 export type InputSuggestion = {
   label: string
@@ -93,4 +93,27 @@ export const buildInputSuggestions = (
   }
 
   return suggestions.slice(0, limit)
+}
+
+/**
+ * Builds History-mode suggestions: cached endpoint labels ("<path> [<method>]")
+ * that start with the typed text. Returns nothing for empty/"@" input.
+ */
+export const buildEndpointSuggestions = (
+  endpointLabels: readonly string[],
+  command: string,
+  limit = maxInputSuggestions,
+): InputSuggestion[] => {
+  const trimmed = command.trim()
+
+  if (trimmed === "" || trimmed.startsWith("@")) {
+    return []
+  }
+
+  const normalized = trimmed.toLowerCase()
+
+  return endpointLabels
+    .filter((label) => label.toLowerCase().startsWith(normalized))
+    .slice(0, limit)
+    .map((label) => ({ label, insertText: label, source: "endpoint" as const }))
 }

@@ -11,6 +11,7 @@ export {
   CleanCacheCommand,
   EditCommand,
   ExitCommand,
+  HistoryCommand,
   QueryCommand,
   ReloadCommand,
   SearchCommand,

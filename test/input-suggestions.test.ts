@@ -13,7 +13,7 @@ jest.unstable_mockModule("../src/runtime/cache/index.ts", () => ({
   listApiHistory: () => [],
 }))
 
-const { buildInputSuggestions } =
+const { buildInputSuggestions, buildEndpointSuggestions } =
   await import("../src/views/terminal/input-suggestions.ts")
 
 const entries: FileTreeEntry[] = [
@@ -72,5 +72,25 @@ describe("buildInputSuggestions", () => {
     expect(buildInputSuggestions(entries, "")).toEqual([])
     expect(buildInputSuggestions(entries, "   ")).toEqual([])
     expect(buildInputSuggestions(entries, "@query")).toEqual([])
+  })
+})
+
+describe("buildEndpointSuggestions", () => {
+  const labels = ["/a/b/c [get]", "/a/b/c [post]", "/x/y [get]"]
+
+  test("returns both methods of a matching endpoint path", () => {
+    expect(buildEndpointSuggestions(labels, "/a/b/c")).toEqual([
+      { label: "/a/b/c [get]", insertText: "/a/b/c [get]", source: "endpoint" },
+      {
+        label: "/a/b/c [post]",
+        insertText: "/a/b/c [post]",
+        source: "endpoint",
+      },
+    ])
+  })
+
+  test("returns nothing for empty input or @ commands", () => {
+    expect(buildEndpointSuggestions(labels, "")).toEqual([])
+    expect(buildEndpointSuggestions(labels, "@h")).toEqual([])
   })
 })

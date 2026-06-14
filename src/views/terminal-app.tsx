@@ -44,17 +44,27 @@ import {
   editModeRequiresViewFileMessage,
   paneGap,
 } from "./terminal/constants.ts"
-import { clearCache, recordInput } from "../runtime/cache/index.ts"
+import {
+  clearCache,
+  listApiEndpoints,
+  recordInput,
+  type ApiCallRecord,
+} from "../runtime/cache/index.ts"
 import { formatAcpPermissionMessage } from "./terminal/ai-session.ts"
 import { CommandLine } from "./terminal/command-line.tsx"
 import { CommandSuggestionOverlay } from "./terminal/command-suggestions.tsx"
-import { buildInputSuggestions } from "./terminal/input-suggestions.ts"
+import { formatHistoryEntry } from "./terminal/history-content.ts"
+import {
+  buildEndpointSuggestions,
+  buildInputSuggestions,
+} from "./terminal/input-suggestions.ts"
 import { useAiController } from "./terminal/ai-controller.ts"
 import { resolveEditScroll } from "./terminal/edit-scroll.ts"
 import { useEditSuggestions } from "./terminal/edit-suggestions.ts"
 import { buildFilePaneLayout } from "./terminal/file-content.tsx"
 import { useFileNavigation } from "./terminal/file-navigation.ts"
 import { ResponsePane } from "./terminal/response-pane.tsx"
+import { CacheNoticeOverlay } from "./terminal/cache-notice-overlay.tsx"
 import { SearchNotFoundOverlay } from "./terminal/search-not-found-overlay.tsx"
 import { Sidebar } from "./terminal/sidebar.tsx"
 import { TerminalHeader } from "./terminal/terminal-header.tsx"
@@ -146,6 +156,10 @@ export const TerminalApp = ({
   const [selectedCommand, setSelectedCommand] = useState("")
   const [keyboardSelectedCommand, setKeyboardSelectedCommand] = useState("")
   const [inputSuggestionIndex, setInputSuggestionIndex] = useState(0)
+  const [historyModeState, setHistoryModeState] =
+    useState<QueryModeState>(createQueryModeState)
+  const [historySelectedEndpoint, setHistorySelectedEndpoint] = useState("")
+  const [cacheErasedNotice, setCacheErasedNotice] = useState(false)
   const {
     aiModeState,
     setAiModeState,
@@ -166,6 +180,63 @@ export const TerminalApp = ({
   })
   const height = fixedHeight ?? rows ?? defaultHeight
   const width = fixedWidth ?? columns ?? defaultWidth
+
+  // History mode: cached endpoints (loaded on entry), the endpoint matching the
+  // current filter/selection, and the formatted Results content. Computed
+  // before the view hook because the Results content is fed into it. None of it
+  // depends on the file tree.
+  // History context covers History mode and a search launched from it, so the
+  // endpoints sidebar and Results content stay visible (and searchable) while
+  // searching history.
+  const isHistoryContext =
+    mode === TerminalMode.History ||
+    (mode === TerminalMode.Search &&
+      searchPreviousMode === TerminalMode.History)
+  const historyEndpoints = useMemo(
+    () => (isHistoryContext ? listApiEndpoints() : []),
+    [isHistoryContext],
+  )
+  const historyEndpointLabels = useMemo(
+    () => historyEndpoints.map((record) => record.endpoint),
+    [historyEndpoints],
+  )
+  const historySuggestions = useMemo(
+    () =>
+      mode === TerminalMode.History
+        ? buildEndpointSuggestions(
+            historyEndpointLabels,
+            historyModeState.command,
+          )
+        : [],
+    [mode, historyEndpointLabels, historyModeState.command],
+  )
+  const historyOverlayIndex =
+    historySuggestions.length === 0
+      ? 0
+      : Math.min(inputSuggestionIndex, historySuggestions.length - 1)
+  const activeHistoryEndpoint =
+    historySuggestions.length > 0
+      ? (historySuggestions[historyOverlayIndex]?.label ?? "")
+      : historySelectedEndpoint
+  const activeHistoryRecord: ApiCallRecord | undefined = isHistoryContext
+    ? (historyEndpoints.find(
+        (record) => record.endpoint === activeHistoryEndpoint,
+      ) ?? historyEndpoints[0])
+    : undefined
+  const approxHistorySidebarWidth = Math.min(
+    Math.max(12, Math.floor(width / 4)),
+    Math.max(1, width - paneGap - 3),
+  )
+  const historyResultWidth = Math.max(
+    20,
+    width - approxHistorySidebarWidth - paneGap - 2,
+  )
+  const historyContent = isHistoryContext
+    ? activeHistoryRecord
+      ? formatHistoryEntry(activeHistoryRecord, historyResultWidth)
+      : "No cached requests yet.\n\nRun requests in @query mode to fill the history."
+    : undefined
+
   const {
     fileTreeEntries,
     sidebarWidth,
@@ -208,6 +279,8 @@ export const TerminalApp = ({
     aiModeState,
     isAiPending,
     isAiOffline,
+    historyModeState,
+    historyContent,
   })
   const {
     activeEditSuggestionItems,
@@ -240,6 +313,10 @@ export const TerminalApp = ({
   // shown in the overlay above the command line. The overlay is the selection
   // source; the sidebar just highlights whichever file/dir is selected.
   const inputSuggestions = useMemo(() => {
+    if (mode === TerminalMode.History) {
+      return historySuggestions
+    }
+
     if (mode !== TerminalMode.Query && mode !== TerminalMode.View) {
       return []
     }
@@ -250,7 +327,13 @@ export const TerminalApp = ({
         : queryModeState.command
 
     return buildInputSuggestions(fileTreeEntries, command)
-  }, [mode, fileTreeEntries, queryModeState.command, viewModeState.command])
+  }, [
+    mode,
+    fileTreeEntries,
+    queryModeState.command,
+    viewModeState.command,
+    historySuggestions,
+  ])
 
   const clampedSuggestionIndex =
     inputSuggestions.length === 0
@@ -267,7 +350,12 @@ export const TerminalApp = ({
   // Typing or switching modes resets the highlighted suggestion to the top.
   useEffect(() => {
     setInputSuggestionIndex(0)
-  }, [mode, queryModeState.command, viewModeState.command])
+  }, [
+    mode,
+    queryModeState.command,
+    viewModeState.command,
+    historyModeState.command,
+  ])
 
   const moveInputSuggestion = (direction: 1 | -1) => {
     if (inputSuggestions.length === 0) {
@@ -438,6 +526,8 @@ export const TerminalApp = ({
 
     if (appCommand.command === "clean-cache") {
       void clearCache()
+      setHistorySelectedEndpoint("")
+      setCacheErasedNotice(true)
       return true
     }
 
@@ -555,12 +645,49 @@ export const TerminalApp = ({
       targetMode === TerminalMode.Edit
     ) {
       setViewModeState({ ...viewModeState, command: "", scrollX, scrollY })
+    } else if (targetMode === TerminalMode.History) {
+      setHistoryModeState({
+        ...historyModeState,
+        command: "",
+        commandCursorX: 0,
+        scrollX,
+        scrollY,
+      })
     }
   }
 
   useInput((input, key) => {
     setCursorActivityId((currentValue) => currentValue + 1)
     setIsCursorBlinkActive(true)
+
+    // The cache-erased notice is modal: Enter/Esc dismisses it (and clears the
+    // submitted "@cc" text); nothing else is processed while it is shown.
+    if (cacheErasedNotice) {
+      if (key.return || key.escape) {
+        setCacheErasedNotice(false)
+
+        if (mode === TerminalMode.View) {
+          setViewModeState((state) => ({
+            ...state,
+            command: "",
+            commandCursorX: 0,
+          }))
+        } else if (mode === TerminalMode.History) {
+          setHistoryModeState((state) => ({
+            ...state,
+            command: "",
+            commandCursorX: 0,
+          }))
+        } else {
+          setQueryModeState((state) => ({
+            ...state,
+            command: "",
+            commandCursorX: 0,
+          }))
+        }
+      }
+      return
+    }
 
     if (isQuickSwitchKey(key) && quickSwitchMode()) {
       return
@@ -708,7 +835,7 @@ export const TerminalApp = ({
           : undefined)
 
       if (!isModeCommandInput && inputSuggestions.length > 0) {
-        if (key.upArrow || key.downArrow) {
+        if (!key.shift && (key.upArrow || key.downArrow)) {
           moveInputSuggestion(key.downArrow ? 1 : -1)
           return
         }
@@ -855,6 +982,19 @@ export const TerminalApp = ({
         return
       }
 
+      if (nextMode === TerminalMode.History) {
+        setMode(TerminalMode.History)
+        setOpenViewFile(null)
+        setEditModeState(null)
+        setHistorySelectedEndpoint("")
+        setHistoryModeState(createQueryModeState())
+        setViewModeState({
+          ...result.state,
+          command: "",
+        })
+        return
+      }
+
       setViewModeState(result.state)
       return
     }
@@ -961,6 +1101,19 @@ export const TerminalApp = ({
         return
       }
 
+      if (nextMode === TerminalMode.History) {
+        setMode(TerminalMode.History)
+        setHistorySelectedEndpoint("")
+        setHistoryModeState(createQueryModeState())
+        setSearchModeState({
+          ...result.state,
+          input: "",
+          query: "",
+          focusedMatchIndex: 0,
+        })
+        return
+      }
+
       if (nextMode === TerminalMode.Edit) {
         if (openViewFile) {
           const focusedMatch = searchMatches[searchModeState.focusedMatchIndex]
@@ -1030,7 +1183,7 @@ export const TerminalApp = ({
           : undefined)
 
       if (!isModeCommandInput && inputSuggestions.length > 0) {
-        if (key.upArrow || key.downArrow) {
+        if (!key.shift && (key.upArrow || key.downArrow)) {
           moveInputSuggestion(key.downArrow ? 1 : -1)
           return
         }
@@ -1158,7 +1311,117 @@ export const TerminalApp = ({
         return
       }
 
+      if (nextMode === TerminalMode.History) {
+        setMode(TerminalMode.History)
+        setHistorySelectedEndpoint("")
+        setHistoryModeState(createQueryModeState())
+        setViewModeState({
+          command: "",
+          scrollX: 0,
+          scrollY: 0,
+        })
+        return
+      }
+
       setViewModeState(result.state)
+      return
+    }
+
+    if (mode === TerminalMode.History) {
+      const isHistoryCommand = historyModeState.command.trim().startsWith("@")
+      const isOverlayOpen = !isHistoryCommand && inputSuggestions.length > 0
+
+      // While filtering, plain arrows navigate the overlay and Enter selects.
+      if (isOverlayOpen && !key.shift && (key.upArrow || key.downArrow)) {
+        moveInputSuggestion(key.downArrow ? 1 : -1)
+        return
+      }
+
+      if (isOverlayOpen && key.return && selectedInputSuggestion) {
+        setHistorySelectedEndpoint(selectedInputSuggestion.label)
+        setHistoryModeState({
+          ...historyModeState,
+          command: "",
+          commandCursorX: 0,
+        })
+        setInputSuggestionIndex(0)
+        return
+      }
+
+      // Plain arrows (overlay closed) scroll the Results pane; shift+arrows move
+      // the endpoint highlight in the left section.
+      const result = handleQueryModeInput(input, key, historyModeState, {
+        maxScrollX: activeMaxScrollX,
+        maxScrollY: activeMaxScrollY,
+        viewHeight: responseContentHeight,
+      })
+
+      if (
+        result.fileTreeSelectionDirection &&
+        historyEndpointLabels.length > 0
+      ) {
+        const currentIndex = Math.max(
+          0,
+          historyEndpointLabels.indexOf(activeHistoryEndpoint),
+        )
+        const nextIndex =
+          (currentIndex +
+            result.fileTreeSelectionDirection +
+            historyEndpointLabels.length) %
+          historyEndpointLabels.length
+        setHistorySelectedEndpoint(historyEndpointLabels[nextIndex] ?? "")
+        return
+      }
+
+      // Submitting an "@" command leaves history for the requested mode.
+      if (key.return && result.command !== undefined) {
+        if (handleAppCommand(result.command)) {
+          return
+        }
+
+        const nextCommand = resolveAppInputCommand(result.command)
+        const nextMode = nextCommand.type === "mode" ? nextCommand.mode : null
+
+        if (nextMode && nextMode !== TerminalMode.History) {
+          // Keep the selected endpoint so its Results stay shown and searchable.
+          setHistorySelectedEndpoint(activeHistoryRecord?.endpoint ?? "")
+          setHistoryModeState(createQueryModeState())
+          setKeyboardSelectedCommand("")
+
+          if (nextMode === TerminalMode.Search) {
+            openSearchMode(
+              nextCommand.type === "mode"
+                ? (nextCommand.args?.join(" ") ?? "")
+                : "",
+              TerminalMode.History,
+              historyModeState.scrollX,
+              historyModeState.scrollY,
+            )
+          } else if (nextMode === TerminalMode.Ai) {
+            startAiMode()
+          } else if (nextMode === TerminalMode.View) {
+            setMode(TerminalMode.View)
+            setViewModeState(createViewModeState())
+          } else if (nextMode === TerminalMode.Edit) {
+            setLocalError(new Error(editModeRequiresViewFileMessage))
+          } else {
+            setMode(TerminalMode.Query)
+            setQueryModeState(createQueryModeState())
+          }
+
+          return
+        }
+
+        // Plain Enter with no match keeps the current selection.
+        setHistoryModeState({
+          ...historyModeState,
+          command: "",
+          commandCursorX: 0,
+        })
+        return
+      }
+
+      setHistoryModeState(result.state)
       return
     }
 
@@ -1178,7 +1441,7 @@ export const TerminalApp = ({
         : undefined)
 
     if (!isModeCommandInput && inputSuggestions.length > 0) {
-      if (key.upArrow || key.downArrow) {
+      if (!key.shift && (key.upArrow || key.downArrow)) {
         moveInputSuggestion(key.downArrow ? 1 : -1)
         return
       }
@@ -1289,6 +1552,14 @@ export const TerminalApp = ({
       return
     }
 
+    if (nextMode === TerminalMode.History) {
+      setMode(TerminalMode.History)
+      setHistorySelectedEndpoint("")
+      setHistoryModeState(createQueryModeState())
+      setQueryModeState(result.state)
+      return
+    }
+
     setQueryModeState(result.state)
 
     if (nextCommand?.type === "request") {
@@ -1307,7 +1578,11 @@ export const TerminalApp = ({
       <TerminalHeader
         width={width}
         version={version}
-        timeSpentMs={externalEvent?.time ?? requestDurationMs ?? 0}
+        timeSpentMs={
+          isHistoryContext
+            ? (activeHistoryRecord?.durationMs ?? 0)
+            : (externalEvent?.time ?? requestDurationMs ?? 0)
+        }
       />
       <Box width={width} height={viewHeight} columnGap={paneGap}>
         <Sidebar
@@ -1315,6 +1590,13 @@ export const TerminalApp = ({
           highlightedIndex={highlightedEntryIndex}
           width={sidebarWidth}
           height={viewHeight}
+          title={isHistoryContext ? "Endpoints" : "Collections"}
+          endpoints={isHistoryContext ? historyEndpointLabels : undefined}
+          selectedEndpointIndex={
+            isHistoryContext && activeHistoryRecord
+              ? historyEndpointLabels.indexOf(activeHistoryRecord.endpoint)
+              : 0
+          }
         />
         <ResponsePane
           title={responsePaneTitle}
@@ -1335,7 +1617,9 @@ export const TerminalApp = ({
         cursorBlinkActive={isCursorBlinkActive}
         cursorActivityId={cursorActivityId}
       />
-      {(mode === TerminalMode.Query || mode === TerminalMode.View) && (
+      {(mode === TerminalMode.Query ||
+        mode === TerminalMode.View ||
+        mode === TerminalMode.History) && (
         <CommandSuggestionOverlay
           suggestions={inputSuggestions}
           selectedIndex={clampedSuggestionIndex}
@@ -1375,6 +1659,9 @@ export const TerminalApp = ({
           height={height}
           query={searchModeState.query}
         />
+      )}
+      {cacheErasedNotice && (
+        <CacheNoticeOverlay width={width} height={height} />
       )}
     </Box>
   )

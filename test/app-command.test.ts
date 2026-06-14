@@ -22,6 +22,8 @@ describe("app commands", () => {
     expect(resolveModeCommand("@e")).toBe(TerminalMode.Edit)
     expect(resolveModeCommand("@ai")).toBe(TerminalMode.Ai)
     expect(resolveModeCommand("@a")).toBe(TerminalMode.Ai)
+    expect(resolveModeCommand("@history")).toBe(TerminalMode.History)
+    expect(resolveModeCommand("@h")).toBe(TerminalMode.History)
   })
 
   test("resolves app commands", () => {
