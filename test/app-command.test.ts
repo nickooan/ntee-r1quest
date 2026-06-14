@@ -42,6 +42,14 @@ describe("app commands", () => {
       type: "mode",
       mode: TerminalMode.Ai,
     })
+    expect(resolveAppInputCommand("@cc")).toEqual({
+      type: "app",
+      command: "clean-cache",
+    })
+    expect(resolveAppInputCommand("@clean-cache")).toEqual({
+      type: "app",
+      command: "clean-cache",
+    })
     expect(resolveAppInputCommand("request/example")).toEqual({
       type: "request",
       path: "request/example",

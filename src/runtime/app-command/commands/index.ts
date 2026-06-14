@@ -1,5 +1,6 @@
 import type { AppCommandDefinition } from "../types.ts"
 import { AiCommand } from "./ai.ts"
+import { CleanCacheCommand } from "./clean-cache.ts"
 import { EditCommand } from "./edit.ts"
 import { ExitCommand } from "./exit.ts"
 import { QueryCommand } from "./query.ts"
@@ -15,10 +16,12 @@ export const appCommands: AppCommandDefinition[] = [
   new AiCommand(),
   new ExitCommand(),
   new ReloadCommand(),
+  new CleanCacheCommand(),
 ]
 
 export {
   AiCommand,
+  CleanCacheCommand,
   EditCommand,
   ExitCommand,
   QueryCommand,

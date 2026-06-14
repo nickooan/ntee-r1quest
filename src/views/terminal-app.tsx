@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs"
 import type { AxiosResponse } from "axios"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Box, render, useInput, useWindowSize } from "ink"
 import {
   findSearchMatches,
@@ -44,8 +44,11 @@ import {
   editModeRequiresViewFileMessage,
   paneGap,
 } from "./terminal/constants.ts"
+import { clearCache, recordInput } from "../runtime/cache/index.ts"
 import { formatAcpPermissionMessage } from "./terminal/ai-session.ts"
 import { CommandLine } from "./terminal/command-line.tsx"
+import { CommandSuggestionOverlay } from "./terminal/command-suggestions.tsx"
+import { buildInputSuggestions } from "./terminal/input-suggestions.ts"
 import { useAiController } from "./terminal/ai-controller.ts"
 import { resolveEditScroll } from "./terminal/edit-scroll.ts"
 import { useEditSuggestions } from "./terminal/edit-suggestions.ts"
@@ -142,6 +145,7 @@ export const TerminalApp = ({
     useState<ExternalRequestEvent | null>(null)
   const [selectedCommand, setSelectedCommand] = useState("")
   const [keyboardSelectedCommand, setKeyboardSelectedCommand] = useState("")
+  const [inputSuggestionIndex, setInputSuggestionIndex] = useState(0)
   const {
     aiModeState,
     setAiModeState,
@@ -231,6 +235,60 @@ export const TerminalApp = ({
     setQueryModeState,
     setViewModeState,
   })
+
+  // Combined query/view suggestions (current-dir files/dirs + cached inputs),
+  // shown in the overlay above the command line. The overlay is the selection
+  // source; the sidebar just highlights whichever file/dir is selected.
+  const inputSuggestions = useMemo(() => {
+    if (mode !== TerminalMode.Query && mode !== TerminalMode.View) {
+      return []
+    }
+
+    const command =
+      mode === TerminalMode.View
+        ? viewModeState.command
+        : queryModeState.command
+
+    return buildInputSuggestions(fileTreeEntries, command)
+  }, [mode, fileTreeEntries, queryModeState.command, viewModeState.command])
+
+  const clampedSuggestionIndex =
+    inputSuggestions.length === 0
+      ? 0
+      : Math.min(inputSuggestionIndex, inputSuggestions.length - 1)
+  const selectedInputSuggestion = inputSuggestions[clampedSuggestionIndex]
+  // The file/directory entry of the selected suggestion, so accepting it opens
+  // exactly what the overlay highlights (cache suggestions have no entry).
+  const selectedSuggestionEntry =
+    selectedInputSuggestion && selectedInputSuggestion.source !== "cache"
+      ? selectedInputSuggestion.entry
+      : undefined
+
+  // Typing or switching modes resets the highlighted suggestion to the top.
+  useEffect(() => {
+    setInputSuggestionIndex(0)
+  }, [mode, queryModeState.command, viewModeState.command])
+
+  const moveInputSuggestion = (direction: 1 | -1) => {
+    if (inputSuggestions.length === 0) {
+      return
+    }
+
+    const nextIndex =
+      (clampedSuggestionIndex + direction + inputSuggestions.length) %
+      inputSuggestions.length
+
+    setInputSuggestionIndex(nextIndex)
+
+    // Keep the sidebar highlight in sync with the selected file/dir; cache
+    // selections clear the keyboard selection so no file is forced.
+    const nextSuggestion = inputSuggestions[nextIndex]
+    setKeyboardSelectedCommand(
+      nextSuggestion && nextSuggestion.source !== "cache"
+        ? (nextSuggestion.entry?.commandValue ?? "")
+        : "",
+    )
+  }
 
   useEffect(() => {
     if (!isPending && !isAiPending) {
@@ -378,10 +436,16 @@ export const TerminalApp = ({
       return true
     }
 
+    if (appCommand.command === "clean-cache") {
+      void clearCache()
+      return true
+    }
+
     return false
   }
 
   const runQueryCommand = (command: string) => {
+    recordInput(command)
     setOpenViewFile(null)
     setEditModeState(null)
     setViewModeState({
@@ -636,9 +700,29 @@ export const TerminalApp = ({
         keyboardSelectedCommand === "" &&
         selectedCommand !== ""
       const highlightedEntry =
-        isViewCommandInput || isKeyboardSelectionInput || isSelectedCommandInput
+        selectedSuggestionEntry ??
+        (isViewCommandInput ||
+        isKeyboardSelectionInput ||
+        isSelectedCommandInput
           ? fileTreeEntries[highlightedEntryIndex]
-          : undefined
+          : undefined)
+
+      if (!isModeCommandInput && inputSuggestions.length > 0) {
+        if (key.upArrow || key.downArrow) {
+          moveInputSuggestion(key.downArrow ? 1 : -1)
+          return
+        }
+
+        if (key.return && selectedInputSuggestion?.source === "cache") {
+          setViewModeState({
+            ...viewModeState,
+            command: selectedInputSuggestion.insertText,
+            commandCursorX: selectedInputSuggestion.insertText.length,
+          })
+          setInputSuggestionIndex(0)
+          return
+        }
+      }
 
       if (!isModeCommandInput && highlightedEntry && key.return) {
         setKeyboardSelectedCommand("")
@@ -656,6 +740,7 @@ export const TerminalApp = ({
         const nextOpenViewFile = readViewFile(root, highlightedEntry)
 
         if (nextOpenViewFile) {
+          recordInput(highlightedEntry.commandValue)
           setSelectedCommand(highlightedEntry.commandValue)
           setEditModeState(null)
           setViewModeState({
@@ -937,9 +1022,29 @@ export const TerminalApp = ({
         keyboardSelectedCommand === "" &&
         selectedCommand !== ""
       const highlightedEntry =
-        isViewCommandInput || isKeyboardSelectionInput || isSelectedCommandInput
+        selectedSuggestionEntry ??
+        (isViewCommandInput ||
+        isKeyboardSelectionInput ||
+        isSelectedCommandInput
           ? fileTreeEntries[highlightedEntryIndex]
-          : undefined
+          : undefined)
+
+      if (!isModeCommandInput && inputSuggestions.length > 0) {
+        if (key.upArrow || key.downArrow) {
+          moveInputSuggestion(key.downArrow ? 1 : -1)
+          return
+        }
+
+        if (key.return && selectedInputSuggestion?.source === "cache") {
+          setViewModeState({
+            ...viewModeState,
+            command: selectedInputSuggestion.insertText,
+            commandCursorX: selectedInputSuggestion.insertText.length,
+          })
+          setInputSuggestionIndex(0)
+          return
+        }
+      }
 
       if (!isModeCommandInput && highlightedEntry && key.return) {
         setKeyboardSelectedCommand("")
@@ -957,6 +1062,7 @@ export const TerminalApp = ({
         const nextOpenViewFile = readViewFile(root, highlightedEntry)
 
         if (nextOpenViewFile) {
+          recordInput(highlightedEntry.commandValue)
           setSelectedCommand(highlightedEntry.commandValue)
           setEditModeState(null)
           setViewModeState({
@@ -1066,9 +1172,27 @@ export const TerminalApp = ({
       keyboardSelectedCommand === "" &&
       selectedCommand !== ""
     const highlightedEntry =
-      isQueryCommandInput || isKeyboardSelectionInput || isSelectedCommandInput
+      selectedSuggestionEntry ??
+      (isQueryCommandInput || isKeyboardSelectionInput || isSelectedCommandInput
         ? fileTreeEntries[highlightedEntryIndex]
-        : undefined
+        : undefined)
+
+    if (!isModeCommandInput && inputSuggestions.length > 0) {
+      if (key.upArrow || key.downArrow) {
+        moveInputSuggestion(key.downArrow ? 1 : -1)
+        return
+      }
+
+      if (key.return && selectedInputSuggestion?.source === "cache") {
+        setQueryModeState({
+          ...queryModeState,
+          command: selectedInputSuggestion.insertText,
+          commandCursorX: selectedInputSuggestion.insertText.length,
+        })
+        setInputSuggestionIndex(0)
+        return
+      }
+    }
 
     if (!isModeCommandInput && highlightedEntry && key.return) {
       setKeyboardSelectedCommand("")
@@ -1211,6 +1335,15 @@ export const TerminalApp = ({
         cursorBlinkActive={isCursorBlinkActive}
         cursorActivityId={cursorActivityId}
       />
+      {(mode === TerminalMode.Query || mode === TerminalMode.View) && (
+        <CommandSuggestionOverlay
+          suggestions={inputSuggestions}
+          selectedIndex={clampedSuggestionIndex}
+          width={width}
+          height={height}
+          left={promptValue.length}
+        />
+      )}
       {mode === TerminalMode.Ai && (
         <Ai
           width={width}

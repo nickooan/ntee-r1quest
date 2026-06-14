@@ -6,7 +6,7 @@ export enum TerminalMode {
   Ai = "ai",
 }
 
-export type AppActionCommand = "exit" | "reload"
+export type AppActionCommand = "exit" | "reload" | "clean-cache"
 
 export type ParsedAppCommandInput = {
   source: string

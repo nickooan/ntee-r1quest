@@ -8,6 +8,7 @@ import {
   type RuntimeConfig,
 } from "./config.ts"
 import { execute as executeRequest } from "./request.ts"
+import { recordApiCall } from "./cache/index.ts"
 import { APP_NAME, VERSION } from "./version.ts"
 
 export { parseArguments } from "./config.ts"
@@ -68,8 +69,27 @@ const runRequest = async (options: ExecuteOptions): Promise<AxiosResponse> => {
 
   try {
     const scopeObject = compileFile(options.source, CompileSourceType.File)
+    const startedAt = Date.now()
+    const response = await executeRequest(scopeObject)
 
-    return await executeRequest(scopeObject)
+    // Record successful calls only; failures throw above and are skipped.
+    recordApiCall({
+      at: startedAt,
+      durationMs: Date.now() - startedAt,
+      request: {
+        url: scopeObject.url,
+        method: scopeObject.method,
+        headers: scopeObject.headers,
+        body: scopeObject.body,
+      },
+      response: {
+        status: response.status,
+        headers: response.headers as Record<string, unknown>,
+        data: response.data,
+      },
+    })
+
+    return response
   } finally {
     process.chdir(previousWorkingDirectory)
   }
