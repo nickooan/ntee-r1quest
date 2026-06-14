@@ -25,7 +25,9 @@ describe("formatHistoryEntry", () => {
   test("renders summary, request and response sections", () => {
     const output = formatHistoryEntry(record, 40)
 
-    expect(output).toContain("POST  /a/b/c")
+    // Title is the endpoint label; the HTTP method shows in the Request block.
+    expect(output).toContain("/a/b/c [post]")
+    expect(output).toContain("Method  POST")
     expect(output).toContain("201  ·  42 ms")
     expect(output).toContain("── Request ")
     expect(output).toContain("── Response ")

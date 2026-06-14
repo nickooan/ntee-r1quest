@@ -64,7 +64,8 @@ export const formatHistoryEntry = (
   const method = record.method.toUpperCase()
 
   return [
-    `${method}  ${record.path}`,
+    // The endpoint label (GraphQL operation, or "<path> [<method>]").
+    record.endpoint,
     `${record.response.status}  ·  ${record.durationMs} ms`,
     "",
     sectionRule("Request", width),

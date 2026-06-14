@@ -2,6 +2,9 @@ import { mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { open, type Database, type RootDatabase } from "lmdb"
 import { getHomeConfigDirectory } from "../config.ts"
+import { derivePath, formatEndpointLabel } from "./endpoint.ts"
+
+export { formatEndpointLabel } from "./endpoint.ts"
 
 type InputRecord = {
   count: number
@@ -34,25 +37,6 @@ export type ApiCallRecord = {
 }
 
 type RecordApiCallInput = Omit<ApiCallRecord, "endpoint" | "path" | "method">
-
-const derivePath = (url: string | undefined): string => {
-  if (!url) {
-    return "(unknown)"
-  }
-
-  try {
-    // A base handles relative URLs; absolute URLs ignore it.
-    return new URL(url, "http://localhost").pathname || url
-  } catch {
-    return url
-  }
-}
-
-/** Builds the "<path> [<method>]" endpoint label used as the cache key. */
-export const formatEndpointLabel = (
-  url: string | undefined,
-  method: string | undefined,
-): string => `${derivePath(url)} [${(method ?? "get").toLowerCase()}]`
 
 type CacheHandles = {
   root: RootDatabase
@@ -183,7 +167,11 @@ export const recordApiCall = (record: RecordApiCallInput): void => {
   try {
     const method = (record.request.method ?? "get").toLowerCase()
     const path = derivePath(record.request.url)
-    const endpoint = `${path} [${method}]`
+    const endpoint = formatEndpointLabel(
+      record.request.url,
+      record.request.method,
+      record.request.body,
+    )
 
     void cache.api.put(endpoint, { ...record, endpoint, path, method })
   } catch {
