@@ -4,8 +4,8 @@ import {
   getEditRefSuggestionQuery,
   refreshEditModeSuggestions,
   type EditModeState,
-  TerminalMode,
 } from "../key-helpers/index.ts"
+import { TerminalMode } from "../../runtime/app-command/index.ts"
 import {
   buildEditorSuggestionItems,
   buildRefSuggestionItems,

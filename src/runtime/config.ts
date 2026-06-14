@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, isAbsolute, join, normalize, resolve } from "node:path"
 import YAML from "yaml"
+import type { CustomCommand } from "./custom-command/index.ts"
 
 export type ParsedArgs = {
   root?: string
@@ -11,11 +12,18 @@ export type ParsedArgs = {
   version?: boolean
 }
 
+type CustomCommandFile = {
+  name?: string | null
+  description?: string | null
+  instruction?: string | null
+}
+
 type ConfigFile = {
   root?: string | null
   ai?: string | null
   sock?: string | null
   "custom-suggestions"?: string[] | null
+  "custom-ai-commands"?: CustomCommandFile[] | null
 }
 
 type ConfigSource = {
@@ -29,6 +37,7 @@ export type RuntimeConfig = {
   ai?: string
   sock?: string
   customSuggestions: string[]
+  customCommands: CustomCommand[]
   parsedArgs: ParsedArgs
 }
 
@@ -220,6 +229,40 @@ const findConfigValues = (
   return [...values]
 }
 
+// Collect custom commands across config sources. A command needs a non-empty
+// name and instruction; the first occurrence of a name wins (rootSources are
+// listed before baseSources, matching the precedence of the other values).
+const findCustomCommands = (sources: ConfigSource[]): CustomCommand[] => {
+  const commandsByName = new Map<string, CustomCommand>()
+
+  for (const source of sources) {
+    const sourceCommands = source.config["custom-ai-commands"]
+
+    if (!Array.isArray(sourceCommands)) {
+      continue
+    }
+
+    for (const command of sourceCommands) {
+      const name = typeof command?.name === "string" ? command.name.trim() : ""
+      const instruction =
+        typeof command?.instruction === "string" ? command.instruction : ""
+
+      if (!name || !instruction || commandsByName.has(name)) {
+        continue
+      }
+
+      commandsByName.set(name, {
+        name,
+        description:
+          typeof command.description === "string" ? command.description : "",
+        instruction,
+      })
+    }
+  }
+
+  return [...commandsByName.values()]
+}
+
 export const loadRuntimeConfig = (args: string[] = []): RuntimeConfig => {
   const parsedArgs = parseArguments(args)
   const baseWorkingDirectory = process.cwd()
@@ -239,6 +282,7 @@ export const loadRuntimeConfig = (args: string[] = []): RuntimeConfig => {
   const inputAi = parsedArgs.ai ?? findConfigValue(sources, "ai")?.value
   const inputSock = findConfigValue(sources, "sock")
   const customSuggestions = findConfigValues(sources, "custom-suggestions")
+  const customCommands = findCustomCommands(sources)
 
   return {
     root,
@@ -247,6 +291,7 @@ export const loadRuntimeConfig = (args: string[] = []): RuntimeConfig => {
       ? resolvePathFrom(inputSock.source.directory, inputSock.value)
       : undefined,
     customSuggestions,
+    customCommands,
     parsedArgs,
   }
 }

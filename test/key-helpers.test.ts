@@ -9,11 +9,7 @@ import {
   handleQueryModeInput,
   handleSearchModeInput,
   handleViewModeInput,
-  isAppExitCommand,
   serializeEditModeContent,
-  resolveModeCommand,
-  resolveQuickSwitchMode,
-  TerminalMode,
   type QueryModeLimits,
   type QueryModeState,
   type SearchModeState,
@@ -67,31 +63,6 @@ const key = (keyValues: Partial<Key>): Key => {
     ...keyValues,
   }
 }
-
-describe("mode commands", () => {
-  test("resolves long and short mode commands", () => {
-    expect(resolveModeCommand("@query")).toBe(TerminalMode.Query)
-    expect(resolveModeCommand("@q")).toBe(TerminalMode.Query)
-    expect(resolveModeCommand("@search")).toBe(TerminalMode.Search)
-    expect(resolveModeCommand("@s")).toBe(TerminalMode.Search)
-    expect(resolveModeCommand("@view")).toBe(TerminalMode.View)
-    expect(resolveModeCommand("@v")).toBe(TerminalMode.View)
-    expect(resolveModeCommand("@edit")).toBe(TerminalMode.Edit)
-    expect(resolveModeCommand("@e")).toBe(TerminalMode.Edit)
-    expect(resolveModeCommand("@ai")).toBe(TerminalMode.Ai)
-    expect(resolveModeCommand("@a")).toBe(TerminalMode.Ai)
-    expect(isAppExitCommand("@exit")).toBe(true)
-    expect(isAppExitCommand("@quit")).toBe(true)
-  })
-
-  test("resolves quick switch modes in query, view, search, ai order", () => {
-    expect(resolveQuickSwitchMode(TerminalMode.Query)).toBe(TerminalMode.View)
-    expect(resolveQuickSwitchMode(TerminalMode.View)).toBe(TerminalMode.Search)
-    expect(resolveQuickSwitchMode(TerminalMode.Search)).toBe(TerminalMode.Ai)
-    expect(resolveQuickSwitchMode(TerminalMode.Ai)).toBe(TerminalMode.Query)
-    expect(resolveQuickSwitchMode(TerminalMode.Edit)).toBeNull()
-  })
-})
 
 describe("ai mode key helpers", () => {
   test("handles input, submit, and exit", () => {
@@ -170,6 +141,17 @@ describe("ai mode key helpers", () => {
     expect(quitResult.shouldExitApp).toBe(true)
   })
 
+  test("handles app reload commands in ai mode", () => {
+    const reloadResult = handleAiModeInput("", key({ return: true }), {
+      ...createAiModeState(),
+      input: "@reload",
+    })
+
+    expect(reloadResult.shouldReloadApp).toBe(true)
+    expect(reloadResult.state.input).toBe("")
+    expect(reloadResult.state.messages).toEqual([])
+  })
+
   test("scrolls chat history with up and down arrows", () => {
     const aiState = {
       ...createAiModeState(),
@@ -191,6 +173,86 @@ describe("ai mode key helpers", () => {
         maxScrollY: 0,
       }).state.scrollY,
     ).toBe(0)
+  })
+
+  const customCommands = [
+    {
+      name: "for-test",
+      description: "use for testing",
+      instruction: "asdgasdfasd $1 asdgasdfasgd $2 asdgasdfg $3",
+    },
+    {
+      name: "format",
+      description: "format helper",
+      instruction: "format $1",
+    },
+  ]
+
+  test("expands a custom slash command on submit", () => {
+    const result = handleAiModeInput(
+      "",
+      key({ return: true }),
+      { ...createAiModeState(), input: "/for-test one two three" },
+      { customCommands },
+    )
+
+    expect(result.submittedPrompt).toBe(
+      "asdgasdfasd one asdgasdfasgd two asdgasdfg three",
+    )
+    expect(result.state.messages).toEqual([
+      {
+        role: "user",
+        content: "asdgasdfasd one asdgasdfasgd two asdgasdfg three",
+      },
+    ])
+  })
+
+  test("sends an unknown slash command verbatim", () => {
+    const result = handleAiModeInput(
+      "",
+      key({ return: true }),
+      { ...createAiModeState(), input: "/unknown a b" },
+      { customCommands },
+    )
+
+    expect(result.submittedPrompt).toBe("/unknown a b")
+  })
+
+  test("accepts the highlighted command suggestion with tab or enter", () => {
+    const tabResult = handleAiModeInput(
+      "",
+      key({ tab: true }),
+      { ...createAiModeState(), input: "/f", commandSuggestionIndex: 1 },
+      { customCommands },
+    )
+
+    expect(tabResult.state.input).toBe("/format ")
+    expect(tabResult.state.inputCursorX).toBe("/format ".length)
+
+    // Enter accepts the suggestion (rather than submitting the half-typed name)
+    // while the popup is open, and does not send a prompt.
+    const enterResult = handleAiModeInput(
+      "",
+      key({ return: true }),
+      { ...createAiModeState(), input: "/f", commandSuggestionIndex: 0 },
+      { customCommands },
+    )
+
+    expect(enterResult.state.input).toBe("/for-test ")
+    expect(enterResult.submittedPrompt).toBeUndefined()
+    expect(enterResult.state.messages).toEqual([])
+  })
+
+  test("moves the suggestion highlight with arrows instead of scrolling", () => {
+    const movedDown = handleAiModeInput(
+      "",
+      key({ downArrow: true }),
+      { ...createAiModeState(), input: "/f", scrollY: 0 },
+      { customCommands },
+    )
+
+    expect(movedDown.state.commandSuggestionIndex).toBe(1)
+    expect(movedDown.state.scrollY).toBe(0)
   })
 })
 

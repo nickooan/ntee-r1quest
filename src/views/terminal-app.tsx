@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs"
 import type { AxiosResponse } from "axios"
-import { useEffect, useMemo, useState } from "react"
-import { Box, Text, render, useInput, useWindowSize } from "ink"
+import { useEffect, useState } from "react"
+import { Box, render, useInput, useWindowSize } from "ink"
 import {
   findSearchMatches,
   focusSearchMatch,
@@ -10,19 +10,23 @@ import {
   handleEditModeInput,
   handleSearchModeInput,
   handleViewModeInput,
-  isAppExitCommand,
   isQuickSwitchKey,
-  resolveModeCommand,
-  resolveQuickSwitchMode,
   serializeEditModeContent,
   type QueryModeState,
   type EditModeState,
-  type AiModeState,
   type SearchModeState,
   type ViewModeState,
-  TerminalMode,
 } from "./key-helpers/index.ts"
-import { Ai, buildAiLayout, buildAiMessageLines } from "./ai.tsx"
+import {
+  resolveQuickSwitchMode,
+  resolveAppInputCommand,
+  TerminalMode,
+} from "../runtime/app-command/index.ts"
+import {
+  matchCustomCommands,
+  type CustomCommand,
+} from "../runtime/custom-command/index.ts"
+import { Ai } from "./ai.tsx"
 import type { AcpAdaptorName } from "../runtime/acp/index.ts"
 import {
   buildExternalEventCommand,
@@ -31,33 +35,27 @@ import {
   type ExternalRequestEvent,
 } from "../runtime/external-event/index.ts"
 import {
-  buildExpandedDirectoryPaths,
-  buildFileTreeEntries,
   readViewFile,
-  resolveHighlightedEntry,
-  resolveSidebarCommand,
   type OpenViewFile,
 } from "../runtime/file-manager/index.ts"
 import {
-  commandBackgroundColor,
-  commandLineHeight,
   defaultHeight,
   defaultWidth,
   editModeRequiresViewFileMessage,
-  headerHeight,
   paneGap,
-  requestStatsHeight,
 } from "./terminal/constants.ts"
 import { formatAcpPermissionMessage } from "./terminal/ai-session.ts"
+import { CommandLine } from "./terminal/command-line.tsx"
 import { useAiController } from "./terminal/ai-controller.ts"
-import { formatTerminalContent } from "./terminal/content.ts"
 import { resolveEditScroll } from "./terminal/edit-scroll.ts"
 import { useEditSuggestions } from "./terminal/edit-suggestions.ts"
 import { buildFilePaneLayout } from "./terminal/file-content.tsx"
 import { useFileNavigation } from "./terminal/file-navigation.ts"
 import { ResponsePane } from "./terminal/response-pane.tsx"
+import { SearchNotFoundOverlay } from "./terminal/search-not-found-overlay.tsx"
 import { Sidebar } from "./terminal/sidebar.tsx"
-import { buildTerminalViewport, normalizeLines } from "./terminal/viewport.ts"
+import { TerminalHeader } from "./terminal/terminal-header.tsx"
+import { useTerminalView } from "./terminal/use-terminal-view.ts"
 
 export { buildTerminalViewport } from "./terminal/viewport.ts"
 
@@ -72,80 +70,36 @@ export type TerminalAppProps = {
   height?: number
   width?: number
   aiAdaptor?: AcpAdaptorName
+  customCommands?: CustomCommand[]
   onCommand?: (command: string) => void | Promise<void>
+  onReload?: () => void
   onExit?: () => void
-}
-
-type InputStateByMode = {
-  aiModeState: AiModeState
-  editModeState: EditModeState | null
-  queryModeState: QueryModeState
-  searchModeState: SearchModeState
-  viewModeState: ViewModeState
 }
 
 const cursorBlinkIdleMs = 30_000
 
-const resolveInputValue = (
-  mode: TerminalMode,
-  states: InputStateByMode,
-): string => {
-  if (mode === TerminalMode.Search) {
-    return states.searchModeState.input
-  }
+const createQueryModeState = (): QueryModeState => ({
+  scrollX: 0,
+  scrollY: 0,
+  command: "",
+  commandCursorX: 0,
+})
 
-  if (mode === TerminalMode.Ai) {
-    return states.aiModeState.input
-  }
+const createSearchModeState = (): SearchModeState => ({
+  scrollX: 0,
+  scrollY: 0,
+  input: "",
+  inputCursorX: 0,
+  query: "",
+  focusedMatchIndex: 0,
+})
 
-  if (mode === TerminalMode.Edit) {
-    return states.editModeState?.input ?? ""
-  }
-
-  if (mode === TerminalMode.View) {
-    return states.viewModeState.command
-  }
-
-  return states.queryModeState.command
-}
-
-const resolveInputCursorX = (
-  mode: TerminalMode,
-  inputLength: number,
-  states: InputStateByMode,
-): number => {
-  let cursorX = inputLength
-
-  if (mode === TerminalMode.Edit) {
-    cursorX = states.editModeState?.inputCursorX ?? inputLength
-  } else if (mode === TerminalMode.Ai) {
-    cursorX = states.aiModeState.inputCursorX
-  } else if (mode === TerminalMode.Search) {
-    cursorX = states.searchModeState.inputCursorX ?? inputLength
-  } else if (mode === TerminalMode.View) {
-    cursorX = states.viewModeState.commandCursorX ?? inputLength
-  } else if (mode === TerminalMode.Query) {
-    cursorX = states.queryModeState.commandCursorX ?? inputLength
-  }
-
-  return Math.min(Math.max(cursorX, 0), inputLength)
-}
-
-const resolveResponsePaneTitle = (mode: TerminalMode): string => {
-  if (mode === TerminalMode.View) {
-    return "Reviewing"
-  }
-
-  if (mode === TerminalMode.Edit) {
-    return "Editing"
-  }
-
-  if (mode === TerminalMode.Search) {
-    return "Searching"
-  }
-
-  return "Result"
-}
+const createViewModeState = (): ViewModeState => ({
+  command: "",
+  commandCursorX: 0,
+  scrollX: 0,
+  scrollY: 0,
+})
 
 export const TerminalApp = ({
   response,
@@ -158,37 +112,29 @@ export const TerminalApp = ({
   height: fixedHeight,
   width: fixedWidth,
   aiAdaptor,
+  customCommands = [],
   onCommand,
+  onReload,
   onExit = () => {
     process.exit(0)
   },
 }: TerminalAppProps) => {
   const { columns, rows } = useWindowSize()
   const [frameIndex, setFrameIndex] = useState(0)
-  const [isCursorVisible, setIsCursorVisible] = useState(true)
   const [isCursorBlinkActive, setIsCursorBlinkActive] = useState(true)
   const [cursorActivityId, setCursorActivityId] = useState(0)
   const [mode, setMode] = useState(TerminalMode.Query)
-  const [queryModeState, setQueryModeState] = useState<QueryModeState>({
-    scrollX: 0,
-    scrollY: 0,
-    command: "",
-    commandCursorX: 0,
-  })
-  const [searchModeState, setSearchModeState] = useState<SearchModeState>({
-    scrollX: 0,
-    scrollY: 0,
-    input: "",
-    inputCursorX: 0,
-    query: "",
-    focusedMatchIndex: 0,
-  })
-  const [viewModeState, setViewModeState] = useState<ViewModeState>({
-    command: "",
-    commandCursorX: 0,
-    scrollX: 0,
-    scrollY: 0,
-  })
+  const [queryModeState, setQueryModeState] =
+    useState<QueryModeState>(createQueryModeState)
+  const [searchModeState, setSearchModeState] = useState<SearchModeState>(
+    createSearchModeState,
+  )
+  const [searchPreviousMode, setSearchPreviousMode] = useState<TerminalMode>(
+    TerminalMode.Query,
+  )
+  const [searchNotFound, setSearchNotFound] = useState(false)
+  const [viewModeState, setViewModeState] =
+    useState<ViewModeState>(createViewModeState)
   const [editModeState, setEditModeState] = useState<EditModeState | null>(null)
   const [openViewFile, setOpenViewFile] = useState<OpenViewFile | null>(null)
   const [localError, setLocalError] = useState<unknown>()
@@ -205,6 +151,7 @@ export const TerminalApp = ({
     startAiMode,
     closeAiMode,
     stopAiMode,
+    resetAiMode,
     respondToAiPermission,
     writeAiInput,
   } = useAiController({
@@ -215,108 +162,49 @@ export const TerminalApp = ({
   })
   const height = fixedHeight ?? rows ?? defaultHeight
   const width = fixedWidth ?? columns ?? defaultWidth
-  const commandInput =
-    mode === TerminalMode.View || mode === TerminalMode.Edit
-      ? viewModeState.command
-      : queryModeState.command
-  const sidebarCommand = resolveSidebarCommand(commandInput, selectedCommand)
-  const highlightedSidebarCommand = keyboardSelectedCommand || sidebarCommand
-  const expandedPathsForInput = useMemo(
-    () => buildExpandedDirectoryPaths(sidebarCommand),
-    [sidebarCommand],
-  )
-  const fileTreeEntries = useMemo(
-    () => buildFileTreeEntries(root, expandedPathsForInput),
-    [expandedPathsForInput, root],
-  )
-  const sidebarWidth = Math.min(
-    Math.max(12, Math.floor(width / 4)),
-    Math.max(1, width - paneGap - 3),
-  )
-  const responsePaneWidth = Math.max(3, width - sidebarWidth - paneGap)
-  const responseContentWidth = Math.max(1, responsePaneWidth - 2)
-  const viewHeight = Math.max(
-    1,
-    height - headerHeight - requestStatsHeight - commandLineHeight,
-  )
-  const responseContentHeight = Math.max(1, viewHeight - 2)
-  const highlightedEntryIndex = resolveHighlightedEntry(
+  const {
     fileTreeEntries,
-    highlightedSidebarCommand,
-  )
-  const responseContent = formatTerminalContent({
-    response,
-    error: localError ?? error,
-    externalContent: externalEvent?.responseContent,
-    isPending,
-    frameIndex,
-  })
-  const openFileContent =
-    openViewFile && mode === TerminalMode.Edit && editModeState
-      ? serializeEditModeContent(editModeState)
-      : openViewFile?.content
-  const content = openFileContent ?? responseContent
-  const contentLines = normalizeLines(content)
-  const filePaneLayout = openViewFile
-    ? buildFilePaneLayout(responsePaneWidth, viewHeight, contentLines.length)
-    : null
-  const activeContentWidth =
-    filePaneLayout?.contentWidth ?? responseContentWidth
-  const activeContentHeight =
-    filePaneLayout?.contentHeight ?? responseContentHeight
-  const activeMaxLineWidth = contentLines.reduce(
-    (currentMax, line) => Math.max(currentMax, line.length),
-    0,
-  )
-  const activeMaxScrollX = Math.max(0, activeMaxLineWidth - activeContentWidth)
-  const activeMaxScrollY = Math.max(
-    0,
-    contentLines.length - activeContentHeight,
-  )
-  const contentScrollX =
-    mode === TerminalMode.Search
-      ? searchModeState.scrollX
-      : openViewFile
-        ? viewModeState.scrollX
-        : queryModeState.scrollX
-  const contentScrollY =
-    mode === TerminalMode.Search
-      ? searchModeState.scrollY
-      : openViewFile
-        ? viewModeState.scrollY
-        : queryModeState.scrollY
-  const viewport = buildTerminalViewport(
-    content,
-    responseContentWidth,
+    sidebarWidth,
+    responsePaneWidth,
+    viewHeight,
     responseContentHeight,
-    contentScrollX,
-    contentScrollY,
-  )
-  const searchMatches =
-    mode === TerminalMode.Search
-      ? findSearchMatches(content, searchModeState.query)
-      : []
-  const inputStates = {
-    aiModeState,
-    editModeState,
+    highlightedEntryIndex,
+    content,
+    contentLines,
+    activeContentWidth,
+    activeContentHeight,
+    activeMaxScrollX,
+    activeMaxScrollY,
+    viewport,
+    searchMatches,
+    fileContent,
+    inputBeforeCursor,
+    inputAfterCursor,
+    promptValue,
+    responsePaneTitle,
+    aiMaxScrollY,
+  } = useTerminalView({
+    response,
+    error,
+    isPending,
+    root,
+    width,
+    height,
+    mode,
     queryModeState,
     searchModeState,
     viewModeState,
-  }
-  const inputValue = resolveInputValue(mode, inputStates)
-  const commandInputCursorX = resolveInputCursorX(
-    mode,
-    inputValue.length,
-    inputStates,
-  )
-  const inputBeforeCursor = inputValue.slice(0, commandInputCursorX)
-  const inputAfterCursor = inputValue.slice(commandInputCursorX)
-  const promptValue = `@${mode} >`
-  const aiLayout = buildAiLayout(width, height)
-  const aiMessageLineCount =
-    buildAiMessageLines(aiModeState.messages, aiLayout.contentWidth).length +
-    (isAiPending || isAiOffline ? 1 : 0)
-  const aiMaxScrollY = Math.max(0, aiMessageLineCount - aiLayout.contentHeight)
+    editModeState,
+    openViewFile,
+    localError,
+    externalEvent,
+    selectedCommand,
+    keyboardSelectedCommand,
+    frameIndex,
+    aiModeState,
+    isAiPending,
+    isAiOffline,
+  })
   const {
     activeEditSuggestionItems,
     createEditModeForOpenFile,
@@ -359,27 +247,12 @@ export const TerminalApp = ({
   }, [isAiPending, isPending])
 
   useEffect(() => {
-    if (!isCursorBlinkActive) {
-      return
-    }
-
-    const interval = setInterval(() => {
-      setIsCursorVisible((currentValue) => !currentValue)
-    }, 500)
-
-    return () => {
-      clearInterval(interval)
-    }
-  }, [isCursorBlinkActive])
-
-  useEffect(() => {
     if (!isCursorBlinkActive || isPending || isAiPending) {
       return
     }
 
     const timeout = setTimeout(() => {
       setIsCursorBlinkActive(false)
-      setIsCursorVisible(true)
     }, cursorBlinkIdleMs)
 
     return () => {
@@ -397,6 +270,7 @@ export const TerminalApp = ({
       setOpenViewFile(null)
       setEditModeState(null)
       setLocalError(nextError)
+      setSearchNotFound(false)
       setMode((currentMode) =>
         currentMode === TerminalMode.Ai ? currentMode : TerminalMode.Query,
       )
@@ -438,6 +312,7 @@ export const TerminalApp = ({
             query: "",
             focusedMatchIndex: 0,
           }))
+          setSearchNotFound(false)
           setMode((currentMode) =>
             currentMode === TerminalMode.Ai ? currentMode : TerminalMode.Query,
           )
@@ -456,6 +331,54 @@ export const TerminalApp = ({
   const exitApp = () => {
     stopAiMode()
     onExit()
+  }
+
+  const resetTerminalState = () => {
+    resetAiMode()
+    setFrameIndex(0)
+    setIsCursorBlinkActive(true)
+    setCursorActivityId((currentValue) => currentValue + 1)
+    setMode(TerminalMode.Query)
+    setQueryModeState(createQueryModeState())
+    setSearchModeState(createSearchModeState())
+    setSearchPreviousMode(TerminalMode.Query)
+    setSearchNotFound(false)
+    setViewModeState(createViewModeState())
+    setEditModeState(null)
+    setOpenViewFile(null)
+    setLocalError(undefined)
+    setExternalEvent(null)
+    setSelectedCommand("")
+    setKeyboardSelectedCommand("")
+  }
+
+  const reloadApp = () => {
+    resetTerminalState()
+    onReload?.()
+  }
+
+  const handleAppCommand = (command: string | undefined): boolean => {
+    if (command === undefined) {
+      return false
+    }
+
+    const appCommand = resolveAppInputCommand(command)
+
+    if (appCommand.type !== "app") {
+      return false
+    }
+
+    if (appCommand.command === "exit") {
+      exitApp()
+      return true
+    }
+
+    if (appCommand.command === "reload") {
+      reloadApp()
+      return true
+    }
+
+    return false
   }
 
   const runQueryCommand = (command: string) => {
@@ -497,26 +420,6 @@ export const TerminalApp = ({
       return true
     }
 
-    if (nextMode === TerminalMode.Search) {
-      const scrollX = openViewFile
-        ? viewModeState.scrollX
-        : queryModeState.scrollX
-      const scrollY = openViewFile
-        ? viewModeState.scrollY
-        : queryModeState.scrollY
-
-      setMode(TerminalMode.Search)
-      setSearchModeState({
-        scrollX,
-        scrollY,
-        input: "",
-        inputCursorX: 0,
-        query: "",
-        focusedMatchIndex: 0,
-      })
-      return true
-    }
-
     if (nextMode === TerminalMode.Ai) {
       startAiMode()
       setSearchModeState({
@@ -532,10 +435,68 @@ export const TerminalApp = ({
     return false
   }
 
+  // Enter search mode, optionally with an initial query (e.g. from `@s uuid`).
+  // Remembers the mode we came from so Esc can return to it, and raises the
+  // "nothing found" overlay when a non-empty query has no matches.
+  const openSearchMode = (
+    query: string,
+    fromMode: TerminalMode,
+    scrollX: number,
+    scrollY: number,
+  ) => {
+    const limits = {
+      maxScrollX: activeMaxScrollX,
+      maxScrollY: activeMaxScrollY,
+      viewWidth: activeContentWidth,
+      viewHeight: activeContentHeight,
+    }
+    const matches = query ? findSearchMatches(content, query) : []
+    const baseState: SearchModeState = {
+      scrollX,
+      scrollY,
+      input: "",
+      inputCursorX: 0,
+      query,
+      focusedMatchIndex: 0,
+    }
+
+    setSearchPreviousMode(fromMode)
+    setMode(TerminalMode.Search)
+    setSearchModeState(
+      query ? focusSearchMatch(baseState, limits, matches, 0) : baseState,
+    )
+    setKeyboardSelectedCommand("")
+    setSearchNotFound(query !== "" && matches.length === 0)
+  }
+
+  const exitSearchToPreviousMode = () => {
+    const targetMode = searchPreviousMode
+    const { scrollX, scrollY } = searchModeState
+
+    setSearchNotFound(false)
+    setSearchModeState({
+      ...searchModeState,
+      input: "",
+      inputCursorX: 0,
+      query: "",
+      focusedMatchIndex: 0,
+    })
+    setKeyboardSelectedCommand("")
+    setMode(targetMode)
+
+    if (targetMode === TerminalMode.Query) {
+      setQueryModeState({ ...queryModeState, scrollX, scrollY })
+    } else if (
+      targetMode === TerminalMode.View ||
+      targetMode === TerminalMode.Edit
+    ) {
+      setViewModeState({ ...viewModeState, command: "", scrollX, scrollY })
+    }
+  }
+
   useInput((input, key) => {
     setCursorActivityId((currentValue) => currentValue + 1)
     setIsCursorBlinkActive(true)
-    setIsCursorVisible(true)
 
     if (isQuickSwitchKey(key) && quickSwitchMode()) {
       return
@@ -563,9 +524,9 @@ export const TerminalApp = ({
         return
       }
 
-      const submittedInput = key.return ? aiModeState.input.trim() : ""
       const result = handleAiModeInput(input, key, aiModeState, {
         maxScrollY: aiMaxScrollY,
+        customCommands,
       })
 
       if (result.shouldExitAi) {
@@ -580,8 +541,13 @@ export const TerminalApp = ({
         return
       }
 
-      if (submittedInput) {
-        writeAiInput(submittedInput)
+      if (result.shouldReloadApp) {
+        reloadApp()
+        return
+      }
+
+      if (result.submittedPrompt) {
+        writeAiInput(result.submittedPrompt)
       }
 
       return
@@ -734,16 +700,13 @@ export const TerminalApp = ({
 
       setKeyboardSelectedCommand("")
 
-      const nextMode =
+      const nextCommand =
         result.selectedCommand === undefined
-          ? null
-          : resolveModeCommand(result.selectedCommand)
+          ? undefined
+          : resolveAppInputCommand(result.selectedCommand)
+      const nextMode = nextCommand?.type === "mode" ? nextCommand.mode : null
 
-      if (
-        result.selectedCommand !== undefined &&
-        isAppExitCommand(result.selectedCommand)
-      ) {
-        exitApp()
+      if (handleAppCommand(result.selectedCommand)) {
         return
       }
 
@@ -774,18 +737,18 @@ export const TerminalApp = ({
       }
 
       if (nextMode === TerminalMode.Search) {
-        setMode(TerminalMode.Search)
-        setSearchModeState({
-          scrollX: result.state.scrollX,
-          scrollY: result.state.scrollY,
-          input: "",
-          query: "",
-          focusedMatchIndex: 0,
-        })
         setViewModeState({
           ...result.state,
           command: "",
         })
+        openSearchMode(
+          nextCommand?.type === "mode"
+            ? (nextCommand.args?.join(" ") ?? "")
+            : "",
+          mode,
+          result.state.scrollX,
+          result.state.scrollY,
+        )
         return
       }
 
@@ -812,6 +775,25 @@ export const TerminalApp = ({
     }
 
     if (mode === TerminalMode.Search) {
+      if (searchNotFound) {
+        if (key.return) {
+          setSearchNotFound(false)
+          return
+        }
+
+        if (key.escape) {
+          exitSearchToPreviousMode()
+          return
+        }
+
+        return
+      }
+
+      if (key.escape) {
+        exitSearchToPreviousMode()
+        return
+      }
+
       const limits = {
         maxScrollX: activeMaxScrollX,
         maxScrollY: activeMaxScrollY,
@@ -825,16 +807,25 @@ export const TerminalApp = ({
         limits,
         searchMatches,
       )
-      const nextMode =
+      const nextCommand =
         result.submittedQuery === undefined
-          ? null
-          : resolveModeCommand(result.submittedQuery)
+          ? undefined
+          : resolveAppInputCommand(result.submittedQuery)
+      const nextMode = nextCommand?.type === "mode" ? nextCommand.mode : null
 
-      if (
-        result.submittedQuery !== undefined &&
-        isAppExitCommand(result.submittedQuery)
-      ) {
-        exitApp()
+      if (handleAppCommand(result.submittedQuery)) {
+        return
+      }
+
+      if (nextMode === TerminalMode.Search) {
+        openSearchMode(
+          nextCommand?.type === "mode"
+            ? (nextCommand.args?.join(" ") ?? "")
+            : "",
+          searchPreviousMode,
+          result.state.scrollX,
+          result.state.scrollY,
+        )
         return
       }
 
@@ -927,6 +918,10 @@ export const TerminalApp = ({
           ? result.state
           : focusSearchMatch(result.state, limits, nextMatches, 0)
 
+      if (result.submittedQuery !== undefined) {
+        setSearchNotFound(result.state.query !== "" && nextMatches.length === 0)
+      }
+
       setSearchModeState(nextState)
       return
     }
@@ -991,16 +986,13 @@ export const TerminalApp = ({
 
       setKeyboardSelectedCommand("")
 
-      const nextMode =
+      const nextCommand =
         result.selectedCommand === undefined
-          ? null
-          : resolveModeCommand(result.selectedCommand)
+          ? undefined
+          : resolveAppInputCommand(result.selectedCommand)
+      const nextMode = nextCommand?.type === "mode" ? nextCommand.mode : null
 
-      if (
-        result.selectedCommand !== undefined &&
-        isAppExitCommand(result.selectedCommand)
-      ) {
-        exitApp()
+      if (handleAppCommand(result.selectedCommand)) {
         return
       }
 
@@ -1015,19 +1007,19 @@ export const TerminalApp = ({
       }
 
       if (nextMode === TerminalMode.Search) {
-        setMode(TerminalMode.Search)
-        setSearchModeState({
-          scrollX: queryModeState.scrollX,
-          scrollY: queryModeState.scrollY,
-          input: "",
-          query: "",
-          focusedMatchIndex: 0,
-        })
         setViewModeState({
           command: "",
           scrollX: 0,
           scrollY: 0,
         })
+        openSearchMode(
+          nextCommand?.type === "mode"
+            ? (nextCommand.args?.join(" ") ?? "")
+            : "",
+          TerminalMode.View,
+          queryModeState.scrollX,
+          queryModeState.scrollY,
+        )
         return
       }
 
@@ -1129,24 +1121,24 @@ export const TerminalApp = ({
 
     setKeyboardSelectedCommand("")
 
-    const nextMode =
-      result.command === undefined ? null : resolveModeCommand(result.command)
+    const nextCommand =
+      result.command === undefined
+        ? undefined
+        : resolveAppInputCommand(result.command)
+    const nextMode = nextCommand?.type === "mode" ? nextCommand.mode : null
 
-    if (result.command !== undefined && isAppExitCommand(result.command)) {
-      exitApp()
+    if (handleAppCommand(result.command)) {
       return
     }
 
     if (nextMode === TerminalMode.Search) {
-      setMode(TerminalMode.Search)
-      setSearchModeState({
-        scrollX: result.state.scrollX,
-        scrollY: result.state.scrollY,
-        input: "",
-        query: "",
-        focusedMatchIndex: 0,
-      })
       setQueryModeState(result.state)
+      openSearchMode(
+        nextCommand?.type === "mode" ? (nextCommand.args?.join(" ") ?? "") : "",
+        TerminalMode.Query,
+        result.state.scrollX,
+        result.state.scrollY,
+      )
       return
     }
 
@@ -1175,11 +1167,9 @@ export const TerminalApp = ({
 
     setQueryModeState(result.state)
 
-    if (result.command !== undefined && nextMode === null) {
-      if (result.command.trim()) {
-        setSelectedCommand(result.command)
-      }
-      runQueryCommand(result.command)
+    if (nextCommand?.type === "request") {
+      setSelectedCommand(nextCommand.path)
+      runQueryCommand(nextCommand.path)
     }
   })
 
@@ -1190,13 +1180,11 @@ export const TerminalApp = ({
       height={height}
       position="relative"
     >
-      <Box flexDirection="column" width={width} height={headerHeight}>
-        <Text bold>{">_ Ntee R1quest"}</Text>
-        {version && <Text color="#006400">{`ver: ${version}`}</Text>}
-      </Box>
-      <Box width={width} height={requestStatsHeight}>
-        <Text>{`◷ Time Spend ${externalEvent?.time ?? requestDurationMs ?? 0} ms,`}</Text>
-      </Box>
+      <TerminalHeader
+        width={width}
+        version={version}
+        timeSpentMs={externalEvent?.time ?? requestDurationMs ?? 0}
+      />
       <Box width={width} height={viewHeight} columnGap={paneGap}>
         <Sidebar
           entries={fileTreeEntries}
@@ -1205,55 +1193,39 @@ export const TerminalApp = ({
           height={viewHeight}
         />
         <ResponsePane
-          title={resolveResponsePaneTitle(mode)}
+          title={responsePaneTitle}
           contentLines={contentLines}
           viewport={viewport}
           searchMatches={searchMatches}
           focusedMatchIndex={searchModeState.focusedMatchIndex}
           width={responsePaneWidth}
           height={viewHeight}
-          fileContent={
-            openViewFile && openFileContent
-              ? {
-                  fileName: openViewFile.fileName,
-                  content: openFileContent,
-                  scrollX: contentScrollX,
-                  scrollY: contentScrollY,
-                  isEditing: mode === TerminalMode.Edit,
-                  cursorX: editModeState?.cursorX,
-                  cursorY: editModeState?.cursorY,
-                  input: editModeState?.input,
-                  suggestions: editModeState?.suggestions,
-                  isSavePromptOpen: editModeState?.isSavePromptOpen,
-                  selectedSaveAction: editModeState?.selectedSaveAction,
-                }
-              : undefined
-          }
+          fileContent={fileContent}
         />
       </Box>
-      <Box
+      <CommandLine
         width={width}
-        height={commandLineHeight}
-        backgroundColor={commandBackgroundColor}
-      >
-        <Text backgroundColor={commandBackgroundColor}>{promptValue}</Text>
-        <Text backgroundColor={commandBackgroundColor}>
-          {inputBeforeCursor}
-        </Text>
-        <Text bold backgroundColor={commandBackgroundColor}>
-          {isCursorVisible ? "_" : " "}
-        </Text>
-        <Text backgroundColor={commandBackgroundColor}>{inputAfterCursor}</Text>
-      </Box>
+        prompt={promptValue}
+        inputBeforeCursor={inputBeforeCursor}
+        inputAfterCursor={inputAfterCursor}
+        cursorBlinkActive={isCursorBlinkActive}
+        cursorActivityId={cursorActivityId}
+      />
       {mode === TerminalMode.Ai && (
         <Ai
           width={width}
           height={height}
           input={aiModeState.input}
           inputCursorX={aiModeState.inputCursorX}
-          isCursorVisible={isCursorVisible}
+          cursorBlinkActive={isCursorBlinkActive}
+          cursorActivityId={cursorActivityId}
           messages={aiModeState.messages}
           scrollY={aiModeState.scrollY}
+          commandSuggestions={matchCustomCommands(
+            customCommands,
+            aiModeState.input,
+          )}
+          commandSuggestionIndex={aiModeState.commandSuggestionIndex}
           isPending={isAiPending}
           isOffline={isAiOffline}
           pendingFrameIndex={frameIndex}
@@ -1262,6 +1234,13 @@ export const TerminalApp = ({
               ? formatAcpPermissionMessage(aiPermissionRequest)
               : undefined
           }
+        />
+      )}
+      {mode === TerminalMode.Search && searchNotFound && (
+        <SearchNotFoundOverlay
+          width={width}
+          height={height}
+          query={searchModeState.query}
         />
       )}
     </Box>

@@ -77,7 +77,11 @@ export class AcpConversationManager {
       return
     }
 
-    conversation.updates = [...conversation.updates, update]
+    // Mutate the internal array instead of rebuilding it on every chunk:
+    // copyConversation() already produces an isolated snapshot at every emit /
+    // external read, so internal mutation is safe and avoids an O(n) copy per
+    // streamed update (which would make a conversation O(n^2) overall).
+    conversation.updates.push(update)
     conversation.updatedAt = Date.now()
     this.emitConversationUpdate(conversation)
   }

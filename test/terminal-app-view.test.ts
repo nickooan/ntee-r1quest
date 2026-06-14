@@ -1,4 +1,6 @@
 import { describe, expect, test } from "@jest/globals"
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   buildFileTreeEntries,
@@ -100,6 +102,31 @@ describe("terminal app view", () => {
       type: "request",
       isExpanded: false,
     })
+  })
+
+  test("re-reads the cached file tree after the directory changes", () => {
+    const root = mkdtempSync(join(tmpdir(), "r1quest-tree-"))
+
+    try {
+      writeFileSync(join(root, "first.nts"), "")
+
+      expect(buildFileTreeEntries(root).map((entry) => entry.name)).toEqual([
+        "first.nts",
+      ])
+
+      writeFileSync(join(root, "second.nts"), "")
+      // Force a distinct mtime so the cache invalidates even when both writes
+      // land within the filesystem's mtime granularity.
+      const changedAt = new Date(Date.now() + 5_000)
+      utimesSync(root, changedAt, changedAt)
+
+      expect(buildFileTreeEntries(root).map((entry) => entry.name)).toEqual([
+        "first.nts",
+        "second.nts",
+      ])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   test("expands only the directories for the current command path", () => {

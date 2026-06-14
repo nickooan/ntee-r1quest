@@ -3,3 +3,7 @@ custom-suggestions:
   - some-style-id
   - x-trace-token
   - x-correlation-id
+custom-ai-commands:
+  - name: test
+    description: use for testing
+    instruction: testing message, this is $1 and $2 and $3
