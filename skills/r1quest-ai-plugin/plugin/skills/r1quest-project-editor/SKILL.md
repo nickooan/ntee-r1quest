@@ -14,9 +14,9 @@ or bodies.
 
 Resolve the request root in this order:
 
-1. Explicit user-provided root.
-2. `-r <root>` from the command the user is using.
-3. `.r1qconfig.yaml` `root`.
+1. Explicit user-provided root, or `-r <root>`.
+2. `root` in the current directory's `.r1qconfig.yaml`.
+3. `root` in `~/.ntee-r1quest/r1qconfig.yaml`.
 4. Current working directory.
 
 If the user points at a root such as `./example`, scan below that directory. If

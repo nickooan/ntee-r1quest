@@ -24,9 +24,10 @@ as:
 
 Resolve the configured collection root in this order:
 
-1. Explicit root provided by the user.
-2. `root` from `~/.ntee-r1quest/r1qconfig.yaml`.
-3. Current working directory.
+1. Explicit root provided by the user, or `-r <root>`.
+2. `root` in the current directory's `.r1qconfig.yaml`.
+3. `root` in `~/.ntee-r1quest/r1qconfig.yaml`.
+4. Current working directory.
 
 Locate the collection under the root. Then locate the request `.nts` file
 inside that collection. Search common layouts:

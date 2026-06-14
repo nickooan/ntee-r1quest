@@ -111,7 +111,9 @@ Rules:
 
 When checking a request:
 
-1. Identify the request root from `-r`, `.r1qconfig.yaml`, or the cwd.
+1. Identify the request root in this order: `-r <root>`, then `root` in the
+   current directory's `.r1qconfig.yaml`, then `root` in
+   `~/.ntee-r1quest/r1qconfig.yaml`, then the current working directory.
 2. Locate the target `.nts` file, adding `.nts` if omitted.
 3. Read all referenced `.ntd` files.
 4. Check that all `@i(key)` macros are defined by referenced `.ntd` files.

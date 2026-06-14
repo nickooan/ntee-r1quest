@@ -13,6 +13,8 @@ and editing `ntee-r1quest` projects.
   existing R1Quest collection.
 - `r1quest-project-editor`: Scan the current request root and update existing
   `.ntd` and `.nts` files safely.
+- `r1quest-config-editor`: Read and modify `.r1qconfig.yaml` settings such as
+  `root`, `ai`, `sock`, `custom-suggestions`, and `custom-ai-commands`.
 - `r1quest-graphql-generator`: Generate GraphQL query and mutation examples
   using `.ntd` operation/variables files and `.nts` resolver actions.
 - `graphql-schema-r1quest-generator`: Generate a R1Quest GraphQL project from a
@@ -35,6 +37,8 @@ r1quest-ai-plugin/             # marketplace root
       r1quest-one-shot-runner/
         SKILL.md
       r1quest-project-editor/
+        SKILL.md
+      r1quest-config-editor/
         SKILL.md
       r1quest-graphql-generator/
         SKILL.md
