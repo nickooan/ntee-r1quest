@@ -110,22 +110,25 @@ Switch modes by typing a mode command and pressing Enter:
 You can also press Shift+Tab to cycle modes:
 
 ```text
-@query -> @view -> @search -> @ai -> @query
+@query -> @view -> @ai -> @query
 ```
 
 When the cycle enters `@ai`, the AI overlay opens. When it cycles out of `@ai`,
 the overlay closes and the AI session remains available.
 
+Search is not part of the Shift+Tab cycle. Enter it explicitly with `@search`
+(or `@s`), and press Esc to return to the mode you came from.
+
 ## Key Manual
 
 ### Global
 
-| Key              | Action                                                  |
-| ---------------- | ------------------------------------------------------- |
-| Shift+Tab        | Quick-switch through query, view, search, and AI modes. |
-| Enter            | Submit the current mode input or selected item.         |
-| `@reload`        | Reload config and restart the terminal runtime.         |
-| `@exit`, `@quit` | Exit the app safely.                                    |
+| Key              | Action                                          |
+| ---------------- | ----------------------------------------------- |
+| Shift+Tab        | Quick-switch through query, view, and AI modes. |
+| Enter            | Submit the current mode input or selected item. |
+| `@reload`        | Reload config and restart the terminal runtime. |
+| `@exit`, `@quit` | Exit the app safely.                            |
 
 ### Query Mode
 
@@ -197,17 +200,23 @@ Examples:
 
 ### Search Mode
 
-Use `@search` to search the current response or reviewed file.
+Use `@search` (or `@s`) to search the current response or reviewed file. You can
+pass the query inline to search immediately, for example `@s uuid` or
+`@search order id` — the text after the command name becomes the query.
 
-| Key                      | Action                                 |
-| ------------------------ | -------------------------------------- |
-| Type a search query      | Prepare a search query.                |
-| Enter                    | Apply the query and highlight matches. |
-| Up / Down                | Move between matches.                  |
-| Left / Right             | Scroll horizontally.                   |
-| PageUp / PageDown        | Scroll vertically by one page.         |
-| Home / End               | Jump to the first or last match.       |
-| Shift+Left / Shift+Right | Move the search input cursor.          |
+| Key                      | Action                                      |
+| ------------------------ | ------------------------------------------- |
+| Type a search query      | Prepare a search query.                     |
+| Enter                    | Apply the query and highlight matches.      |
+| Esc                      | Return to the mode you entered search from. |
+| Up / Down                | Move between matches.                       |
+| Left / Right             | Scroll horizontally.                        |
+| PageUp / PageDown        | Scroll vertically by one page.              |
+| Home / End               | Jump to the first or last match.            |
+| Shift+Left / Shift+Right | Move the search input cursor.               |
+
+When a query has no matches, a "Nothing found" overlay appears; press Enter to
+dismiss it.
 
 If you enter `@edit` from search while reviewing a file, editing starts near the
 focused match.
@@ -226,6 +235,32 @@ Use `@ai` to chat with a local terminal AI agent through an ACP adapter.
 | `y` / `n`     | Respond to permission prompts when shown.     |
 
 The AI session can keep running while you leave and re-enter the overlay.
+
+#### Custom AI commands
+
+Define reusable prompts as `custom-ai-commands` in `.r1qconfig.yaml` (see
+[Config](#config)) and invoke them in AI mode by typing `/` followed by the
+command name and arguments:
+
+```text
+/for-test one two three
+```
+
+Arguments are positional: `$1`, `$2`, `$3`, ... in the command's `instruction`
+are replaced with the words after the command name. The example above expands an
+`instruction` of `asdgasdfasd $1 asdgasdfasgd $2 asdgasdfg $3` into
+`asdgasdfasd one asdgasdfasgd two asdgasdfg three`, and that expanded text is
+both shown in the chat and sent to the AI. Placeholders without a matching
+argument expand to an empty string, and an unknown `/command` is sent as-is.
+
+As you type `/`, a suggestion popup lists commands whose name matches what you
+have typed so far. Custom commands work only in AI mode.
+
+| Key       | Action                                                      |
+| --------- | ----------------------------------------------------------- |
+| Up / Down | Move the highlighted command while the popup is visible.    |
+| Tab       | Accept the highlighted command (inserts `/name ` for args). |
+| Enter     | Accept the highlighted command while the popup is visible.  |
 
 ## AI Adapter
 
@@ -292,12 +327,47 @@ sock: /tmp/ntee-r1quest.sock
 custom-suggestions:
   - some-style-id
   - x-trace-token
+custom-ai-commands:
+  - name: for-test
+    description: use for testing
+    instruction: asdgasdfasd $1 asdgasdfasgd $2 asdgasdfg $3
 ```
 
-Command-line options take precedence over config values.
+### How config sources combine
+
+Up to three config files are read and combined: the request-root directory's
+config, the current directory's config, and the home config. They are not
+deep-merged — each setting is resolved with this precedence (highest first):
+
+```text
+command-line flags  >  <request-root>/.r1qconfig.yaml  >  ./.r1qconfig.yaml  >  ~/.ntee-r1quest/r1qconfig.yaml
+```
+
+(The `root` value itself is resolved from the current directory and home config
+before the request-root config is loaded.)
+
+How each field combines:
+
+- **Scalars** (`root`, `ai`, `sock`) are not merged. The first source that
+  defines a non-empty value wins; later sources are ignored. A command-line flag
+  (`-r`, `-ai`) always overrides config.
+- **`custom-suggestions`** is a **union** of every source, deduplicated. All
+  entries from all configs are offered.
+- **`custom-ai-commands`** is merged **by command name**, and the first
+  occurrence of a name wins. A `for-test` defined in the request-root config
+  therefore shadows a `for-test` of the same name in the home config.
+
+### Field reference
 
 `custom-suggestions` adds user-defined editor suggestions for request header
 keys and object body keys.
+
+`custom-ai-commands` defines reusable AI prompts invoked with `/name args` in AI
+mode. Each entry needs a `name` and an `instruction`; `description` is optional
+and shown in the suggestion popup. Positional placeholders (`$1`, `$2`, ...) in
+the `instruction` are filled with the arguments typed after the command name.
+Entries missing a `name` or `instruction` are skipped. See
+[Custom AI commands](#custom-ai-commands).
 
 When `sock` is set, the terminal app listens on that Unix socket for external
 request events. A `-p` execution posts its formatted response to the socket when
