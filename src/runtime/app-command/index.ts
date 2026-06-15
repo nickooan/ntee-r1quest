@@ -8,8 +8,10 @@ import {
 
 export {
   AiCommand,
+  CleanCacheCommand,
   EditCommand,
   ExitCommand,
+  HistoryCommand,
   QueryCommand,
   ReloadCommand,
   SearchCommand,

@@ -13,6 +13,11 @@ type SidebarProps = {
   highlightedIndex: number
   width: number
   height: number
+  title?: string
+  // When provided (History mode), the sidebar lists these endpoint labels
+  // instead of the file tree, highlighting the selected one.
+  endpoints?: string[]
+  selectedEndpointIndex?: number
 }
 
 export const Sidebar = memo(function Sidebar({
@@ -20,8 +25,25 @@ export const Sidebar = memo(function Sidebar({
   highlightedIndex,
   width,
   height,
+  title = "Collections",
+  endpoints,
+  selectedEndpointIndex = 0,
 }: SidebarProps) {
   const viewportHeight = Math.max(1, height - 2)
+
+  if (endpoints) {
+    return (
+      <EndpointSidebar
+        endpoints={endpoints}
+        selectedIndex={selectedEndpointIndex}
+        viewportHeight={viewportHeight}
+        title={title}
+        width={width}
+        height={height}
+      />
+    )
+  }
+
   const viewport = buildFileTreeViewport(
     entries,
     viewportHeight,
@@ -38,7 +60,7 @@ export const Sidebar = memo(function Sidebar({
       borderColor={paneBorderColor}
       position="relative"
     >
-      <PaneTitle title="Collections" width={width} />
+      <PaneTitle title={title} width={width} />
       {viewport.entries.map((entry, index) => {
         const entryIndex = viewport.safeScrollY + index
         const isHighlighted = entryIndex === highlightedIndex
@@ -93,3 +115,58 @@ export const Sidebar = memo(function Sidebar({
     </Box>
   )
 })
+
+const EndpointSidebar = ({
+  endpoints,
+  selectedIndex,
+  viewportHeight,
+  title,
+  width,
+  height,
+}: {
+  endpoints: string[]
+  selectedIndex: number
+  viewportHeight: number
+  title: string
+  width: number
+  height: number
+}) => {
+  const innerWidth = Math.max(1, width - 2)
+  const startIndex = Math.min(
+    Math.max(0, selectedIndex - viewportHeight + 1),
+    Math.max(0, endpoints.length - viewportHeight),
+  )
+  const visible = endpoints.slice(startIndex, startIndex + viewportHeight)
+
+  return (
+    <Box
+      flexDirection="column"
+      width={width}
+      height={height}
+      borderStyle="single"
+      borderColor={paneBorderColor}
+      position="relative"
+    >
+      <PaneTitle title={title} width={width} />
+      {visible.map((label, index) => {
+        const isHighlighted = startIndex + index === selectedIndex
+
+        return (
+          <Text
+            key={label}
+            color={isHighlighted ? "black" : "yellow"}
+            backgroundColor={isHighlighted ? "yellow" : undefined}
+            dimColor={!isHighlighted}
+          >
+            {` ${label} `.slice(0, innerWidth).padEnd(innerWidth, " ")}
+          </Text>
+        )
+      })}
+      {Array.from({
+        length: Math.max(0, viewportHeight - visible.length),
+      }).map((_, index) => (
+        <Text key={`empty-endpoint-${index}`}>{" ".repeat(innerWidth)}</Text>
+      ))}
+    </Box>
+  )
+}

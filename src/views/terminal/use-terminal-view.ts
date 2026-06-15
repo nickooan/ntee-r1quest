@@ -33,6 +33,7 @@ type InputStateByMode = {
   aiModeState: AiModeState
   editModeState: EditModeState | null
   queryModeState: QueryModeState
+  historyModeState: QueryModeState
   searchModeState: SearchModeState
   viewModeState: ViewModeState
 }
@@ -57,6 +58,10 @@ const resolveInputValue = (
     return states.viewModeState.command
   }
 
+  if (mode === TerminalMode.History) {
+    return states.historyModeState.command
+  }
+
   return states.queryModeState.command
 }
 
@@ -75,6 +80,8 @@ const resolveInputCursorX = (
     cursorX = states.searchModeState.inputCursorX ?? inputLength
   } else if (mode === TerminalMode.View) {
     cursorX = states.viewModeState.commandCursorX ?? inputLength
+  } else if (mode === TerminalMode.History) {
+    cursorX = states.historyModeState.commandCursorX ?? inputLength
   } else if (mode === TerminalMode.Query) {
     cursorX = states.queryModeState.commandCursorX ?? inputLength
   }
@@ -119,6 +126,8 @@ export type TerminalViewParams = {
   aiModeState: AiModeState
   isAiPending: boolean
   isAiOffline: boolean
+  historyModeState: QueryModeState
+  historyContent?: string
 }
 
 // Derives all layout/content/viewport values the terminal renders and its input
@@ -145,6 +154,8 @@ export const useTerminalView = ({
   aiModeState,
   isAiPending,
   isAiOffline,
+  historyModeState,
+  historyContent,
 }: TerminalViewParams) => {
   const commandInput =
     mode === TerminalMode.View || mode === TerminalMode.Edit
@@ -191,7 +202,7 @@ export const useTerminalView = ({
     openViewFile && mode === TerminalMode.Edit && editModeState
       ? serializeEditModeContent(editModeState)
       : openViewFile?.content
-  const content = openFileContent ?? responseContent
+  const content = openFileContent ?? historyContent ?? responseContent
   const contentLines = useMemo(() => normalizeLines(content), [content])
   const filePaneLayout = openViewFile
     ? buildFilePaneLayout(responsePaneWidth, viewHeight, contentLines.length)
@@ -214,17 +225,21 @@ export const useTerminalView = ({
     contentLines.length - activeContentHeight,
   )
   const contentScrollX =
-    mode === TerminalMode.Search
-      ? searchModeState.scrollX
-      : openViewFile
-        ? viewModeState.scrollX
-        : queryModeState.scrollX
+    mode === TerminalMode.History
+      ? historyModeState.scrollX
+      : mode === TerminalMode.Search
+        ? searchModeState.scrollX
+        : openViewFile
+          ? viewModeState.scrollX
+          : queryModeState.scrollX
   const contentScrollY =
-    mode === TerminalMode.Search
-      ? searchModeState.scrollY
-      : openViewFile
-        ? viewModeState.scrollY
-        : queryModeState.scrollY
+    mode === TerminalMode.History
+      ? historyModeState.scrollY
+      : mode === TerminalMode.Search
+        ? searchModeState.scrollY
+        : openViewFile
+          ? viewModeState.scrollY
+          : queryModeState.scrollY
   const viewport = useMemo(
     () =>
       buildTerminalViewport(
@@ -279,6 +294,7 @@ export const useTerminalView = ({
     aiModeState,
     editModeState,
     queryModeState,
+    historyModeState,
     searchModeState,
     viewModeState,
   }
