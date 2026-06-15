@@ -153,11 +153,16 @@ export const suggestInputs = (prefix: string, limit = 6): string[] => {
 }
 
 /**
- * Records a successful API call, keyed by its "<path> [<method>]" endpoint so
- * the latest request/response for each endpoint+method is cached (a repeat call
- * overwrites the previous entry).
+ * Records a successful API call, keyed by its "<path> [<method>]" endpoint (or
+ * "<operation> [<type>]" for GraphQL) so the latest request/response for each
+ * endpoint is cached (a repeat call overwrites the previous entry).
+ *
+ * Awaits the LMDB commit so one-shot CLI runs, which exit immediately after the
+ * request, still persist the entry instead of losing the async write.
  */
-export const recordApiCall = (record: RecordApiCallInput): void => {
+export const recordApiCall = async (
+  record: RecordApiCallInput,
+): Promise<void> => {
   const cache = ensureOpen()
 
   if (!cache) {
@@ -173,7 +178,7 @@ export const recordApiCall = (record: RecordApiCallInput): void => {
       record.request.body,
     )
 
-    void cache.api.put(endpoint, { ...record, endpoint, path, method })
+    await cache.api.put(endpoint, { ...record, endpoint, path, method })
   } catch {
     // ignore cache write failures
   }

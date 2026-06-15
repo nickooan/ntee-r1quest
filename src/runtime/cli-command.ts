@@ -73,7 +73,8 @@ const runRequest = async (options: ExecuteOptions): Promise<AxiosResponse> => {
     const response = await executeRequest(scopeObject)
 
     // Record successful calls only; failures throw above and are skipped.
-    recordApiCall({
+    // Awaited so one-shot CLI runs persist the entry before the process exits.
+    await recordApiCall({
       at: startedAt,
       durationMs: Date.now() - startedAt,
       request: {
