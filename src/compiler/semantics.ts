@@ -482,12 +482,60 @@ const resolveMacro = (
   return value
 }
 
+// Env values supplied via the CLI `-env` JSON argument. They are layered over
+// process.env: a key present here wins (replacing a duplicate), while any other
+// key falls through to the ambient environment.
+let envOverrides: Record<string, string> = {}
+
+/**
+ * Parses the `-env` argument — a JSON object string — into an env override map.
+ * Values are coerced to strings to match environment-variable semantics (e.g.
+ * `{"PORT": 8080}` -> `{ PORT: "8080" }`). Empty/whitespace input yields an
+ * empty map. Throws on input that is not a JSON object.
+ */
+export const parseEnvOverrides = (raw?: string): Record<string, string> => {
+  const trimmed = raw?.trim()
+
+  if (!trimmed) {
+    return {}
+  }
+
+  let parsed: unknown
+
+  try {
+    parsed = JSON.parse(trimmed)
+  } catch {
+    throw new SyntaxError(`Invalid -env JSON object: ${trimmed}`)
+  }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new TypeError("-env must be a JSON object.")
+  }
+
+  const overrides: Record<string, string> = {}
+
+  for (const [key, value] of Object.entries(parsed)) {
+    overrides[key] = typeof value === "string" ? value : JSON.stringify(value)
+  }
+
+  return overrides
+}
+
+/**
+ * Replaces the env overrides consulted by `@env(...)` macros. Pass `{}` to
+ * clear them. Merged over process.env at resolve time, duplicates replaced.
+ */
+export const setEnvOverrides = (overrides: Record<string, string>): void => {
+  envOverrides = overrides
+}
+
 const resolveEnvMacro = (operator: string, key: string): string => {
   if (operator !== "env") {
     throw new ReferenceError(`Unsupported env macro operator: ${operator}`)
   }
 
-  const envValue = process.env[key]
+  // `-env` overrides take precedence; otherwise read the ambient environment.
+  const envValue = key in envOverrides ? envOverrides[key] : process.env[key]
 
   if (envValue === undefined) {
     throw new ReferenceError(`Undefined env macro: @${operator}(${key})`)

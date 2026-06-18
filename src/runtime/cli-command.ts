@@ -1,5 +1,10 @@
 import type { AxiosResponse } from "axios"
-import { compileFile, CompileSourceType } from "../compiler/semantics.ts"
+import {
+  compileFile,
+  CompileSourceType,
+  parseEnvOverrides,
+  setEnvOverrides,
+} from "../compiler/semantics.ts"
 import { resolveAdaptorName, type AcpAdaptorName } from "./acp/index.ts"
 import {
   initializeRuntimeConfig,
@@ -29,6 +34,8 @@ type ExecuteOptions = {
   root: string
   source: string
   traceId?: string
+  // JSON object string from the `-env` flag; merged over process.env for macros.
+  env?: string
 }
 
 export const resolveRoot = (args: string[] = []): string => {
@@ -69,6 +76,10 @@ const runRequest = async (options: ExecuteOptions): Promise<AxiosResponse> => {
   process.chdir(options.root)
 
   try {
+    // Apply `-env` overrides (if any) so @env(...) macros resolve them first,
+    // falling back to process.env. Reset each run from this request's flag.
+    setEnvOverrides(parseEnvOverrides(options.env))
+
     const scopeObject = compileFile(options.source, CompileSourceType.File)
     const startedAt = Date.now()
     const response = await executeRequest(scopeObject)
@@ -102,11 +113,13 @@ export const execute = async (
   source: string,
   root: string = resolveRoot(),
   traceId?: string,
+  env?: string,
 ): Promise<AxiosResponse> => {
   return runRequest({
     root,
     source: normalizeSource(source),
     traceId,
+    env,
   })
 }
 
@@ -120,7 +133,12 @@ export const executePathArgument = async (
     return undefined
   }
 
-  return execute(parsedArgs.path, config.root, parsedArgs.traceId)
+  return execute(
+    parsedArgs.path,
+    config.root,
+    parsedArgs.traceId,
+    parsedArgs.env,
+  )
 }
 
 export const resolveRuntimeConfig = (args: string[] = []): RuntimeConfig => {

@@ -157,7 +157,12 @@ const CommandApp = ({
     setRequestDurationMs(undefined)
 
     try {
-      const nextResponse = await execute(command, root)
+      const nextResponse = await execute(
+        command,
+        root,
+        undefined,
+        config.parsedArgs.env,
+      )
 
       if (commandRunIdRef.current === commandRunId) {
         setResponse(nextResponse)

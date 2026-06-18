@@ -83,6 +83,15 @@ describe("CLI command runtime", () => {
     })
   })
 
+  test("parses the -env JSON override argument", () => {
+    expect(
+      parseArguments(["-p", "users/get.nts", "-env", '{"TOKEN":"abc"}']),
+    ).toEqual({
+      path: "users/get.nts",
+      env: '{"TOKEN":"abc"}',
+    })
+  })
+
   test("parses init and version flags", () => {
     expect(parseArguments(["--init", "--version"])).toEqual({
       init: true,

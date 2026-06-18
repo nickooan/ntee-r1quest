@@ -1,8 +1,10 @@
-import { describe, expect, test } from "@jest/globals"
+import { afterEach, describe, expect, test } from "@jest/globals"
 import {
   buildItermediateObject,
   compileFile,
   CompileSourceType,
+  parseEnvOverrides,
+  setEnvOverrides,
 } from "../src/compiler/semantics.ts"
 
 describe("compiler", () => {
@@ -45,6 +47,75 @@ describe("compiler", () => {
         process.env.TEST_ENV_TOKEN = previousValue
       }
     }
+  })
+
+  describe("env overrides", () => {
+    afterEach(() => {
+      setEnvOverrides({})
+    })
+
+    test("parses a JSON object string and coerces values to strings", () => {
+      expect(
+        parseEnvOverrides('{"A": "x", "PORT": 8080, "FLAG": true}'),
+      ).toEqual({ A: "x", PORT: "8080", FLAG: "true" })
+    })
+
+    test("returns an empty map for empty or whitespace input", () => {
+      expect(parseEnvOverrides()).toEqual({})
+      expect(parseEnvOverrides("   ")).toEqual({})
+    })
+
+    test("rejects non-JSON and non-object input", () => {
+      expect(() => parseEnvOverrides("{not json}")).toThrow(
+        "Invalid -env JSON object",
+      )
+      expect(() => parseEnvOverrides("[1, 2]")).toThrow(
+        "-env must be a JSON object.",
+      )
+      expect(() => parseEnvOverrides('"a string"')).toThrow(
+        "-env must be a JSON object.",
+      )
+    })
+
+    test("overrides replace process.env for duplicate keys", () => {
+      const previousValue = process.env.TEST_ENV_TOKEN
+      process.env.TEST_ENV_TOKEN = "ambient-value"
+
+      try {
+        setEnvOverrides(
+          parseEnvOverrides('{"TEST_ENV_TOKEN": "override-value"}'),
+        )
+
+        expect(buildItermediateObject("test/data/env.ntd", {})).toEqual({
+          token: "override-value",
+        })
+      } finally {
+        if (previousValue === undefined) {
+          delete process.env.TEST_ENV_TOKEN
+        } else {
+          process.env.TEST_ENV_TOKEN = previousValue
+        }
+      }
+    })
+
+    test("falls back to process.env for keys absent from overrides", () => {
+      const previousValue = process.env.TEST_ENV_TOKEN
+      process.env.TEST_ENV_TOKEN = "ambient-value"
+
+      try {
+        setEnvOverrides(parseEnvOverrides('{"OTHER": "x"}'))
+
+        expect(buildItermediateObject("test/data/env.ntd", {})).toEqual({
+          token: "ambient-value",
+        })
+      } finally {
+        if (previousValue === undefined) {
+          delete process.env.TEST_ENV_TOKEN
+        } else {
+          process.env.TEST_ENV_TOKEN = previousValue
+        }
+      }
+    })
   })
 
   test("builds definition values that start with primitive-looking text as bare strings", () => {
