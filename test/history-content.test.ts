@@ -37,6 +37,16 @@ describe("formatHistoryEntry", () => {
     expect(output).toContain('  "id": 9')
   })
 
+  test("shows the trace id under the status line and above Request", () => {
+    expect(formatHistoryEntry(record, 40)).not.toContain("Trace:")
+
+    // The trace id sits directly under the status/duration line and above the
+    // Request section rule.
+    expect(
+      formatHistoryEntry({ ...record, traceId: "batch-42" }, 40),
+    ).toContain("201  ·  42 ms\nTrace: batch-42\n\n── Request ")
+  })
+
   test("shows placeholders for empty headers and body", () => {
     const output = formatHistoryEntry(
       {

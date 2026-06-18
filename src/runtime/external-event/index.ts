@@ -7,6 +7,9 @@ export type ExternalRequestEvent = {
   ntsFile: string
   time: number
   responseContent: string
+  // Batch/task id from the request's `-ti` flag. Present only when the request
+  // was tagged with one.
+  traceId?: string
 }
 
 export type ExternalEventListener = {
@@ -38,11 +41,16 @@ const assertExternalRequestEvent = (value: unknown): ExternalRequestEvent => {
     throw new TypeError("External event responseContent must be a string.")
   }
 
+  if (value.traceId !== undefined && typeof value.traceId !== "string") {
+    throw new TypeError("External event traceId must be a string.")
+  }
+
   return {
     ntsPath: value.ntsPath,
     ntsFile: value.ntsFile,
     time: value.time,
     responseContent: value.responseContent,
+    ...(value.traceId === undefined ? {} : { traceId: value.traceId }),
   }
 }
 
@@ -68,6 +76,7 @@ export const buildExternalRequestEvent = (
   requestPath: string,
   time: number,
   responseContent: string,
+  traceId?: string,
 ): ExternalRequestEvent => {
   const normalizedRequestPath = requestPath.trim().replaceAll("\\", "/")
   const ntsPath = normalizedRequestPath.includes("/")
@@ -80,6 +89,7 @@ export const buildExternalRequestEvent = (
     ntsFile: ntsFile.endsWith(".nts") ? ntsFile : `${ntsFile}.nts`,
     time,
     responseContent,
+    ...(traceId ? { traceId } : {}),
   }
 }
 

@@ -30,6 +30,9 @@ export type ApiCallRecord = {
   endpoint: string
   path: string
   method: string
+  // Optional batch/task id (CLI `-ti`). When set, the record is also appended
+  // to the trace index so all calls sharing the id can be listed in order.
+  traceId?: string
   at: number
   durationMs: number
   request: ApiCallRequest
@@ -42,6 +45,8 @@ type CacheHandles = {
   root: RootDatabase
   input: Database<InputRecord, string>
   api: Database<ApiCallRecord, string>
+  // traceId -> the calls made under it, in call order (latest appended last).
+  trace: Database<ApiCallRecord[], string>
 }
 
 let handles: CacheHandles | null = null
@@ -65,6 +70,7 @@ const ensureOpen = (): CacheHandles | null => {
       root,
       input: root.openDB({ name: "inputHistory" }),
       api: root.openDB({ name: "apiHistory" }),
+      trace: root.openDB({ name: "traceIndex" }),
     }
 
     return handles
@@ -178,9 +184,42 @@ export const recordApiCall = async (
       record.request.body,
     )
 
-    await cache.api.put(endpoint, { ...record, endpoint, path, method })
+    const fullRecord: ApiCallRecord = { ...record, endpoint, path, method }
+
+    await cache.api.put(endpoint, fullRecord)
+
+    // When a trace id is supplied, append this call to the end of its index
+    // entry so the trace keeps every call (including endpoint repeats) in call
+    // order. The transaction makes the read-then-append atomic against
+    // concurrent calls sharing the same id.
+    const { traceId } = fullRecord
+
+    if (traceId) {
+      await cache.trace.transaction(() => {
+        const existing = cache.trace.get(traceId) ?? []
+        cache.trace.put(traceId, [...existing, fullRecord])
+      })
+    }
   } catch {
     // ignore cache write failures
+  }
+}
+
+/**
+ * Returns every call recorded under a trace id, in call order (the order they
+ * were made). Empty when the id is unknown.
+ */
+export const listTraceCalls = (traceId: string): ApiCallRecord[] => {
+  const cache = ensureOpen()
+
+  if (!cache) {
+    return []
+  }
+
+  try {
+    return cache.trace.get(traceId) ?? []
+  } catch {
+    return []
   }
 }
 
@@ -229,7 +268,11 @@ export const clearCache = async (): Promise<void> => {
   }
 
   try {
-    await Promise.all([cache.input.clearAsync(), cache.api.clearAsync()])
+    await Promise.all([
+      cache.input.clearAsync(),
+      cache.api.clearAsync(),
+      cache.trace.clearAsync(),
+    ])
   } catch {
     // ignore cache clear failures
   }

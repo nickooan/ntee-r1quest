@@ -50,9 +50,7 @@ describe("response view", () => {
   })
 
   test("keeps plain text bodies as-is", () => {
-    expect(formatResponseBody("line 1\nline 2", "text/plain")).toBe(
-      "line 1\nline 2",
-    )
+    expect(formatResponseBody("line 1\nline 2")).toBe("line 1\nline 2")
   })
 
   test("formats pending frames with animated dots", () => {
@@ -162,6 +160,32 @@ x-request-id: abc-123
 
 --------------- End of get /xxx/xx/xxx ---------------
 `)
+  })
+
+  test("adds the trace id below the status line when present", () => {
+    const response: AxiosResponse = {
+      config: {
+        headers: {},
+        method: "get",
+        url: "https://ntee.io/x",
+      } as InternalAxiosRequestConfig,
+      status: 200,
+      statusText: "OK",
+      headers: { "content-type": "application/json" },
+      data: { ok: true },
+      request: {},
+    }
+
+    // No trace id: the status section is just the status line.
+    expect(formatResponse(response)).not.toContain("Trace:")
+
+    const traced = formatResponse(response, "batch-42")
+
+    // The trace id sits at the bottom of the status section, above Headers.
+    expect(traced).toContain(`200 OK
+Trace: batch-42
+
+--------------- Headers ---------------`)
   })
 
   test("formats a full text response with headers and multiline body", () => {

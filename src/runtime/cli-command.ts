@@ -28,6 +28,7 @@ export const resolveImmediateCommandOutput = (
 type ExecuteOptions = {
   root: string
   source: string
+  traceId?: string
 }
 
 export const resolveRoot = (args: string[] = []): string => {
@@ -77,6 +78,7 @@ const runRequest = async (options: ExecuteOptions): Promise<AxiosResponse> => {
     await recordApiCall({
       at: startedAt,
       durationMs: Date.now() - startedAt,
+      traceId: options.traceId,
       request: {
         url: scopeObject.url,
         method: scopeObject.method,
@@ -99,10 +101,12 @@ const runRequest = async (options: ExecuteOptions): Promise<AxiosResponse> => {
 export const execute = async (
   source: string,
   root: string = resolveRoot(),
+  traceId?: string,
 ): Promise<AxiosResponse> => {
   return runRequest({
     root,
     source: normalizeSource(source),
+    traceId,
   })
 }
 
@@ -116,7 +120,7 @@ export const executePathArgument = async (
     return undefined
   }
 
-  return execute(parsedArgs.path, config.root)
+  return execute(parsedArgs.path, config.root, parsedArgs.traceId)
 }
 
 export const resolveRuntimeConfig = (args: string[] = []): RuntimeConfig => {

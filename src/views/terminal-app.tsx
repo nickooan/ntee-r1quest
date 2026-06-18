@@ -47,6 +47,7 @@ import {
 import {
   clearCache,
   listApiEndpoints,
+  listTraceCalls,
   recordInput,
   type ApiCallRecord,
 } from "../runtime/cache/index.ts"
@@ -159,6 +160,11 @@ export const TerminalApp = ({
   const [historyModeState, setHistoryModeState] =
     useState<QueryModeState>(createQueryModeState)
   const [historySelectedEndpoint, setHistorySelectedEndpoint] = useState("")
+  // Trace id from `@h/@history <traceId>`. When set, the Endpoints list shows
+  // only that trace's calls, in call order; null shows all cached endpoints.
+  const [historyTraceFilter, setHistoryTraceFilter] = useState<string | null>(
+    null,
+  )
   const [cacheErasedNotice, setCacheErasedNotice] = useState(false)
   const {
     aiModeState,
@@ -192,13 +198,30 @@ export const TerminalApp = ({
     mode === TerminalMode.History ||
     (mode === TerminalMode.Search &&
       searchPreviousMode === TerminalMode.History)
-  const historyEndpoints = useMemo(
-    () => (isHistoryContext ? listApiEndpoints() : []),
-    [isHistoryContext],
-  )
+  // Endpoint entries with a unique key per row. Without a trace filter the key
+  // is the endpoint label (already unique). Under a trace filter the same
+  // endpoint can appear more than once, so the call's 1-based order is prefixed
+  // to keep keys unique and show the sequence.
+  const historyEntries = useMemo(() => {
+    if (!isHistoryContext) {
+      return [] as Array<{ key: string; record: ApiCallRecord }>
+    }
+
+    if (historyTraceFilter) {
+      return listTraceCalls(historyTraceFilter).map((record, index) => ({
+        key: `${index + 1}. ${record.endpoint}`,
+        record,
+      }))
+    }
+
+    return listApiEndpoints().map((record) => ({
+      key: record.endpoint,
+      record,
+    }))
+  }, [isHistoryContext, historyTraceFilter])
   const historyEndpointLabels = useMemo(
-    () => historyEndpoints.map((record) => record.endpoint),
-    [historyEndpoints],
+    () => historyEntries.map((entry) => entry.key),
+    [historyEntries],
   )
   const historySuggestions = useMemo(
     () =>
@@ -219,9 +242,8 @@ export const TerminalApp = ({
       ? (historySuggestions[historyOverlayIndex]?.label ?? "")
       : historySelectedEndpoint
   const activeHistoryRecord: ApiCallRecord | undefined = isHistoryContext
-    ? (historyEndpoints.find(
-        (record) => record.endpoint === activeHistoryEndpoint,
-      ) ?? historyEndpoints[0])
+    ? (historyEntries.find((entry) => entry.key === activeHistoryEndpoint)
+        ?.record ?? historyEntries[0]?.record)
     : undefined
   const approxHistorySidebarWidth = Math.min(
     Math.max(12, Math.floor(width / 4)),
@@ -526,6 +548,7 @@ export const TerminalApp = ({
 
     if (appCommand.command === "clean-cache") {
       void clearCache()
+      setHistoryTraceFilter(null)
       setHistorySelectedEndpoint("")
       setCacheErasedNotice(true)
       return true
@@ -984,6 +1007,9 @@ export const TerminalApp = ({
 
       if (nextMode === TerminalMode.History) {
         setMode(TerminalMode.History)
+        setHistoryTraceFilter(
+          nextCommand?.type === "mode" ? (nextCommand.args?.[0] ?? null) : null,
+        )
         setOpenViewFile(null)
         setEditModeState(null)
         setHistorySelectedEndpoint("")
@@ -1103,6 +1129,9 @@ export const TerminalApp = ({
 
       if (nextMode === TerminalMode.History) {
         setMode(TerminalMode.History)
+        setHistoryTraceFilter(
+          nextCommand?.type === "mode" ? (nextCommand.args?.[0] ?? null) : null,
+        )
         setHistorySelectedEndpoint("")
         setHistoryModeState(createQueryModeState())
         setSearchModeState({
@@ -1313,6 +1342,9 @@ export const TerminalApp = ({
 
       if (nextMode === TerminalMode.History) {
         setMode(TerminalMode.History)
+        setHistoryTraceFilter(
+          nextCommand?.type === "mode" ? (nextCommand.args?.[0] ?? null) : null,
+        )
         setHistorySelectedEndpoint("")
         setHistoryModeState(createQueryModeState())
         setViewModeState({
@@ -1384,7 +1416,7 @@ export const TerminalApp = ({
 
         if (nextMode && nextMode !== TerminalMode.History) {
           // Keep the selected endpoint so its Results stay shown and searchable.
-          setHistorySelectedEndpoint(activeHistoryRecord?.endpoint ?? "")
+          setHistorySelectedEndpoint(activeHistoryEndpoint)
           setHistoryModeState(createQueryModeState())
           setKeyboardSelectedCommand("")
 
@@ -1409,6 +1441,21 @@ export const TerminalApp = ({
             setQueryModeState(createQueryModeState())
           }
 
+          return
+        }
+
+        // Re-entering History from History re-applies the trace filter:
+        // `@h <traceId>` narrows to that trace, bare `@h`/`@history` resets to
+        // all endpoints. Selection is reset so the new list starts at the top.
+        if (nextMode === TerminalMode.History) {
+          setHistoryTraceFilter(
+            nextCommand.type === "mode"
+              ? (nextCommand.args?.[0] ?? null)
+              : null,
+          )
+          setHistorySelectedEndpoint("")
+          setHistoryModeState(createQueryModeState())
+          setKeyboardSelectedCommand("")
           return
         }
 
@@ -1554,6 +1601,9 @@ export const TerminalApp = ({
 
     if (nextMode === TerminalMode.History) {
       setMode(TerminalMode.History)
+      setHistoryTraceFilter(
+        nextCommand?.type === "mode" ? (nextCommand.args?.[0] ?? null) : null,
+      )
       setHistorySelectedEndpoint("")
       setHistoryModeState(createQueryModeState())
       setQueryModeState(result.state)
@@ -1590,11 +1640,20 @@ export const TerminalApp = ({
           highlightedIndex={highlightedEntryIndex}
           width={sidebarWidth}
           height={viewHeight}
-          title={isHistoryContext ? "Endpoints" : "Collections"}
+          title={
+            isHistoryContext
+              ? historyTraceFilter
+                ? `Trace ${historyTraceFilter}`
+                : "Endpoints"
+              : "Collections"
+          }
           endpoints={isHistoryContext ? historyEndpointLabels : undefined}
           selectedEndpointIndex={
             isHistoryContext && activeHistoryRecord
-              ? historyEndpointLabels.indexOf(activeHistoryRecord.endpoint)
+              ? Math.max(
+                  0,
+                  historyEndpointLabels.indexOf(activeHistoryEndpoint),
+                )
               : 0
           }
         />

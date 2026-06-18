@@ -41,7 +41,8 @@ const runPathArgument = async (
       return false
     }
 
-    const responseContent = formatResponse(response)
+    const traceId = config.parsedArgs.traceId
+    const responseContent = formatResponse(response, traceId)
 
     process.stdout.write(responseContent)
 
@@ -56,6 +57,7 @@ const runPathArgument = async (
             requestPath,
             Date.now() - requestStartTime,
             responseContent,
+            traceId,
           ),
         )
       } catch (error) {
@@ -65,7 +67,7 @@ const runPathArgument = async (
 
     return true
   } catch (error) {
-    process.stderr.write(`${formatError(error)}\n`)
+    process.stderr.write(`${formatError(error, config.parsedArgs.traceId)}\n`)
     process.exitCode = 1
 
     return true
