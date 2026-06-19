@@ -70,24 +70,40 @@ describe("terminal app view", () => {
     ])
   })
 
-  test("highlights a macro embedded inside a string value", () => {
-    const segments = highlightLine('url "/todos/@env(id or 1)"').map(
-      (segment) => [segment.text, segment.color],
-    )
-
-    expect(segments).toEqual([
+  test("highlights only a plain @i(key) macro embedded inside a string", () => {
+    expect(
+      highlightLine('url "/todos/@i(id)"').map((segment) => [
+        segment.text,
+        segment.color,
+      ]),
+    ).toEqual([
       ["url", "cyan"],
       [" ", undefined],
       ['"/todos/', "yellow"],
       ["@", "red"],
-      ["env", "green"],
-      ["(id ", undefined],
-      ["or", "cyan"],
-      [" ", undefined],
-      ["1", "blue"],
-      [")", undefined],
+      ["i", "green"],
+      ["(id)", undefined],
       ['"', "yellow"],
     ])
+  })
+
+  test("does not highlight invalid in-string macros (@env, @f, or defaults)", () => {
+    // None of these interpolate inside a string, so the whole string stays one
+    // yellow token — no macro colouring that would imply they work.
+    for (const line of [
+      'url "/todos/@env(id or 1)"',
+      'url "/todos/@i(id or 1)"',
+      'url "/todos/@f(x)"',
+    ]) {
+      const colors = new Set(
+        highlightLine(line)
+          .filter((segment) => segment.text.includes("@"))
+          .map((segment) => segment.color),
+      )
+
+      // The segment containing "@..." is the yellow string, not a red macro "@".
+      expect(colors).toEqual(new Set(["yellow"]))
+    }
   })
 
   test("leaves a macro without a default unchanged", () => {

@@ -49,8 +49,10 @@ const syntaxPattern =
 // the immediate default value (string/number/boolean).
 const macroArgsPattern =
   /\bor\b|"(?:\\.|[^"\\])*"|\b(true|false)\b|-?\d+(?:\.\d+)?/g
-// A macro embedded inside a string value, e.g. "/todos/@env(id or 1)".
-const stringMacroPattern = /(@)(i|f|env)(\([^)]*\))/g
+// A macro embedded inside a string value, e.g. "/todos/@i(id)". Only plain
+// @i(key) interpolates inside strings — @env/@f and `or` defaults do not work
+// there — so only that form is highlighted; anything else stays string text.
+const stringMacroPattern = /(@)(i)(\([A-Za-z][A-Za-z0-9_-]*\))/g
 const keywordPattern = /^(\s*)(ref|url|type|header|authorization|auth|body)\b/
 const graphqlStartPattern = /^\s*(query|mutation)\s*:\s*(?:"|$)/
 const graphqlSugarStartPattern = /^\s*(query|mutation)\b(?!\s*:)/
@@ -317,7 +319,8 @@ const highlightString = (token: string): HighlightSegment[] => {
 
     segments.push({ text: at, color: "red", bold: true })
     segments.push({ text: action, color: "green", bold: true })
-    segments.push(...highlightMacroArgs(args))
+    // No `or` defaults are valid inside strings, so the args are a plain key.
+    segments.push({ text: args })
 
     cursor = start + whole.length
   }
