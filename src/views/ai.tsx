@@ -23,6 +23,8 @@ export type AiProps = {
   isPending?: boolean
   isOffline?: boolean
   pendingFrameIndex?: number
+  // Display name of the chosen agent (e.g. "Claude"); labels the overlay.
+  agentName?: string
 }
 
 const borderColor = "#5a5a5a"
@@ -97,10 +99,14 @@ const wrapLines = (lines: string[], width: number): string[] => {
   return lines.flatMap((line) => wrapLine(line, width))
 }
 
-const buildMessageLines = (message: AiChatMessage, width: number): string[] => {
+const buildMessageLines = (
+  message: AiChatMessage,
+  width: number,
+  agentName: string,
+): string[] => {
   const lines = splitMessageContent(message.content)
   const prefix = "USER: "
-  const suffix = " :AI"
+  const suffix = ` :${agentName}`
   const contentWidth = Math.max(1, width - prefix.length)
 
   if (message.role === "user") {
@@ -112,7 +118,7 @@ const buildMessageLines = (message: AiChatMessage, width: number): string[] => {
     })
   }
 
-  const title = " AI Response "
+  const title = ` ${agentName} Response `
   const assistantContentWidth = Math.max(1, width - suffix.length)
   const visibleLines = wrapLines(lines, assistantContentWidth)
   const responseWidth = Math.min(
@@ -144,13 +150,16 @@ const buildMessageLines = (message: AiChatMessage, width: number): string[] => {
 export const buildAiMessageLines = (
   messages: AiChatMessage[],
   width: number,
+  agentName = "AI",
 ): Array<{ key: string; role: AiChatMessage["role"]; content: string }> => {
   return messages.flatMap((message, messageIndex) => {
-    return buildMessageLines(message, width).map((content, lineIndex) => ({
-      key: `${messageIndex}-${lineIndex}-${message.role}`,
-      role: message.role,
-      content,
-    }))
+    return buildMessageLines(message, width, agentName).map(
+      (content, lineIndex) => ({
+        key: `${messageIndex}-${lineIndex}-${message.role}`,
+        role: message.role,
+        content,
+      }),
+    )
   })
 }
 
@@ -161,22 +170,23 @@ export const buildVisibleAiMessageLines = (
   scrollY: number,
   pendingFrameIndex?: number,
   isOffline = false,
+  agentName = "AI",
 ): Array<{ key: string; role: AiChatMessage["role"]; content: string }> => {
-  const lines = buildAiMessageLines(messages, width)
+  const lines = buildAiMessageLines(messages, width, agentName)
   const nextLines = [...lines]
 
   if (isOffline) {
     nextLines.push({
       key: "offline",
       role: "assistant" as const,
-      content: "AI is offline".padStart(width, " "),
+      content: `${agentName} is offline`.padStart(width, " "),
     })
   } else if (pendingFrameIndex !== undefined) {
     nextLines.push({
       key: `pending-${pendingFrameIndex}`,
       role: "assistant" as const,
       content:
-        `AI is thinking${pendingFrames[pendingFrameIndex % pendingFrames.length]}`.padStart(
+        `${agentName} is thinking${pendingFrames[pendingFrameIndex % pendingFrames.length]}`.padStart(
           width,
           " ",
         ),
@@ -314,6 +324,7 @@ export const Ai = memo(function Ai({
   isPending = false,
   isOffline = false,
   pendingFrameIndex = 0,
+  agentName = "AI",
 }: AiProps) {
   const { modalWidth, modalHeight, left, top, contentWidth, contentHeight } =
     buildAiLayout(width, height)
@@ -326,6 +337,7 @@ export const Ai = memo(function Ai({
         scrollY,
         isPending ? pendingFrameIndex : undefined,
         isOffline,
+        agentName,
       ),
     [
       messages,
@@ -335,8 +347,10 @@ export const Ai = memo(function Ai({
       isPending,
       pendingFrameIndex,
       isOffline,
+      agentName,
     ],
   )
+  const chatTitle = ` ${agentName} Chat `
   const inputPrefix = "> "
   const inputContentWidth = Math.max(0, contentWidth - inputPrefix.length)
   const safeInputCursorX = clampInputCursor(input, inputCursorX)
@@ -382,9 +396,9 @@ export const Ai = memo(function Ai({
       <Box
         position="absolute"
         top={-1}
-        left={Math.max(2, Math.floor((modalWidth - "AI Chat".length) / 2))}
+        left={Math.max(2, Math.floor((modalWidth - chatTitle.length) / 2))}
       >
-        <Text bold>{" AI Chat "}</Text>
+        <Text bold>{chatTitle}</Text>
       </Box>
       {Array.from({ length: paddingY }).map((_, index) => (
         <Text key={`padding-top-${index}`}>

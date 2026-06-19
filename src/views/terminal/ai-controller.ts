@@ -177,10 +177,14 @@ export const useAiController = ({
         }
 
         // Record streaming activity so the thinking indicator follows real work.
+        // The indicator is *not* flipped on here — that would also fire for the
+        // pre-prompt updates an agent sends on connect (e.g.
+        // available_commands_update), showing "thinking" with no active turn.
+        // writeAiInput turns it on at send and the evaluate effect keeps it in
+        // sync while the turn is active.
         lastAiActivityRef.current = Date.now()
         aiHasStreamedRef.current = true
         trackToolStatus(inProgressToolsRef.current, response.update)
-        setIsAiThinking(true)
 
         setAiModeState((currentState) => {
           return appendAcpResponse(currentState, response)

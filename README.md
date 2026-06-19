@@ -39,6 +39,7 @@ npx ntee-r1quest -r ./example/request
 - [Key Manual](#key-manual)
 - [Request History and Cache](#request-history-and-cache)
 - [AI Adapter](#ai-adapter)
+- [AI Debug Log](#ai-debug-log)
 - [Config](#config)
 
 **Writing requests**
@@ -381,6 +382,34 @@ authenticated. It starts Cursor as an ACP server with `agent acp`.
 If `-ai` is not provided, `ntee-r1quest` reads `.r1qconfig.yaml`. If no adapter
 is declared, `@ai` shows a configuration error instead of choosing one
 implicitly.
+
+### AI Debug Log
+
+For diagnosing AI sessions (for example a "thinking" indicator that seems stuck),
+set the `R1QUEST_ACP_DEBUG` environment variable to record the ACP exchange to a
+file:
+
+```bash
+# Logs to ~/.ntee-r1quest/acp-debug.log
+R1QUEST_ACP_DEBUG=1 r1q -r ./example/request -ai claude
+
+# Or write to a specific path
+R1QUEST_ACP_DEBUG=/tmp/acp.log r1q -r ./example/request -ai claude
+```
+
+Each line is timestamped and records the prompt lifecycle, so you can follow a
+turn end to end:
+
+- `prompt_sent` / `prompt_resolved` (with `stopReason`) / `prompt_failed` — the
+  turn opening and closing.
+- `session_update` — every update the agent streams, with its `kind` and (for
+  tool calls) `title` and `status`.
+- `permission_requested` / `permission_active` / `permission_resolved` — the
+  permission lifecycle.
+
+The log is disabled unless the variable is set, is best-effort, and never affects
+the app. Reproduce the issue, then read the file (for example
+`tail -f ~/.ntee-r1quest/acp-debug.log`).
 
 ## Config
 

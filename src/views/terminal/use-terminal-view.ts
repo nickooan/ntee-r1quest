@@ -126,6 +126,7 @@ export type TerminalViewParams = {
   aiModeState: AiModeState
   isAiThinking: boolean
   isAiOffline: boolean
+  aiAgentName: string
   historyModeState: QueryModeState
   historyContent?: string
 }
@@ -154,6 +155,7 @@ export const useTerminalView = ({
   aiModeState,
   isAiThinking,
   isAiOffline,
+  aiAgentName,
   historyModeState,
   historyContent,
 }: TerminalViewParams) => {
@@ -312,13 +314,17 @@ export const useTerminalView = ({
   const aiMessageLineCount = useMemo(
     () =>
       mode === TerminalMode.Ai
-        ? buildAiMessageLines(aiModeState.messages, aiLayout.contentWidth)
-            .length + (isAiThinking || isAiOffline ? 1 : 0)
+        ? buildAiMessageLines(
+            aiModeState.messages,
+            aiLayout.contentWidth,
+            aiAgentName,
+          ).length + (isAiThinking || isAiOffline ? 1 : 0)
         : 0,
     [
       mode,
       aiModeState.messages,
       aiLayout.contentWidth,
+      aiAgentName,
       isAiThinking,
       isAiOffline,
     ],

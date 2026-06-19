@@ -68,3 +68,17 @@ export const getAdaptor = (name: string): AcpAdaptorConstructor => {
 export const listAdaptors = (): AcpAdaptorName[] => {
   return Object.keys(acpAdaptors) as AcpAdaptorName[]
 }
+
+const adaptorDisplayNames: Record<AcpAdaptorName, string> = {
+  codex: "Codex",
+  claude: "Claude",
+  cursor: "Cursor",
+}
+
+/**
+ * Human-readable name for the chosen adapter, used to label the AI overlay
+ * (e.g. "Claude Chat"). Falls back to "AI" when no adapter is selected.
+ */
+export const getAdaptorDisplayName = (name?: AcpAdaptorName): string => {
+  return name ? adaptorDisplayNames[name] : "AI"
+}
