@@ -53,6 +53,8 @@ When updating `.nts` files:
 
 - Keep all `ref` statements before request statements.
 - Use `@i(key)` for reusable host, path, query, header, auth, and body values.
+- Never use `@env(...)` in a `.nts` file — it is a compile error. Move the env
+  value into a `.ntd` and reference it with `@i(...)`.
 - Use `@f(path)` only inside body values.
 - Keep header keys lowercase-friendly and expect runtime normalization.
 - Do not duplicate data literals in many `.nts` files when an `.ntd` key is the

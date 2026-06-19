@@ -73,7 +73,9 @@ api-key: @env(API_KEY)
 Rules:
 
 - Quote endpoint URLs because `//` starts comments.
-- Prefer `@env(...)` for secrets.
+- Prefer `@env(...)` for secrets, but only inside `.ntd` files. Never put
+  `@env(...)` in a `.nts` file — it is a compile error; reference env values from
+  `.nts` with `@i(...)`.
 - Do not duplicate token, cookie, or API key values in operation `.ntd` files.
 
 ## Schema Support

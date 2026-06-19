@@ -690,6 +690,9 @@ body {
 Rules and cautions:
 
 - `ref` paths are resolved relative to the `.nts` file.
+- `@env(...)` cannot be used in `.nts` files — it is a compile error
+  (`Unsupported macro operator: env`). Read env values in a `.ntd` and reference
+  them with `@i(...)`. See [`@env(KEY)`](#envkey).
 - `@f(...)` is only valid inside request body values.
 - `@f(...)` takes a literal file path, not an `@i(...)` macro.
 - File paths in `@f(...)` are resolved relative to the `.nts` file.
@@ -698,6 +701,17 @@ Rules and cautions:
 - Comments start with `//`.
 
 ## Macros
+
+At a glance — which macro is allowed where:
+
+| Macro       | `.ntd` files | `.nts` files          | Defaults (`or`)   |
+| ----------- | ------------ | --------------------- | ----------------- |
+| `@i(key)`   | ❌ no        | ✅ yes                | ✅ value position |
+| `@env(KEY)` | ✅ yes       | ❌ no (compile error) | ✅ value position |
+| `@f(path)`  | ❌ no        | ✅ body values only   | —                 |
+
+`or` defaults apply in **value position** (body, header, auth, `.ntd` values),
+not inside quoted strings — there, only plain `@i(key)` interpolates.
 
 ### `@i(key)`
 
@@ -768,6 +782,12 @@ type get
 
 auth bearer @i(token)
 ```
+
+> **`@env` is `.ntd`-only.** Writing `@env(...)` anywhere in a `.nts` file — a
+> value, a header, or inside a string — is a **compile error**
+> (`Unsupported macro operator: env`), not literal text. To use an environment
+> variable in a request, define it in a `.ntd` (as above) and read it with
+> `@i(...)`.
 
 **Defaults.** Use `@env(KEY or <value>)` to fall back when the variable is unset.
 The default must be an immediate string, number, or boolean:

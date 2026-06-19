@@ -1,6 +1,6 @@
 ---
 name: r1quest-one-shot-runner
-description: Locate and execute ntee-r1quest .nts requests as one-shot commands. Use when a user asks to run, call, trigger, or execute a named request — one request ("run google-api get-orders-by-id") or an ordered task of several requests where earlier responses feed later ones ("get-property-by-name then get-property-setup").
+description: Locate and execute ntee-r1quest .nts requests as one-shot commands. Use this whenever a user asks to run, call, trigger, or execute one or more named requests, referenced by name or path (with or without .nts) — a single request ("run google-api get-orders-by-id", "run folder-2/create-post") or several in sequence ("run folder-2/create-post then folder-2/update-post"), optionally chaining a response value into the next via -env. This is THE skill for actually executing requests.
 argument-hint: "<collection-name> <request-name> [then <request-name> ...]"
 ---
 

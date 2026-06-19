@@ -1,6 +1,6 @@
 ref ../../data/example.ntd
 
-url "@i(host)/posts/@i(id)"
+url "@i(host)/posts"
 type put
 
 header accept, @i(content-type)

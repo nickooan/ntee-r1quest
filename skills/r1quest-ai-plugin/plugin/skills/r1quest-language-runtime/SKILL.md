@@ -1,6 +1,6 @@
 ---
 name: r1quest-language-runtime
-description: Understand ntee-r1quest .ntd and .nts syntax, request keywords, macros, config behavior, and one-shot -p execution. Use when explaining, reviewing, fixing, or running individual R1Quest request scripts.
+description: Understand ntee-r1quest .ntd and .nts syntax, request keywords, macros (including `or` defaults), config behavior, and one-shot -p/-env/-ti execution. Use when explaining, reviewing, authoring, or fixing the syntax of individual R1Quest request scripts. To actually run/execute requests, use the r1quest-one-shot-runner skill instead.
 argument-hint: "[request-path]"
 ---
 
@@ -78,7 +78,10 @@ Use these macro rules:
   the referenced `.ntd` files. The default must be an immediate string, number,
   or boolean — never another macro. Examples: `@i(accept or "application/json")`,
   `@i(age or 20)`, `@i(deleted or true)`.
-- `@env(KEY)` belongs in `.ntd`, not `.nts`.
+- `@env(KEY)` belongs in `.ntd` only. Using `@env(...)` anywhere in a `.nts`
+  file (value, header, or string) is a compile error
+  (`Unsupported macro operator: env`) — read it in a `.ntd` and reference it with
+  `@i(...)`.
 - `@f(path)` is valid only inside request body values.
 - Inside a quoted string, only plain `@i(key)` interpolates (as in the `url`
   line above). `or` defaults are not applied inside strings, so put a macro that
