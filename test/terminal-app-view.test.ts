@@ -16,6 +16,7 @@ import { buildTerminalViewport } from "../src/views/terminal-app.tsx"
 import {
   buildFilePaneLayout,
   buildGraphqlHighlightLines,
+  highlightLine,
 } from "../src/views/terminal/file-content.tsx"
 
 describe("terminal app view", () => {
@@ -39,6 +40,62 @@ describe("terminal app view", () => {
     expect(viewport.lines).toEqual(["ok  ", "    ", "    "])
     expect(viewport.maxScrollX).toBe(0)
     expect(viewport.maxScrollY).toBe(0)
+  })
+
+  test("highlights the macro `or` default keyword and the default value", () => {
+    const colored = (line: string) =>
+      highlightLine(line)
+        .filter((segment) => segment.color)
+        .map((segment) => [segment.text, segment.color])
+
+    expect(colored("age: @i(missingAge or 20)")).toEqual([
+      ["@", "red"],
+      ["i", "green"],
+      ["or", "cyan"],
+      ["20", "blue"],
+    ])
+
+    expect(colored('ct: @env(X or "application/json")')).toEqual([
+      ["@", "red"],
+      ["env", "green"],
+      ["or", "cyan"],
+      ['"application/json"', "yellow"],
+    ])
+
+    expect(colored("flag: @i(x or false)")).toEqual([
+      ["@", "red"],
+      ["i", "green"],
+      ["or", "cyan"],
+      ["false", "magenta"],
+    ])
+  })
+
+  test("highlights a macro embedded inside a string value", () => {
+    const segments = highlightLine('url "/todos/@env(id or 1)"').map(
+      (segment) => [segment.text, segment.color],
+    )
+
+    expect(segments).toEqual([
+      ["url", "cyan"],
+      [" ", undefined],
+      ['"/todos/', "yellow"],
+      ["@", "red"],
+      ["env", "green"],
+      ["(id ", undefined],
+      ["or", "cyan"],
+      [" ", undefined],
+      ["1", "blue"],
+      [")", undefined],
+      ['"', "yellow"],
+    ])
+  })
+
+  test("leaves a macro without a default unchanged", () => {
+    expect(
+      highlightLine("ct: @i(token)")
+        .filter((segment) => segment.color)
+        .map((segment) => segment.text),
+    ).toEqual(["@", "i"])
   })
 
   test("builds file content layout for the result pane", () => {

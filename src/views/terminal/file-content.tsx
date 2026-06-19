@@ -31,7 +31,7 @@ export type FileContentProps = {
   selectedSaveAction?: "yes" | "no"
 }
 
-type HighlightSegment = {
+export type HighlightSegment = {
   text: string
   color?: React.ComponentProps<typeof Text>["color"]
   bold?: boolean
@@ -45,6 +45,12 @@ const paddingX = 1
 const maxSuggestionOverlayItems = 6
 const syntaxPattern =
   /(@)(i|f|env)(\([^)]*\))|\b(true|false|null)\b|"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?|\/\/.*$/g
+// Tokens highlighted inside a macro's parentheses: the `or` default keyword and
+// the immediate default value (string/number/boolean).
+const macroArgsPattern =
+  /\bor\b|"(?:\\.|[^"\\])*"|\b(true|false)\b|-?\d+(?:\.\d+)?/g
+// A macro embedded inside a string value, e.g. "/todos/@env(id or 1)".
+const stringMacroPattern = /(@)(i|f|env)(\([^)]*\))/g
 const keywordPattern = /^(\s*)(ref|url|type|header|authorization|auth|body)\b/
 const graphqlStartPattern = /^\s*(query|mutation)\s*:\s*(?:"|$)/
 const graphqlSugarStartPattern = /^\s*(query|mutation)\b(?!\s*:)/
@@ -255,7 +261,75 @@ const highlightGraphqlLine = (line: string): HighlightSegment[] => {
   return segments
 }
 
-const highlightLine = (
+// Sub-highlights a macro's parenthesized arguments, e.g. (key or "default"):
+// the `or` keyword and the immediate default value are coloured, while the key
+// and punctuation keep the default colour, as before.
+const highlightMacroArgs = (args: string): HighlightSegment[] => {
+  const segments: HighlightSegment[] = []
+  let cursor = 0
+
+  for (const match of args.matchAll(macroArgsPattern)) {
+    const start = match.index ?? 0
+    const token = match[0]
+
+    if (start > cursor) {
+      segments.push({ text: args.slice(cursor, start) })
+    }
+
+    if (token === "or") {
+      segments.push({ text: token, color: "cyan", bold: true })
+    } else if (token.startsWith('"')) {
+      segments.push({ text: token, color: "yellow" })
+    } else if (match[1]) {
+      segments.push({ text: token, color: "magenta" })
+    } else {
+      segments.push({ text: token, color: "blue" })
+    }
+
+    cursor = start + token.length
+  }
+
+  if (cursor < args.length) {
+    segments.push({ text: args.slice(cursor) })
+  }
+
+  return segments
+}
+
+// Highlights a string value (including its quotes), sub-highlighting any macros
+// embedded in it (e.g. a URL "/todos/@env(id or 1)") while the surrounding text
+// keeps the string colour.
+const highlightString = (token: string): HighlightSegment[] => {
+  const segments: HighlightSegment[] = []
+  let cursor = 0
+
+  for (const match of token.matchAll(stringMacroPattern)) {
+    const start = match.index ?? 0
+    const [whole, at, action, args] = match
+
+    if (at === undefined || action === undefined || args === undefined) {
+      continue
+    }
+
+    if (start > cursor) {
+      segments.push({ text: token.slice(cursor, start), color: "yellow" })
+    }
+
+    segments.push({ text: at, color: "red", bold: true })
+    segments.push({ text: action, color: "green", bold: true })
+    segments.push(...highlightMacroArgs(args))
+
+    cursor = start + whole.length
+  }
+
+  if (cursor < token.length) {
+    segments.push({ text: token.slice(cursor), color: "yellow" })
+  }
+
+  return segments
+}
+
+export const highlightLine = (
   line: string,
   language: HighlightLanguage = "r1quest",
 ): HighlightSegment[] => {
@@ -297,11 +371,11 @@ const highlightLine = (
     if (match[1] && match[2] && match[3]) {
       segments.push({ text: match[1], color: "red", bold: true })
       segments.push({ text: match[2], color: "green", bold: true })
-      segments.push({ text: match[3] })
+      segments.push(...highlightMacroArgs(match[3]))
     } else if (match[4]) {
       segments.push({ text: token, color: "magenta" })
     } else if (token.startsWith('"')) {
-      segments.push({ text: token, color: "yellow" })
+      segments.push(...highlightString(token))
     } else if (token.startsWith("//")) {
       segments.push({ text: token, dimColor: true })
     } else {
