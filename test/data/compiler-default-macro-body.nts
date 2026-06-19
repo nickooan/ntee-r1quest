@@ -1,0 +1,11 @@
+ref ./default-macro.ntd
+
+header x-token, @i(missingToken or "default-token")
+
+body {
+  provided: @i(providedValue or "fallback")
+  content-type: @i(missingType or "application/json")
+  age: @i(missingAge or 20)
+  deleted: @i(missingDeleted or true)
+  rate: @i(missingRate or -1.5)
+}

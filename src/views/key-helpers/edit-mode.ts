@@ -71,6 +71,27 @@ const clampCursor = (
   }
 }
 
+// Moves the document cursor (position within the file) by the given delta.
+const moveDocumentCursor = (
+  state: EditModeState,
+  deltaX: number,
+  deltaY: number,
+): EditModeState => ({
+  ...state,
+  ...clampCursor(state.lines, state.cursorX + deltaX, state.cursorY + deltaY),
+  suggestions: null,
+})
+
+// Moves the cursor within the uncommitted input buffer.
+const moveBufferCursor = (
+  state: EditModeState,
+  direction: -1 | 1,
+): EditModeState => ({
+  ...state,
+  inputCursorX: moveInputCursor(state.input, state.inputCursorX, direction),
+  suggestions: null,
+})
+
 const insertAtCursor = (state: EditModeState): EditModeState => {
   const lines = [...state.lines]
   const line = lines[state.cursorY] ?? ""
@@ -551,63 +572,55 @@ export const handleEditModeInput = (
     }
   }
 
-  if (key.upArrow) {
-    return {
-      state: {
-        ...state,
-        ...clampCursor(state.lines, state.cursorX, state.cursorY - 1),
-        suggestions: null,
-      },
-    }
+  // Shift + arrows always move the document cursor (navigate the file content).
+  if (key.shift && key.upArrow) {
+    return { state: moveDocumentCursor(state, 0, -1) }
   }
 
-  if (key.downArrow) {
-    return {
-      state: {
-        ...state,
-        ...clampCursor(state.lines, state.cursorX, state.cursorY + 1),
-        suggestions: null,
-      },
-    }
+  if (key.shift && key.downArrow) {
+    return { state: moveDocumentCursor(state, 0, 1) }
   }
 
   if (key.shift && key.leftArrow) {
-    return {
-      state: {
-        ...state,
-        inputCursorX: moveInputCursor(state.input, state.inputCursorX, -1),
-        suggestions: null,
-      },
-    }
+    return { state: moveDocumentCursor(state, -1, 0) }
   }
 
   if (key.shift && key.rightArrow) {
-    return {
-      state: {
-        ...state,
-        inputCursorX: moveInputCursor(state.input, state.inputCursorX, 1),
-        suggestions: null,
-      },
-    }
+    return { state: moveDocumentCursor(state, 1, 0) }
   }
+
+  // While there is uncommitted input in the buffer, plain Left/Right move within
+  // that buffer and plain Up/Down are ignored — so an accidental arrow press
+  // can't move the document cursor and abandon what you were typing (use
+  // Shift+Arrow to move it). With nothing pending, plain arrows navigate the
+  // document as usual.
+  const hasUncommittedInput = state.input.length > 0
 
   if (key.leftArrow) {
     return {
-      state: {
-        ...state,
-        ...clampCursor(state.lines, state.cursorX - 1, state.cursorY),
-        suggestions: null,
-      },
+      state: hasUncommittedInput
+        ? moveBufferCursor(state, -1)
+        : moveDocumentCursor(state, -1, 0),
     }
   }
 
   if (key.rightArrow) {
     return {
-      state: {
-        ...state,
-        ...clampCursor(state.lines, state.cursorX + 1, state.cursorY),
-        suggestions: null,
-      },
+      state: hasUncommittedInput
+        ? moveBufferCursor(state, 1)
+        : moveDocumentCursor(state, 1, 0),
+    }
+  }
+
+  if (key.upArrow) {
+    return {
+      state: hasUncommittedInput ? state : moveDocumentCursor(state, 0, -1),
+    }
+  }
+
+  if (key.downArrow) {
+    return {
+      state: hasUncommittedInput ? state : moveDocumentCursor(state, 0, 1),
     }
   }
 

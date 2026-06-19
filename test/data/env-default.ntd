@@ -1,0 +1,4 @@
+commentId: @env(MISSING_TEST_ENV_CID or 1)
+commentToken: @env(MISSING_TEST_ENV_CTOK or "default-token")
+commentDelete: @env(MISSING_TEST_ENV_CDEL or false)
+rate: @env(MISSING_TEST_ENV_RATE or 1.5)

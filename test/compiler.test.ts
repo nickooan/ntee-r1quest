@@ -291,6 +291,73 @@ describe("compiler", () => {
     })
   })
 
+  test("uses @i macro defaults for missing keys and the ref value otherwise", () => {
+    expect(
+      compileFile(
+        "test/data/compiler-default-macro-body.nts",
+        CompileSourceType.File,
+      ),
+    ).toEqual({
+      headers: {
+        // Missing key -> immediate string default.
+        "x-token": "default-token",
+      },
+      body: {
+        // Provided by the ref -> default ignored.
+        provided: "from-ref",
+        // Missing keys -> typed immediate defaults.
+        "content-type": "application/json",
+        age: 20,
+        deleted: true,
+        rate: -1.5,
+      },
+    })
+  })
+
+  test("throws for a missing @i macro key with no default", () => {
+    expect(() =>
+      compileFile("body @i(definitely-missing)", CompileSourceType.Raw),
+    ).toThrow("Undefined macro: @i(definitely-missing)")
+  })
+
+  describe("@env macro defaults", () => {
+    const envKeys = [
+      "MISSING_TEST_ENV_CID",
+      "MISSING_TEST_ENV_CTOK",
+      "MISSING_TEST_ENV_CDEL",
+      "MISSING_TEST_ENV_RATE",
+    ]
+
+    afterEach(() => {
+      setEnvOverrides({})
+
+      for (const key of envKeys) {
+        delete process.env[key]
+      }
+    })
+
+    test("uses immediate defaults when the env var is unset", () => {
+      expect(buildItermediateObject("test/data/env-default.ntd", {})).toEqual({
+        commentId: 1,
+        commentToken: "default-token",
+        commentDelete: false,
+        rate: 1.5,
+      })
+    })
+
+    test("prefers process.env and -env overrides over the default", () => {
+      process.env.MISSING_TEST_ENV_CID = "999"
+      setEnvOverrides({ MISSING_TEST_ENV_CTOK: "override-token" })
+
+      expect(buildItermediateObject("test/data/env-default.ntd", {})).toEqual({
+        commentId: "999",
+        commentToken: "override-token",
+        commentDelete: false,
+        rate: 1.5,
+      })
+    })
+  })
+
   test("compiles macro body values", () => {
     expect(
       compileFile("test/data/compiler-macro-body.nts", CompileSourceType.File),
