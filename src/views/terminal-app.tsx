@@ -169,7 +169,7 @@ export const TerminalApp = ({
   const {
     aiModeState,
     setAiModeState,
-    isAiPending,
+    isAiThinking,
     isAiOffline,
     aiPermissionRequest,
     startAiMode,
@@ -299,7 +299,7 @@ export const TerminalApp = ({
     keyboardSelectedCommand,
     frameIndex,
     aiModeState,
-    isAiPending,
+    isAiThinking,
     isAiOffline,
     historyModeState,
     historyContent,
@@ -401,7 +401,7 @@ export const TerminalApp = ({
   }
 
   useEffect(() => {
-    if (!isPending && !isAiPending) {
+    if (!isPending && !isAiThinking) {
       return
     }
 
@@ -412,10 +412,10 @@ export const TerminalApp = ({
     return () => {
       clearInterval(interval)
     }
-  }, [isAiPending, isPending])
+  }, [isAiThinking, isPending])
 
   useEffect(() => {
-    if (!isCursorBlinkActive || isPending || isAiPending) {
+    if (!isCursorBlinkActive || isPending || isAiThinking) {
       return
     }
 
@@ -426,7 +426,7 @@ export const TerminalApp = ({
     return () => {
       clearTimeout(timeout)
     }
-  }, [cursorActivityId, isAiPending, isCursorBlinkActive, isPending])
+  }, [cursorActivityId, isAiThinking, isCursorBlinkActive, isPending])
 
   useEffect(() => {
     if (!externalEventSocket) {
@@ -1702,7 +1702,7 @@ export const TerminalApp = ({
             aiModeState.input,
           )}
           commandSuggestionIndex={aiModeState.commandSuggestionIndex}
-          isPending={isAiPending}
+          isPending={isAiThinking}
           isOffline={isAiOffline}
           pendingFrameIndex={frameIndex}
           permissionMessage={

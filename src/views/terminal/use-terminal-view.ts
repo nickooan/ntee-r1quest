@@ -124,7 +124,7 @@ export type TerminalViewParams = {
   keyboardSelectedCommand: string
   frameIndex: number
   aiModeState: AiModeState
-  isAiPending: boolean
+  isAiThinking: boolean
   isAiOffline: boolean
   historyModeState: QueryModeState
   historyContent?: string
@@ -152,7 +152,7 @@ export const useTerminalView = ({
   keyboardSelectedCommand,
   frameIndex,
   aiModeState,
-  isAiPending,
+  isAiThinking,
   isAiOffline,
   historyModeState,
   historyContent,
@@ -313,13 +313,13 @@ export const useTerminalView = ({
     () =>
       mode === TerminalMode.Ai
         ? buildAiMessageLines(aiModeState.messages, aiLayout.contentWidth)
-            .length + (isAiPending || isAiOffline ? 1 : 0)
+            .length + (isAiThinking || isAiOffline ? 1 : 0)
         : 0,
     [
       mode,
       aiModeState.messages,
       aiLayout.contentWidth,
-      isAiPending,
+      isAiThinking,
       isAiOffline,
     ],
   )

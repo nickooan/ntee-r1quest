@@ -21,6 +21,7 @@ import {
   type SessionUpdate,
 } from "@agentclientprotocol/sdk"
 import { APP_NAME, VERSION } from "../version.ts"
+import { logAcpDebug } from "./acp-debug.ts"
 import {
   AcpConversationManager,
   type AcpConversation,
@@ -340,16 +341,26 @@ export class ClaudeCodeAcpAdapter {
       trimmedText,
     )
 
+    logAcpDebug("prompt_sent", { messageId: conversation.id })
+
     try {
       const response = await this.connection.prompt({
         sessionId: this.sessionId,
         messageId: conversation.id,
         prompt,
       })
+      logAcpDebug("prompt_resolved", {
+        messageId: conversation.id,
+        stopReason: response.stopReason,
+      })
       this.conversationManager.completeConversation(conversation.id, response)
 
       return response
     } catch (error) {
+      logAcpDebug("prompt_failed", {
+        messageId: conversation.id,
+        error: error instanceof Error ? error.message : String(error),
+      })
       this.conversationManager.failConversation(conversation.id, error)
       this.reportError(error)
       throw error
@@ -359,10 +370,17 @@ export class ClaudeCodeAcpAdapter {
   private async handleSessionUpdate(
     notification: SessionNotification,
   ): Promise<void> {
-    this.conversationManager.recordConversationUpdate(notification.update)
+    const update = notification.update
+    logAcpDebug("session_update", {
+      kind: update.sessionUpdate,
+      // tool calls carry the status that reveals a background/in-progress turn.
+      title: "title" in update ? update.title : undefined,
+      status: "status" in update ? update.status : undefined,
+    })
+    this.conversationManager.recordConversationUpdate(update)
     await this.onResponse?.({
       sessionId: notification.sessionId,
-      update: notification.update,
+      update,
     })
   }
 
@@ -373,6 +391,11 @@ export class ClaudeCodeAcpAdapter {
     // request used to overwrite the first, orphaning its promise — the agent
     // then waited forever for that reply and the prompt turn never completed
     // (the UI stayed "thinking" even after the response finished).
+    logAcpDebug("permission_requested", {
+      toolCallId: request.toolCall.toolCallId,
+      title: request.toolCall.title,
+      queued: this.pendingPermissions.length + (this.activePermission ? 1 : 0),
+    })
     return new Promise<RequestPermissionResponse>((resolve) => {
       this.pendingPermissions.push({ request, resolve })
 
@@ -405,6 +428,11 @@ export class ClaudeCodeAcpAdapter {
       return
     }
 
+    logAcpDebug("permission_active", {
+      toolCallId: next.request.toolCall.toolCallId,
+      autoDecided: Boolean(decision),
+    })
+
     // A returned decision is handled immediately; otherwise the request stays
     // active and is resolved later through write() (resolvePermission).
     if (decision) {
@@ -425,6 +453,10 @@ export class ClaudeCodeAcpAdapter {
       )
     }
 
+    logAcpDebug("permission_resolved", {
+      toolCallId: active.request.toolCall.toolCallId,
+      decision: decision.type,
+    })
     this.activePermission = undefined
     active.resolve(toPermissionResponse(decision))
     // Surface the next queued request (if any) so it can be answered in turn.

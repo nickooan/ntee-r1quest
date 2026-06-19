@@ -5,6 +5,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react"
+import type { SessionUpdate } from "@agentclientprotocol/sdk"
 import { createAiModeState, type AiModeState } from "../key-helpers/index.ts"
 import { TerminalMode } from "../../runtime/app-command/index.ts"
 import {
@@ -18,6 +19,61 @@ import {
 import { appendAcpResponse, findPermissionOptionId } from "./ai-session.ts"
 
 type AcpAdapter = InstanceType<AcpAdaptorConstructor>
+
+// The "AI is thinking" indicator follows real work, not the raw prompt() turn.
+// Some agents (e.g. Claude Code launching a background job) leave the prompt
+// turn open after replying, so we can't rely on it closing. The indicator stays
+// on while the turn is active and the agent is busy — output is streaming, a
+// tool call is still in progress, or an update arrived within the quiet window —
+// and goes idle only once all of those are false.
+const AI_THINKING_QUIET_MS = 3000
+const AI_THINKING_TICK_MS = 500
+const TERMINAL_TOOL_STATUSES = new Set(["completed", "failed"])
+
+// Decides whether the "AI is thinking" indicator should be on for an active
+// turn. Busy = no reply has streamed yet, a tool call is still running, or an
+// update arrived within the quiet window. Idle (all false) is the
+// background-task case where the prompt turn is left open with nothing happening.
+export const shouldShowAiThinking = ({
+  hasStreamed,
+  inProgressToolCount,
+  msSinceLastActivity,
+}: {
+  hasStreamed: boolean
+  inProgressToolCount: number
+  msSinceLastActivity: number
+}): boolean => {
+  return (
+    !hasStreamed ||
+    inProgressToolCount > 0 ||
+    msSinceLastActivity < AI_THINKING_QUIET_MS
+  )
+}
+
+// Tracks which tool calls are still running so a long foreground task keeps the
+// indicator on until its tool actually completes.
+export const trackToolStatus = (
+  inProgress: Set<string>,
+  update: SessionUpdate,
+): void => {
+  if (update.sessionUpdate === "tool_call") {
+    if (update.status && TERMINAL_TOOL_STATUSES.has(update.status)) {
+      inProgress.delete(update.toolCallId)
+    } else {
+      inProgress.add(update.toolCallId)
+    }
+
+    return
+  }
+
+  if (update.sessionUpdate === "tool_call_update" && update.status) {
+    if (TERMINAL_TOOL_STATUSES.has(update.status)) {
+      inProgress.delete(update.toolCallId)
+    } else {
+      inProgress.add(update.toolCallId)
+    }
+  }
+}
 
 type UseAiControllerParams = {
   aiAdaptor?: AcpAdaptorName
@@ -42,6 +98,37 @@ export const useAiController = ({
   const [aiPermissionRequest, setAiPermissionRequest] =
     useState<CodexAcpPermissionRequest>()
   const aiAdapterRef = useRef<AcpAdapter | undefined>(undefined)
+  const [isAiThinking, setIsAiThinking] = useState(false)
+  const lastAiActivityRef = useRef(0)
+  const aiHasStreamedRef = useRef(false)
+  const inProgressToolsRef = useRef<Set<string>>(new Set())
+
+  // While a prompt turn is open, re-evaluate whether the agent is still busy.
+  // Going idle requires: a reply has streamed, no tool call is in progress, and
+  // no update arrived within AI_THINKING_QUIET_MS (the background-task case).
+  useEffect(() => {
+    if (!isAiPending) {
+      setIsAiThinking(false)
+      return
+    }
+
+    const evaluate = () => {
+      setIsAiThinking(
+        shouldShowAiThinking({
+          hasStreamed: aiHasStreamedRef.current,
+          inProgressToolCount: inProgressToolsRef.current.size,
+          msSinceLastActivity: Date.now() - lastAiActivityRef.current,
+        }),
+      )
+    }
+
+    evaluate()
+    const interval = setInterval(evaluate, AI_THINKING_TICK_MS)
+
+    return () => {
+      clearInterval(interval)
+    }
+  }, [isAiPending])
 
   useEffect(() => {
     const stopAiAdapter = () => {
@@ -88,6 +175,12 @@ export const useAiController = ({
         if (aiAdapterRef.current !== adapter) {
           return
         }
+
+        // Record streaming activity so the thinking indicator follows real work.
+        lastAiActivityRef.current = Date.now()
+        aiHasStreamedRef.current = true
+        trackToolStatus(inProgressToolsRef.current, response.update)
+        setIsAiThinking(true)
 
         setAiModeState((currentState) => {
           return appendAcpResponse(currentState, response)
@@ -233,6 +326,12 @@ export const useAiController = ({
 
   const writeAiInput = (input: string) => {
     setIsAiPending(true)
+    // Reset per-turn activity so the thinking indicator reflects this prompt.
+    lastAiActivityRef.current = Date.now()
+    aiHasStreamedRef.current = false
+    inProgressToolsRef.current = new Set()
+    setIsAiThinking(true)
+
     const writePromise = aiAdapterRef.current?.write(input)
 
     if (!writePromise) {
@@ -254,6 +353,7 @@ export const useAiController = ({
     aiModeState,
     setAiModeState,
     isAiPending,
+    isAiThinking,
     isAiOffline,
     aiConversations,
     aiPermissionRequest,
