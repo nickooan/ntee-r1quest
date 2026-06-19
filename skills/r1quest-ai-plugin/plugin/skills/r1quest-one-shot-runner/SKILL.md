@@ -119,6 +119,7 @@ For each request, in sequence:
 
   The first request usually needs no extracted `-env` (only user-provided
   values, if any); later requests carry forward what earlier ones produced.
+
 - After it returns, inspect the response for fields that satisfy a later
   request's `@env` inputs and record them. State the mapping you chose
   (response field → `@env(KEY)`).

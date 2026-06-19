@@ -128,7 +128,10 @@ export class CursorAcpAdapter {
   private process?: ChildProcessWithoutNullStreams
   private connection?: ClientSideConnection
   private sessionId?: string
-  private pendingPermission?: PendingPermission
+  // Permission requests are queued so concurrent requests are surfaced and
+  // answered one at a time; `activePermission` is the one shown to the UI.
+  private readonly pendingPermissions: PendingPermission[] = []
+  private activePermission?: PendingPermission
   private runPromise?: Promise<this>
   private readonly conversationManager: AcpConversationManager
   private isStopping = false
@@ -163,7 +166,7 @@ export class CursorAcpAdapter {
   }
 
   get currentPermissionRequest(): CursorAcpPermissionRequest | undefined {
-    return this.pendingPermission?.request
+    return this.activePermission?.request
   }
 
   get promptConversations(): CursorAcpConversation[] {
@@ -283,9 +286,15 @@ export class CursorAcpAdapter {
   stop(): void {
     this.isStopping = true
 
-    if (this.pendingPermission) {
-      this.pendingPermission.resolve(createCancelledPermissionResponse())
-      this.pendingPermission = undefined
+    const cancelled = createCancelledPermissionResponse()
+
+    if (this.activePermission) {
+      this.activePermission.resolve(cancelled)
+      this.activePermission = undefined
+    }
+
+    while (this.pendingPermissions.length > 0) {
+      this.pendingPermissions.shift()?.resolve(cancelled)
     }
 
     this.process?.kill()
@@ -348,39 +357,69 @@ export class CursorAcpAdapter {
     })
   }
 
-  private async handlePermissionRequest(
+  private handlePermissionRequest(
     request: RequestPermissionRequest,
   ): Promise<RequestPermissionResponse> {
-    try {
-      const decision = await this.onPermissionRequest?.(request)
+    // Queue the request instead of holding a single slot. A second concurrent
+    // request used to overwrite the first, orphaning its promise — the agent
+    // then waited forever for that reply and the prompt turn never completed
+    // (the UI stayed "thinking" even after the response finished).
+    return new Promise<RequestPermissionResponse>((resolve) => {
+      this.pendingPermissions.push({ request, resolve })
 
-      if (decision) {
-        return toPermissionResponse(decision)
+      if (!this.activePermission) {
+        void this.activateNextPermission()
       }
+    })
+  }
 
-      return await new Promise<RequestPermissionResponse>((resolve) => {
-        this.pendingPermission = {
-          request,
-          resolve,
-        }
-      })
+  private async activateNextPermission(): Promise<void> {
+    const next = this.pendingPermissions.shift()
+    this.activePermission = next
+
+    if (!next) {
+      return
+    }
+
+    let decision: CursorAcpPermissionDecision | void
+
+    try {
+      decision = await this.onPermissionRequest?.(next.request)
     } catch (error) {
       this.reportError(error)
-      return createCancelledPermissionResponse()
+      decision = { type: "cancelled" }
+    }
+
+    // stop() or a user response may have moved past this request while the
+    // handler awaited; if so it is already resolved, so leave it alone.
+    if (this.activePermission !== next) {
+      return
+    }
+
+    // A returned decision is handled immediately; otherwise the request stays
+    // active and is resolved later through write() (resolvePermission).
+    if (decision) {
+      this.activePermission = undefined
+      next.resolve(toPermissionResponse(decision))
+      void this.activateNextPermission()
     }
   }
 
   private resolvePermission(
     decision: CursorAcpPermissionDecision,
   ): Promise<void> {
-    if (!this.pendingPermission) {
+    const active = this.activePermission
+
+    if (!active) {
       return Promise.reject(
         new Error("No Cursor ACP permission request is pending."),
       )
     }
 
-    this.pendingPermission.resolve(toPermissionResponse(decision))
-    this.pendingPermission = undefined
+    this.activePermission = undefined
+    active.resolve(toPermissionResponse(decision))
+    // Surface the next queued request (if any) so it can be answered in turn.
+    void this.activateNextPermission()
 
     return Promise.resolve()
   }
