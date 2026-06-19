@@ -143,7 +143,25 @@ R1Quest {
     | fileMacro
 
   intermediateMacro
-    = optAt intermediateMacroActionName "(" macroKey ")"
+    = optAt intermediateMacroActionName "(" macroKey macroDefault? ")"
+
+  macroDefault
+    = horizontalSpace1 "or" horizontalSpace1 macroDefaultValue horizontalSpace
+
+  macroDefaultValue
+    = string
+    | defaultNumber
+    | defaultBoolean
+
+  defaultNumber
+    = "-"? digit+ ("." digit+)?
+
+  defaultBoolean
+    = "true"
+    | "false"
+
+  horizontalSpace1
+    = (" " | "\t")+
 
   fileMacro
     = optAt fileMacroActionName "(" filePath ")"

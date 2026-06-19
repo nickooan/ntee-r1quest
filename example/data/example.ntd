@@ -1,3 +1,3 @@
 host: "https://jsonplaceholder.typicode.com"
 content-type: application/json
-path: "/todos/1"
+path: "/todos/@env(id or 1)"

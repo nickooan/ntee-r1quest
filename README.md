@@ -1,11 +1,9 @@
 # ntee-r1quest
 
-`ntee-r1quest` is a Postman-like terminal app for running HTTP requests from a
-file-based collection.
-
-Collections are plain files, so teams can keep them in Git, generate them from
-Swagger/OpenAPI specs, review changes in pull requests, and run the same request
-set locally.
+A Postman-like terminal app for running HTTP requests from a **file-based
+collection**. Collections are plain text, so teams can keep them in Git,
+generate them from OpenAPI/GraphQL specs, review changes in pull requests, and
+run the same request set locally or in CI.
 
 ```bash
 npx ntee-r1quest -r ./example/request
@@ -13,29 +11,53 @@ npx ntee-r1quest -r ./example/request
 
 ![ntee-r1quest terminal demo](https://codeberg.org/nickoan/ntee-r1quest/raw/branch/main/docs/assets/readme-demo.gif)
 
+### Highlights
+
+- 📁 **Plain-text collections** — `.nts` requests and `.ntd` data you can version
+  control and review.
+- 🖥️ **Modal terminal UI** — run, view, edit, search, browse history, and chat
+  with a local AI agent.
+- 🔁 **Reusable data + environment macros**, now with defaults: `@i(key or …)`,
+  `@env(KEY or …)`, plus file uploads via `@f(…)`.
+- ⚡ **One-shot execution** (`-p`) for scripts and CI, with env injection
+  (`-env`) and trace tagging (`-ti`).
+- 🕘 **History & cache** — browse past request/response pairs (grouped by trace),
+  with input history and editor autosuggestions.
+- 🤖 **GraphQL-friendly**, with an AI plugin (skills) for Claude Code, Codex, and
+  Cursor.
+
 ## Index
 
+**Getting started**
+
 - [Quick Start](#quick-start)
+- [CLI Reference](#cli-reference)
+
+**Using the app**
+
 - [Terminal Modes](#terminal-modes)
 - [Key Manual](#key-manual)
+- [Request History and Cache](#request-history-and-cache)
 - [AI Adapter](#ai-adapter)
 - [Config](#config)
+
+**Writing requests**
+
 - [Collection Structure](#collection-structure)
 - [`.ntd` Definition Files](#ntd-definition-files)
 - [`.nts` Request Files](#nts-request-files)
 - [Macros](#macros)
 - [Examples](#examples)
 - [GraphQL Requests](#graphql-requests)
+
+**Development & tooling**
+
 - [Local CLI and Development](#local-cli-and-development)
 - [R1Quest AI Plugin](#r1quest-ai-plugin)
 
 ## Quick Start
 
-`ntee-r1quest` targets Node.js 24 or newer.
-
-```bash
-node --version
-```
+`ntee-r1quest` targets **Node.js 24 or newer** (`node --version`).
 
 Run a request collection with `npx`:
 
@@ -43,45 +65,52 @@ Run a request collection with `npx`:
 npx ntee-r1quest -r ./example/request
 ```
 
-Inside the app, type a request path without `.nts`, then press Enter:
+Inside the app, type a request path (without `.nts`) and press Enter — nested
+paths work too:
 
 ```text
 @query >example
-```
-
-Nested request paths work too:
-
-```text
 @query >folder-1/get-post
 ```
 
 If `-r` is omitted, `ntee-r1quest` looks for `.r1qconfig.yaml`, then falls back
 to the current directory as the request root.
 
-Initialize the home config without opening the terminal app:
+First-time setup — create the home config with a short wizard (when
+`~/.ntee-r1quest/r1qconfig.yaml` is missing):
 
 ```bash
 npx ntee-r1quest --init
 ```
 
-This opens a short config wizard when `~/.ntee-r1quest/r1qconfig.yaml` is
-missing. The collection path defaults to `null`, and the AI agent can be left
-empty or set to Codex, Claude, or Cursor. After completion, it prints the paths it
-created.
-
-Print the installed version without opening the terminal app:
+## CLI Reference
 
 ```bash
-npx ntee-r1quest --version
+ntee-r1quest [-r <root>] [-ai <adapter>] [-p <request>] [-ti <id>] [-env <json>]
+ntee-r1quest --init | --version
 ```
 
-Run one request without opening the terminal app:
+| Flag        | Argument                | Purpose                                                                                 |
+| ----------- | ----------------------- | --------------------------------------------------------------------------------------- |
+| `-r`        | `<root>`                | Request collection root. Falls back to config, then the current directory.              |
+| `-ai`       | `codex\|claude\|cursor` | AI adapter for `@ai` mode.                                                              |
+| `-p`        | `<request>`             | Run one request and print the response without opening the UI (`.nts` optional).        |
+| `-ti`       | `<id>`                  | Tag the run with a trace id so related requests group in history (`@h <id>`). Optional. |
+| `-env`      | `'{"K":"V"}'`           | Supply `@env(...)` values as JSON, merged over `process.env` (these win). Optional.     |
+| `--init`    | —                       | Open the home-config wizard, then print the paths created.                              |
+| `--version` | —                       | Print the installed version and exit.                                                   |
+
+**One-shot examples**
 
 ```bash
+# Run a single request
 npx ntee-r1quest -r ./example/request -p folder-1/get-post
+
+# Inject env values for @env(...) macros and tag the run with a trace id
+r1q -r ./example/request -p users/get -env '{"API_TOKEN":"abc"}' -ti task-42
 ```
 
-The `-p` value may include or omit `.nts`.
+A one-shot run can also notify an open terminal app — see [`sock`](#config).
 
 ## Terminal Modes
 
@@ -92,32 +121,41 @@ The prompt shows the current mode:
 @view >
 @edit >
 @search >
+@history >
 @ai >
 ```
 
 Switch modes by typing a mode command and pressing Enter:
 
-| Command   | Alias   | Purpose                                             |
-| --------- | ------- | --------------------------------------------------- |
-| `@query`  | `@q`    | Run request files and view responses.               |
-| `@view`   | `@v`    | Review request or data files in the Result pane.    |
-| `@edit`   | `@e`    | Edit the currently reviewed file.                   |
-| `@search` | `@s`    | Search the current Result or reviewed file content. |
-| `@ai`     | `@a`    | Open the AI chat overlay.                           |
-| `@reload` |         | Reload config and restart the terminal runtime.     |
-| `@exit`   | `@quit` | Exit the app.                                       |
+| Command    | Alias | Purpose                                             |
+| ---------- | ----- | --------------------------------------------------- |
+| `@query`   | `@q`  | Run request files and view responses.               |
+| `@view`    | `@v`  | Review request or data files in the Result pane.    |
+| `@edit`    | `@e`  | Edit the currently reviewed file.                   |
+| `@search`  | `@s`  | Search the current Result or reviewed file content. |
+| `@history` | `@h`  | Browse cached request/response history.             |
+| `@ai`      | `@a`  | Open the AI chat overlay.                           |
 
-You can also press Shift+Tab to cycle modes:
+Action commands run a task instead of switching modes:
+
+| Command        | Alias   | Action                                          |
+| -------------- | ------- | ----------------------------------------------- |
+| `@reload`      |         | Reload config and restart the terminal runtime. |
+| `@clean-cache` | `@cc`   | Clear input history and request history.        |
+| `@exit`        | `@quit` | Exit the app.                                   |
+
+You can also press Shift+Tab to cycle the three main modes:
 
 ```text
 @query -> @view -> @ai -> @query
 ```
 
-When the cycle enters `@ai`, the AI overlay opens. When it cycles out of `@ai`,
-the overlay closes and the AI session remains available.
+When the cycle enters `@ai`, the AI overlay opens; when it cycles out, the
+overlay closes and the AI session stays available.
 
-Search is not part of the Shift+Tab cycle. Enter it explicitly with `@search`
-(or `@s`), and press Esc to return to the mode you came from.
+`@search` and `@history` are not part of the Shift+Tab cycle. Enter them
+explicitly (`@s` / `@h`), and press Esc — or type another `@` mode command — to
+leave.
 
 ## Key Manual
 
@@ -171,12 +209,17 @@ Use `@edit` while reviewing a file to edit it directly in the Result pane.
 | Type text                | Buffer text at the edit cursor.                                     |
 | Enter                    | Insert buffered text, split a line, or accept an active suggestion. |
 | Esc                      | Open the save confirmation prompt.                                  |
-| Up / Down                | Move the file cursor, unless suggestions are visible.               |
-| Left / Right             | Move the file cursor horizontally.                                  |
-| Shift+Left / Shift+Right | Move the buffered input cursor.                                     |
+| Shift + Arrows           | Move the file cursor through the content (works in any state).      |
+| Up / Down / Left / Right | Move the file cursor — **only when no text is buffered**.           |
+| Left / Right             | Move within buffered text — while you have uncommitted input.       |
 | Backspace / Delete       | Delete buffered text, or delete file content before the cursor.     |
 | Ctrl+S                   | Save immediately and return to view mode.                           |
 | Ctrl+A                   | Move the current token into the input bar for inline editing.       |
+
+> **Why Shift?** While you have uncommitted typed text, plain Up/Down are
+> ignored and plain Left/Right move within that text — so an accidentally pressed
+> arrow can't jump the file cursor and abandon what you were typing. Hold Shift
+> to move the file cursor. With nothing buffered, plain arrows navigate normally.
 
 Editor suggestions appear while typing request keywords, macros, definition
 keys, or `ref` paths.
@@ -221,6 +264,26 @@ dismiss it.
 If you enter `@edit` from search while reviewing a file, editing starts near the
 focused match.
 
+### History Mode
+
+Use `@history` (or `@h`) to browse previously run requests. The left pane lists
+cached endpoints; the right pane shows the formatted request/response for the
+selected one, with its duration in the header. See
+[Request History and Cache](#request-history-and-cache) for what gets recorded.
+
+Pass a trace id inline to view only that trace's calls: `@h <traceId>` (bare
+`@h` / `@history` shows all endpoints).
+
+| Key                   | Action                                                    |
+| --------------------- | --------------------------------------------------------- |
+| Type to filter        | Filter the endpoint list; an overlay shows matches.       |
+| Up / Down             | Move through the filter overlay (while it is open).       |
+| Enter                 | Select the highlighted endpoint.                          |
+| Shift+Up / Shift+Down | Move the endpoint highlight (overlay closed).             |
+| Up / Down             | Scroll the Result pane vertically (overlay closed).       |
+| Left / Right          | Scroll the Result pane horizontally.                      |
+| `@h <traceId>`        | Show only the calls recorded under `<traceId>`, in order. |
+
 ### AI Mode
 
 Use `@ai` to chat with a local terminal AI agent through an ACP adapter.
@@ -261,6 +324,30 @@ have typed so far. Custom commands work only in AI mode.
 | Up / Down | Move the highlighted command while the popup is visible.    |
 | Tab       | Accept the highlighted command (inserts `/name ` for args). |
 | Enter     | Accept the highlighted command while the popup is visible.  |
+
+## Request History and Cache
+
+`ntee-r1quest` keeps a small local cache under `~/.ntee-r1quest/cache/` so your
+inputs and successful calls persist across sessions. Writes are best-effort and
+never block the app; `@`-mode commands are never cached.
+
+**Input suggestions.** As you type a path in `@query` or `@view`, an overlay
+above the command line offers prefix matches — current-directory files and
+folders in **yellow**, and previously run inputs from the cache in **green**.
+
+**Request history.** Every successful request is recorded by endpoint
+(`/path [method]`, or `Operation [type]` for GraphQL). Browse it in
+[History Mode](#history-mode): the latest request/response for each endpoint,
+formatted with status and duration. A repeat call to the same endpoint replaces
+its previous entry.
+
+**Trace grouping.** Tag one-shot runs with `-ti <id>` (see
+[CLI Reference](#cli-reference)) to record them under a shared trace. In History
+Mode, `@h <id>` lists just that trace's calls **in the order they ran** — handy
+for reviewing a multi-step flow.
+
+**Clearing.** Run `@clean-cache` (or `@cc`) to wipe both input history and
+request history.
 
 ## AI Adapter
 
@@ -423,7 +510,7 @@ Supported value types:
 - null
 - array
 - object
-- `@env(KEY)` environment variable macro
+- `@env(KEY)` / `@env(KEY or <default>)` environment variable macro
 
 Rules and cautions:
 
@@ -614,6 +701,24 @@ header content-type, @i(content-type)
 
 `@i(...)` is not supported inside `.ntd` files.
 
+**Defaults.** Use `@i(key or <value>)` to fall back when the key is missing from
+the referenced `.ntd` files. The default must be an immediate string, number, or
+boolean — never another macro:
+
+```nts
+header accept, @i(accept or "application/json")
+
+body {
+  age: @i(age or 20)
+  deleted: @i(deleted or true)
+}
+```
+
+Defaults apply in **value position** (headers, auth, body). They do **not** apply
+inside a quoted string — including the `url` value — where only plain `@i(key)`
+interpolates. Put a macro that needs a default in value position, or resolve it
+in the `.ntd` (e.g. `id: @env(ID or 1)`) and reference it plainly with `@i(id)`.
+
 ### `@env(KEY)`
 
 Reads an environment variable.
@@ -635,7 +740,19 @@ type get
 auth bearer @i(token)
 ```
 
-If the environment variable is missing, compilation throws an error.
+**Defaults.** Use `@env(KEY or <value>)` to fall back when the variable is unset.
+The default must be an immediate string, number, or boolean:
+
+```ntd
+port: @env(PORT or 8080)
+token: @env(API_TOKEN or "dev-token")
+debug: @env(DEBUG or false)
+```
+
+If the variable is unset and there is no default, compilation throws an error.
+To supply values at run time without exporting them, pass
+[`-env`](#cli-reference): `-env '{"API_TOKEN":"abc"}'` (values merge over
+`process.env` and win on duplicate keys).
 
 ### `@f(path)`
 
@@ -852,10 +969,12 @@ Available skills:
 
 - `openapi-r1quest-generator`: Generate request projects from Swagger/OpenAPI
   v3 YAML or JSON files.
-- `r1quest-language-runtime`: Understand `.ntd` and `.nts` syntax, macros,
-  request keywords, config behavior, and one-shot `-p` execution.
-- `r1quest-one-shot-runner`: Locate and execute one named request from an
-  existing R1Quest collection.
+- `r1quest-language-runtime`: Understand `.ntd` and `.nts` syntax, macros
+  (including `or` defaults), request keywords, config behavior, and one-shot
+  `-p` / `-env` / `-ti` execution.
+- `r1quest-one-shot-runner`: Locate and run named requests — a single request,
+  or an ordered task where earlier responses feed later ones via `-env` and a
+  shared `-ti` trace id.
 - `r1quest-project-editor`: Scan and safely update an existing request root.
 - `r1quest-graphql-generator`: Generate GraphQL query and mutation examples.
 - `graphql-schema-r1quest-generator`: Generate a GraphQL request project from a

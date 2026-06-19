@@ -49,7 +49,22 @@ R1QuestDefinition {
     = "[" listOf<Value, ","> "]"
 
   EnvMacro
-    = optAt macroActionName "(" macroKey ")"
+    = optAt macroActionName "(" macroKey MacroDefault? ")"
+
+  MacroDefault
+    = "or" macroDefaultValue
+
+  macroDefaultValue
+    = string
+    | defaultNumber
+    | defaultBoolean
+
+  defaultNumber
+    = "-"? digit+ ("." digit+)?
+
+  defaultBoolean
+    = "true"
+    | "false"
 
   optAt
     = "@"

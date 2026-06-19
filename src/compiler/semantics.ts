@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
+import type { Node } from "ohm-js"
 import { definitionGrammar, scriptGrammar } from "./lexer.ts"
 
 export type ScopeValue =
@@ -189,11 +190,12 @@ export const semantics = scriptGrammar
       return value.toValue(this.args.intermediateObject, this.args.cwd)
     },
 
-    intermediateMacro(_operator, actionName, _open, key, _close) {
+    intermediateMacro(_operator, actionName, _open, key, defaultNode, _close) {
       return resolveMacro(
         actionName.sourceString,
         key.sourceString,
         this.args.intermediateObject,
+        readMacroDefault(defaultNode),
       )
     },
 
@@ -251,7 +253,7 @@ export const semantics = scriptGrammar
       return value.getMacroActionName()
     },
 
-    intermediateMacro(_operator, actionName, _open, _key, _close) {
+    intermediateMacro(_operator, actionName, _open, _key, _default, _close) {
       return actionName.sourceString
     },
 
@@ -319,12 +321,13 @@ export const semantics = scriptGrammar
       )
     },
 
-    intermediateMacro(_operator, actionName, _open, key, _close) {
+    intermediateMacro(_operator, actionName, _open, key, defaultNode, _close) {
       return toHeaderValue(
         resolveMacro(
           actionName.sourceString,
           key.sourceString,
           this.args.intermediateObject,
+          readMacroDefault(defaultNode),
         ),
       )
     },
@@ -351,6 +354,30 @@ export const semantics = scriptGrammar
 
     null(_value, _terminator) {
       return null
+    },
+  })
+  // Evaluates a macro's `or <immediate>` default. Defaults are immediate values
+  // only (string/number/boolean) — never @i/@env references — so this is
+  // independent of the intermediate object and the environment.
+  .addOperation<ScopeValue>("toDefaultValue()", {
+    macroDefault(_lead, _or, _mid, value, _trail) {
+      return value.toDefaultValue()
+    },
+
+    macroDefaultValue(value) {
+      return value.toDefaultValue()
+    },
+
+    string(_open, _chars, _close) {
+      return parseQuotedString(this.sourceString)
+    },
+
+    defaultNumber(_sign, _digits, _dot, _fraction) {
+      return Number(this.sourceString)
+    },
+
+    defaultBoolean(_value) {
+      return this.sourceString === "true"
     },
   })
 
@@ -399,8 +426,12 @@ export const definitionSemantics = definitionGrammar
       return values.asIteration().children.map((value) => value.toValue())
     },
 
-    EnvMacro(_operator, actionName, _open, key, _close) {
-      return resolveEnvMacro(actionName.sourceString, key.sourceString)
+    EnvMacro(_operator, actionName, _open, key, defaultNode, _close) {
+      return resolveEnvMacro(
+        actionName.sourceString,
+        key.sourceString,
+        readMacroDefault(defaultNode),
+      )
     },
 
     string(_open, _chars, _close) {
@@ -442,6 +473,29 @@ export const definitionSemantics = definitionGrammar
       return this.sourceString
     },
   })
+  // Evaluates an @env(...) macro's `or <immediate>` default — an immediate
+  // string/number/boolean value, never a reference.
+  .addOperation<ScopeValue>("toDefaultValue()", {
+    MacroDefault(_or, value) {
+      return value.toDefaultValue()
+    },
+
+    macroDefaultValue(value) {
+      return value.toDefaultValue()
+    },
+
+    string(_open, _chars, _close) {
+      return parseQuotedString(this.sourceString)
+    },
+
+    defaultNumber(_sign, _digits, _dot, _fraction) {
+      return Number(this.sourceString)
+    },
+
+    defaultBoolean(_value) {
+      return this.sourceString === "true"
+    },
+  })
 
 export const buildItermediateObject = (
   refPath: string,
@@ -460,36 +514,105 @@ export const buildItermediateObject = (
   ) as IntermediateObject
 }
 
+// An optional `or <immediate>` default supplied in a macro, e.g. @i(key or 1).
+// Wrapped in an object so an absent default is distinguishable from one whose
+// value is intentionally null/false/0.
+type MacroDefault = { value: ScopeValue } | undefined
+
+// Reads the `macroDefault?` / `MacroDefault?` iteration node into a MacroDefault.
+// Returns undefined when no `or <default>` was written.
+const readMacroDefault = (defaultNode: Node): MacroDefault =>
+  defaultNode.numChildren > 0
+    ? { value: defaultNode.child(0).toDefaultValue() }
+    : undefined
+
 const resolveMacro = (
   operator: string,
   key: string,
   intermediateObject: IntermediateObject,
+  fallback: MacroDefault,
 ): ScopeValue => {
   if (operator !== "i") {
     throw new ReferenceError(`Unsupported macro operator: ${operator}`)
   }
 
-  if (!(key in intermediateObject)) {
-    throw new ReferenceError(`Undefined macro: @${operator}(${key})`)
-  }
-
-  const value = intermediateObject[key]
+  const value = key in intermediateObject ? intermediateObject[key] : undefined
 
   if (value === undefined) {
+    if (fallback) {
+      return fallback.value
+    }
+
     throw new ReferenceError(`Undefined macro: @${operator}(${key})`)
   }
 
   return value
 }
 
-const resolveEnvMacro = (operator: string, key: string): string => {
+// Env values supplied via the CLI `-env` JSON argument. They are layered over
+// process.env: a key present here wins (replacing a duplicate), while any other
+// key falls through to the ambient environment.
+let envOverrides: Record<string, string> = {}
+
+/**
+ * Parses the `-env` argument — a JSON object string — into an env override map.
+ * Values are coerced to strings to match environment-variable semantics (e.g.
+ * `{"PORT": 8080}` -> `{ PORT: "8080" }`). Empty/whitespace input yields an
+ * empty map. Throws on input that is not a JSON object.
+ */
+export const parseEnvOverrides = (raw?: string): Record<string, string> => {
+  const trimmed = raw?.trim()
+
+  if (!trimmed) {
+    return {}
+  }
+
+  let parsed: unknown
+
+  try {
+    parsed = JSON.parse(trimmed)
+  } catch {
+    throw new SyntaxError(`Invalid -env JSON object: ${trimmed}`)
+  }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new TypeError("-env must be a JSON object.")
+  }
+
+  const overrides: Record<string, string> = {}
+
+  for (const [key, value] of Object.entries(parsed)) {
+    overrides[key] = typeof value === "string" ? value : JSON.stringify(value)
+  }
+
+  return overrides
+}
+
+/**
+ * Replaces the env overrides consulted by `@env(...)` macros. Pass `{}` to
+ * clear them. Merged over process.env at resolve time, duplicates replaced.
+ */
+export const setEnvOverrides = (overrides: Record<string, string>): void => {
+  envOverrides = overrides
+}
+
+const resolveEnvMacro = (
+  operator: string,
+  key: string,
+  fallback: MacroDefault,
+): ScopeValue => {
   if (operator !== "env") {
     throw new ReferenceError(`Unsupported env macro operator: ${operator}`)
   }
 
-  const envValue = process.env[key]
+  // `-env` overrides take precedence; otherwise read the ambient environment.
+  const envValue = key in envOverrides ? envOverrides[key] : process.env[key]
 
   if (envValue === undefined) {
+    if (fallback) {
+      return fallback.value
+    }
+
     throw new ReferenceError(`Undefined env macro: @${operator}(${key})`)
   }
 
@@ -515,7 +638,14 @@ const interpolateMacros = (
   return value.replace(
     /@([A-Za-z][A-Za-z0-9_-]*)\(([^)]+)\)/g,
     (source, operator, key) => {
-      const resolvedValue = resolveMacro(operator, key, intermediateObject)
+      // Interpolated string macros (e.g. "hi @i(name)") do not support `or`
+      // defaults — those are only available in value position.
+      const resolvedValue = resolveMacro(
+        operator,
+        key,
+        intermediateObject,
+        undefined,
+      )
 
       if (resolvedValue === null) {
         return "null"

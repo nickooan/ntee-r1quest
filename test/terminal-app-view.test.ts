@@ -16,6 +16,7 @@ import { buildTerminalViewport } from "../src/views/terminal-app.tsx"
 import {
   buildFilePaneLayout,
   buildGraphqlHighlightLines,
+  highlightLine,
 } from "../src/views/terminal/file-content.tsx"
 
 describe("terminal app view", () => {
@@ -39,6 +40,78 @@ describe("terminal app view", () => {
     expect(viewport.lines).toEqual(["ok  ", "    ", "    "])
     expect(viewport.maxScrollX).toBe(0)
     expect(viewport.maxScrollY).toBe(0)
+  })
+
+  test("highlights the macro `or` default keyword and the default value", () => {
+    const colored = (line: string) =>
+      highlightLine(line)
+        .filter((segment) => segment.color)
+        .map((segment) => [segment.text, segment.color])
+
+    expect(colored("age: @i(missingAge or 20)")).toEqual([
+      ["@", "red"],
+      ["i", "green"],
+      ["or", "cyan"],
+      ["20", "blue"],
+    ])
+
+    expect(colored('ct: @env(X or "application/json")')).toEqual([
+      ["@", "red"],
+      ["env", "green"],
+      ["or", "cyan"],
+      ['"application/json"', "yellow"],
+    ])
+
+    expect(colored("flag: @i(x or false)")).toEqual([
+      ["@", "red"],
+      ["i", "green"],
+      ["or", "cyan"],
+      ["false", "magenta"],
+    ])
+  })
+
+  test("highlights only a plain @i(key) macro embedded inside a string", () => {
+    expect(
+      highlightLine('url "/todos/@i(id)"').map((segment) => [
+        segment.text,
+        segment.color,
+      ]),
+    ).toEqual([
+      ["url", "cyan"],
+      [" ", undefined],
+      ['"/todos/', "yellow"],
+      ["@", "red"],
+      ["i", "green"],
+      ["(id)", undefined],
+      ['"', "yellow"],
+    ])
+  })
+
+  test("does not highlight invalid in-string macros (@env, @f, or defaults)", () => {
+    // None of these interpolate inside a string, so the whole string stays one
+    // yellow token — no macro colouring that would imply they work.
+    for (const line of [
+      'url "/todos/@env(id or 1)"',
+      'url "/todos/@i(id or 1)"',
+      'url "/todos/@f(x)"',
+    ]) {
+      const colors = new Set(
+        highlightLine(line)
+          .filter((segment) => segment.text.includes("@"))
+          .map((segment) => segment.color),
+      )
+
+      // The segment containing "@..." is the yellow string, not a red macro "@".
+      expect(colors).toEqual(new Set(["yellow"]))
+    }
+  })
+
+  test("leaves a macro without a default unchanged", () => {
+    expect(
+      highlightLine("ct: @i(token)")
+        .filter((segment) => segment.color)
+        .map((segment) => segment.text),
+    ).toEqual(["@", "i"])
   })
 
   test("builds file content layout for the result pane", () => {

@@ -8,6 +8,8 @@ export type ParsedArgs = {
   root?: string
   ai?: string
   path?: string
+  traceId?: string
+  env?: string
   init?: boolean
   version?: boolean
 }
@@ -41,15 +43,20 @@ export type RuntimeConfig = {
   parsedArgs: ParsedArgs
 }
 
-const argumentNames = ["-r", "-ai", "-p"] as const
+const argumentNames = ["-r", "-ai", "-p", "-ti", "-env"] as const
 type ArgumentName = (typeof argumentNames)[number]
 const flagNames = ["--init", "--version"] as const
 type FlagName = (typeof flagNames)[number]
 
-const argumentKeys: Record<ArgumentName, "root" | "ai" | "path"> = {
+const argumentKeys: Record<
+  ArgumentName,
+  "root" | "ai" | "path" | "traceId" | "env"
+> = {
   "-r": "root",
   "-ai": "ai",
   "-p": "path",
+  "-ti": "traceId",
+  "-env": "env",
 }
 
 const flagKeys: Record<FlagName, "init" | "version"> = {

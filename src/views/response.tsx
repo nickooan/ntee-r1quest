@@ -1,21 +1,19 @@
 import { isAxiosError, type AxiosResponse } from "axios"
 import type { AxiosResponseHeaders, RawAxiosResponseHeaders } from "axios"
-import React from "react"
 import { useEffect, useState } from "react"
 import { render, Text } from "ink"
 
 type HeaderValue = string | number | boolean | null | string[] | undefined
-
 type ResponseHeaders = RawAxiosResponseHeaders | AxiosResponseHeaders
-const pendingFrames = [".", "..", "..."]
-const sectionBorder = "---------------"
-const headersSection = `${sectionBorder} Headers ${sectionBorder}`
-const bodySection = `${sectionBorder} Body ${sectionBorder}`
-const errorSection = `${sectionBorder} Error ${sectionBorder}`
 
-const formatSectionTitle = (title: string): string => {
-  return `${sectionBorder} ${title} ${sectionBorder}`
-}
+const sectionBorder = "---------------"
+const pendingFrames = [".", "..", "..."]
+
+// A section divider, e.g. "--------------- Headers ---------------".
+const formatSectionTitle = (title: string): string =>
+  `${sectionBorder} ${title} ${sectionBorder}`
+
+// ── Header formatting ──────────────────────────────────────────────────────
 
 const formatHeaderValue = (value: HeaderValue): string => {
   if (Array.isArray(value)) {
@@ -29,25 +27,16 @@ const formatHeaderValue = (value: HeaderValue): string => {
   return String(value)
 }
 
-export const formatPending = (frameIndex: number): string => {
-  const frame = pendingFrames[frameIndex % pendingFrames.length]
-
-  return `pending${frame}`
-}
-
-export const formatResponseHeaders = (headers: ResponseHeaders): string => {
-  const lines = Object.entries(headers)
+export const formatResponseHeaders = (headers: ResponseHeaders): string =>
+  Object.entries(headers)
     .filter(([, value]) => value !== undefined)
     .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
     .map(([key, value]) => `${key}: ${formatHeaderValue(value as HeaderValue)}`)
+    .join("\n")
 
-  return lines.join("\n")
-}
+// ── Body formatting ────────────────────────────────────────────────────────
 
-export const formatResponseBody = (
-  body: AxiosResponse["data"],
-  contentType?: string,
-): string => {
+export const formatResponseBody = (body: AxiosResponse["data"]): string => {
   if (typeof body === "string") {
     return body
   }
@@ -60,12 +49,10 @@ export const formatResponseBody = (
     return String(body)
   }
 
-  if (!contentType) {
-    return JSON.stringify(body, null, 2)
-  }
-
   return JSON.stringify(body, null, 2)
 }
+
+// ── Request description ─────────────────────────────────────────────────────
 
 const formatRequestPath = (url?: string, baseURL?: string): string => {
   if (!url) {
@@ -77,6 +64,7 @@ const formatRequestPath = (url?: string, baseURL?: string): string => {
 
     return parsedUrl.pathname
   } catch {
+    // Not a parseable URL: drop any query string and use what remains.
     return url.split("?")[0] ?? url
   }
 }
@@ -88,51 +76,58 @@ const formatRequestDescription = (response: AxiosResponse): string => {
   return `${method} ${path}`
 }
 
-export const formatResponse = (response: AxiosResponse): string => {
-  const statusLine = `${response.status} ${response.statusText}`.trim()
-  const contentType = String(response.headers["content-type"] ?? "")
-  const headers = formatResponseHeaders(response.headers)
-  const body = formatResponseBody(response.data, contentType)
+// ── Output assembly ────────────────────────────────────────────────────────
+
+// Joins the given blocks with a single blank line between each, dropping any
+// empty block (e.g. a body-less 204 or a response with no headers).
+const joinSections = (sections: string[]): string =>
+  sections.filter((section) => section !== "").join("\n\n")
+
+export const formatResponse = (
+  response: AxiosResponse,
+  traceId?: string,
+): string => {
   const requestDescription = formatRequestDescription(response)
+  const statusLine = `${response.status} ${response.statusText}`.trim()
+  const headers = formatResponseHeaders(response.headers)
+  const body = formatResponseBody(response.data)
 
-  const output = [
+  // When the request was tagged with a trace id, show it as the last line of
+  // the status section — below the status line, above the Headers section.
+  const statusSection = traceId
+    ? `${statusLine}\nTrace: ${traceId}`
+    : statusLine
+
+  const output = joinSections([
     formatSectionTitle(`Response of ${requestDescription}`),
-    "",
-    statusLine,
-    "",
-    headersSection,
-    "",
+    statusSection,
+    formatSectionTitle("Headers"),
     headers,
-    "",
-    bodySection,
-    "",
+    formatSectionTitle("Body"),
     body,
-    "",
     formatSectionTitle(`End of ${requestDescription}`),
-  ]
-    .filter((section, index, sections) => {
-      if (section !== "") {
-        return true
-      }
-
-      const previousSection = sections[index - 1]
-      const nextSection = sections[index + 1]
-
-      return previousSection !== "" && nextSection !== ""
-    })
-    .join("\n")
+  ])
 
   return `${output}\n`
 }
 
-export const formatError = (error: unknown): string => {
+export const formatError = (error: unknown, traceId?: string): string => {
+  // An axios error with a response is shown as a normal response view.
   if (isAxiosError(error) && error.response) {
-    return formatResponse(error.response)
+    return formatResponse(error.response, traceId)
   }
 
   const message = error instanceof Error ? error.message : String(error)
 
-  return [errorSection, "", message].join("\n")
+  return joinSections([formatSectionTitle("Error"), message])
+}
+
+// ── Pending indicator ──────────────────────────────────────────────────────
+
+export const formatPending = (frameIndex: number): string => {
+  const frame = pendingFrames[frameIndex % pendingFrames.length]
+
+  return `pending${frame}`
 }
 
 export const PendingView = () => {

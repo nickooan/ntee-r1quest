@@ -387,17 +387,62 @@ describe("view mode key helpers", () => {
 })
 
 describe("edit mode key helpers", () => {
-  test("moves the cursor and clamps to shorter target lines", () => {
+  test("moves the cursor with shift+arrow and clamps to shorter target lines", () => {
     const editState = {
       ...createEditModeState("abcdef\nxy"),
       cursorX: 5,
       cursorY: 0,
     }
 
-    const result = handleEditModeInput("", key({ downArrow: true }), editState)
+    const result = handleEditModeInput(
+      "",
+      key({ shift: true, downArrow: true }),
+      editState,
+    )
 
     expect(result.state.cursorY).toBe(1)
     expect(result.state.cursorX).toBe(2)
+  })
+
+  test("moves the cursor with plain arrows when there is no uncommitted input", () => {
+    const editState = {
+      ...createEditModeState("abcdef\nxy"),
+      cursorX: 5,
+      cursorY: 0,
+    }
+
+    const down = handleEditModeInput("", key({ downArrow: true }), editState)
+    expect(down.state.cursorY).toBe(1)
+    expect(down.state.cursorX).toBe(2)
+
+    const right = handleEditModeInput("", key({ rightArrow: true }), editState)
+    expect(right.state.cursorX).toBe(6)
+    expect(right.state.cursorY).toBe(0)
+  })
+
+  test("with uncommitted input, plain vertical arrows do not move the document cursor", () => {
+    const editState = {
+      ...createEditModeState("abcdef\nxy"),
+      cursorX: 3,
+      cursorY: 0,
+      input: "zz",
+      inputCursorX: 2,
+      suggestions: null,
+    }
+
+    // Pending input present -> plain Up/Down are ignored; Shift+Arrow is needed.
+    expect(
+      handleEditModeInput("", key({ downArrow: true }), editState).state,
+    ).toEqual(editState)
+    expect(
+      handleEditModeInput("", key({ upArrow: true }), editState).state,
+    ).toEqual(editState)
+
+    // Shift+Down still moves the document cursor.
+    expect(
+      handleEditModeInput("", key({ shift: true, downArrow: true }), editState)
+        .state.cursorY,
+    ).toBe(1)
   })
 
   test("buffers input and inserts it on enter", () => {
@@ -754,7 +799,7 @@ describe("edit mode key helpers", () => {
     expect(result.state.suggestions).toBeNull()
   })
 
-  test("moves the buffered input cursor with shift arrows", () => {
+  test("moves the buffered input cursor with plain arrows", () => {
     const typedResult = handleEditModeInput(
       "abc",
       defaultKey,
@@ -762,7 +807,7 @@ describe("edit mode key helpers", () => {
     )
     const movedResult = handleEditModeInput(
       "",
-      key({ shift: true, leftArrow: true }),
+      key({ leftArrow: true }),
       typedResult.state,
     )
     const insertedResult = handleEditModeInput(
@@ -931,7 +976,7 @@ describe("edit mode key helpers", () => {
     })
     const movedResult = handleEditModeInput(
       "",
-      key({ shift: true, leftArrow: true }),
+      key({ leftArrow: true }),
       selectedResult.state,
     )
     const insertedResult = handleEditModeInput(

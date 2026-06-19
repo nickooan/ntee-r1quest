@@ -1,8 +1,10 @@
-import { describe, expect, test } from "@jest/globals"
+import { afterEach, describe, expect, test } from "@jest/globals"
 import {
   buildItermediateObject,
   compileFile,
   CompileSourceType,
+  parseEnvOverrides,
+  setEnvOverrides,
 } from "../src/compiler/semantics.ts"
 
 describe("compiler", () => {
@@ -45,6 +47,75 @@ describe("compiler", () => {
         process.env.TEST_ENV_TOKEN = previousValue
       }
     }
+  })
+
+  describe("env overrides", () => {
+    afterEach(() => {
+      setEnvOverrides({})
+    })
+
+    test("parses a JSON object string and coerces values to strings", () => {
+      expect(
+        parseEnvOverrides('{"A": "x", "PORT": 8080, "FLAG": true}'),
+      ).toEqual({ A: "x", PORT: "8080", FLAG: "true" })
+    })
+
+    test("returns an empty map for empty or whitespace input", () => {
+      expect(parseEnvOverrides()).toEqual({})
+      expect(parseEnvOverrides("   ")).toEqual({})
+    })
+
+    test("rejects non-JSON and non-object input", () => {
+      expect(() => parseEnvOverrides("{not json}")).toThrow(
+        "Invalid -env JSON object",
+      )
+      expect(() => parseEnvOverrides("[1, 2]")).toThrow(
+        "-env must be a JSON object.",
+      )
+      expect(() => parseEnvOverrides('"a string"')).toThrow(
+        "-env must be a JSON object.",
+      )
+    })
+
+    test("overrides replace process.env for duplicate keys", () => {
+      const previousValue = process.env.TEST_ENV_TOKEN
+      process.env.TEST_ENV_TOKEN = "ambient-value"
+
+      try {
+        setEnvOverrides(
+          parseEnvOverrides('{"TEST_ENV_TOKEN": "override-value"}'),
+        )
+
+        expect(buildItermediateObject("test/data/env.ntd", {})).toEqual({
+          token: "override-value",
+        })
+      } finally {
+        if (previousValue === undefined) {
+          delete process.env.TEST_ENV_TOKEN
+        } else {
+          process.env.TEST_ENV_TOKEN = previousValue
+        }
+      }
+    })
+
+    test("falls back to process.env for keys absent from overrides", () => {
+      const previousValue = process.env.TEST_ENV_TOKEN
+      process.env.TEST_ENV_TOKEN = "ambient-value"
+
+      try {
+        setEnvOverrides(parseEnvOverrides('{"OTHER": "x"}'))
+
+        expect(buildItermediateObject("test/data/env.ntd", {})).toEqual({
+          token: "ambient-value",
+        })
+      } finally {
+        if (previousValue === undefined) {
+          delete process.env.TEST_ENV_TOKEN
+        } else {
+          process.env.TEST_ENV_TOKEN = previousValue
+        }
+      }
+    })
   })
 
   test("builds definition values that start with primitive-looking text as bare strings", () => {
@@ -217,6 +288,73 @@ describe("compiler", () => {
     ).toEqual({
       headers: {},
       body: [{ name: "a" }, { name: "b" }],
+    })
+  })
+
+  test("uses @i macro defaults for missing keys and the ref value otherwise", () => {
+    expect(
+      compileFile(
+        "test/data/compiler-default-macro-body.nts",
+        CompileSourceType.File,
+      ),
+    ).toEqual({
+      headers: {
+        // Missing key -> immediate string default.
+        "x-token": "default-token",
+      },
+      body: {
+        // Provided by the ref -> default ignored.
+        provided: "from-ref",
+        // Missing keys -> typed immediate defaults.
+        "content-type": "application/json",
+        age: 20,
+        deleted: true,
+        rate: -1.5,
+      },
+    })
+  })
+
+  test("throws for a missing @i macro key with no default", () => {
+    expect(() =>
+      compileFile("body @i(definitely-missing)", CompileSourceType.Raw),
+    ).toThrow("Undefined macro: @i(definitely-missing)")
+  })
+
+  describe("@env macro defaults", () => {
+    const envKeys = [
+      "MISSING_TEST_ENV_CID",
+      "MISSING_TEST_ENV_CTOK",
+      "MISSING_TEST_ENV_CDEL",
+      "MISSING_TEST_ENV_RATE",
+    ]
+
+    afterEach(() => {
+      setEnvOverrides({})
+
+      for (const key of envKeys) {
+        delete process.env[key]
+      }
+    })
+
+    test("uses immediate defaults when the env var is unset", () => {
+      expect(buildItermediateObject("test/data/env-default.ntd", {})).toEqual({
+        commentId: 1,
+        commentToken: "default-token",
+        commentDelete: false,
+        rate: 1.5,
+      })
+    })
+
+    test("prefers process.env and -env overrides over the default", () => {
+      process.env.MISSING_TEST_ENV_CID = "999"
+      setEnvOverrides({ MISSING_TEST_ENV_CTOK: "override-token" })
+
+      expect(buildItermediateObject("test/data/env-default.ntd", {})).toEqual({
+        commentId: "999",
+        commentToken: "override-token",
+        commentDelete: false,
+        rate: 1.5,
+      })
     })
   })
 

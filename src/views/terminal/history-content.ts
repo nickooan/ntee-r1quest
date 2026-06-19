@@ -67,6 +67,9 @@ export const formatHistoryEntry = (
     // The endpoint label (GraphQL operation, or "<path> [<method>]").
     record.endpoint,
     `${record.response.status}  ·  ${record.durationMs} ms`,
+    // The trace id (when present) sits under the status/duration line and above
+    // the Request section.
+    ...(record.traceId ? [`Trace: ${record.traceId}`] : []),
     "",
     sectionRule("Request", width),
     `URL     ${record.request.url ?? "(unknown)"}`,

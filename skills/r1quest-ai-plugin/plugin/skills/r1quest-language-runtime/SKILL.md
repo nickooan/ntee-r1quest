@@ -37,6 +37,10 @@ Use these rules:
 - Define keys with `key: value`.
 - Use objects and arrays for structured request bodies.
 - Use `@env(KEY)` in `.ntd` files for environment values.
+- Provide a default with `@env(KEY or <value>)`, used when the variable is
+  unset. The default must be an immediate string, number, or boolean — never
+  another macro. Examples: `@env(PORT or 8080)`, `@env(TOKEN or "dev")`,
+  `@env(DEBUG or false)`.
 - Do not use `@i(...)` in `.ntd` files.
 - Do not use `@f(...)` in `.ntd` files.
 - Quote strings that include `://`, `//`, commas, braces, brackets, or newlines.
@@ -70,8 +74,16 @@ Supported request statements:
 Use these macro rules:
 
 - `@i(key)` reads a value from referenced `.ntd` files.
+- Provide a default with `@i(key or <value>)`, used when the key is missing from
+  the referenced `.ntd` files. The default must be an immediate string, number,
+  or boolean — never another macro. Examples: `@i(accept or "application/json")`,
+  `@i(age or 20)`, `@i(deleted or true)`.
 - `@env(KEY)` belongs in `.ntd`, not `.nts`.
 - `@f(path)` is valid only inside request body values.
+- Inside a quoted string, only plain `@i(key)` interpolates (as in the `url`
+  line above). `or` defaults are not applied inside strings, so put a macro that
+  needs a default in value position (e.g. `body @i(id or 1)`), not inside a
+  string.
 - Header and auth values must resolve to primitive values.
 
 ## Content Types
@@ -107,6 +119,16 @@ Rules:
 - If `.r1qconfig.yaml` defines `sock`, one-shot execution posts the formatted
   response to the socket for an open terminal app.
 
+Optional flags:
+
+- `-env '{"KEY":"value"}'` supplies environment values for `@env(...)` macros as
+  a JSON object. These are merged over `process.env` and win on duplicate keys;
+  values are coerced to strings. Example:
+  `r1q -r ./request -p users/get -env '{"API_TOKEN":"abc","HOST":"staging"}'`.
+- `-ti <id>` tags the recorded call with a trace id so related one-shot requests
+  group together in the app's history (`@h <id>`). Optional; omit it to leave the
+  call untagged.
+
 ## Validation Workflow
 
 When checking a request:
@@ -116,8 +138,10 @@ When checking a request:
    `~/.ntee-r1quest/r1qconfig.yaml`, then the current working directory.
 2. Locate the target `.nts` file, adding `.nts` if omitted.
 3. Read all referenced `.ntd` files.
-4. Check that all `@i(key)` macros are defined by referenced `.ntd` files.
-5. Check that `@env(KEY)` variables exist or clearly report they are required.
+4. Check that all `@i(key)` macros are defined by referenced `.ntd` files, or
+   carry an `or` default.
+5. Check that `@env(KEY)` variables are available (ambient, via `-env`, or an
+   `or` default), or clearly report they are required.
 6. Check that every `@f(path)` target exists and is only used in `body`.
 7. Prefer `r1q -r <root> -p <request>` for one-shot verification when the user
    wants to run the request.

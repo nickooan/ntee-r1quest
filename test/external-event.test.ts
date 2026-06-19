@@ -61,4 +61,37 @@ describe("external event runtime", () => {
       responseContent: "response",
     })
   })
+
+  test("carries an optional trace id through build and parse", () => {
+    const event = buildExternalRequestEvent(
+      "nested/get",
+      12,
+      "response",
+      "batch-42",
+    )
+
+    expect(event).toEqual({
+      ntsPath: "nested",
+      ntsFile: "get.nts",
+      time: 12,
+      responseContent: "response",
+      traceId: "batch-42",
+    })
+
+    expect(parseExternalRequestEvent(JSON.stringify(event))).toEqual(event)
+  })
+
+  test("rejects a non-string trace id", () => {
+    expect(() => {
+      parseExternalRequestEvent(
+        JSON.stringify({
+          ntsPath: "nested",
+          ntsFile: "get.nts",
+          time: 42,
+          responseContent: "ok",
+          traceId: 7,
+        }),
+      )
+    }).toThrow("External event traceId must be a string.")
+  })
 })
