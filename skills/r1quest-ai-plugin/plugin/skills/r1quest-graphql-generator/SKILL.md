@@ -73,7 +73,9 @@ Rules:
 - Put variables in a `variables:` object, even when empty: `variables: {}`.
 - Use GraphQL variables instead of interpolating values into operation text.
 - Do not use `@i(...)` or `@f(...)` inside `.ntd` files.
-- Use `@env(KEY)` only for environment values needed in variables or auth data.
+- Use `@env(KEY)` only inside `.ntd` files (for environment values like auth).
+  Never put `@env(...)` in a `.nts` file — it is a compile error; reference env
+  values from `.nts` with `@i(...)` instead.
 
 ## Multiple References
 

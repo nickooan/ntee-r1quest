@@ -23,7 +23,7 @@
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "start:codex": "node ./dist/index.js -r ./example -ai codex",
-    "start:claude": "node ./dist/index.js -r ./example -ai claude",
+    "start:claude": "R1QUEST_ACP_DEBUG=1 node ./dist/index.js -r ./example -ai claude",
     "start:cursor": "node ./dist/index.js -r ./example -ai cursor",
     "start": "node ./dist/index.js -r ./example",
     "start:p": "node ./dist/index.js -r ./example -p request/example",

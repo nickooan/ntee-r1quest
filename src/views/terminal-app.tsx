@@ -27,7 +27,10 @@ import {
   type CustomCommand,
 } from "../runtime/custom-command/index.ts"
 import { Ai } from "./ai.tsx"
-import type { AcpAdaptorName } from "../runtime/acp/index.ts"
+import {
+  getAdaptorDisplayName,
+  type AcpAdaptorName,
+} from "../runtime/acp/index.ts"
 import {
   buildExternalEventCommand,
   startExternalEventListener,
@@ -169,7 +172,7 @@ export const TerminalApp = ({
   const {
     aiModeState,
     setAiModeState,
-    isAiPending,
+    isAiThinking,
     isAiOffline,
     aiPermissionRequest,
     startAiMode,
@@ -186,6 +189,8 @@ export const TerminalApp = ({
   })
   const height = fixedHeight ?? rows ?? defaultHeight
   const width = fixedWidth ?? columns ?? defaultWidth
+  // Label the AI overlay with the chosen agent (e.g. "Claude").
+  const aiAgentName = getAdaptorDisplayName(aiAdaptor)
 
   // History mode: cached endpoints (loaded on entry), the endpoint matching the
   // current filter/selection, and the formatted Results content. Computed
@@ -299,8 +304,9 @@ export const TerminalApp = ({
     keyboardSelectedCommand,
     frameIndex,
     aiModeState,
-    isAiPending,
+    isAiThinking,
     isAiOffline,
+    aiAgentName,
     historyModeState,
     historyContent,
   })
@@ -401,7 +407,7 @@ export const TerminalApp = ({
   }
 
   useEffect(() => {
-    if (!isPending && !isAiPending) {
+    if (!isPending && !isAiThinking) {
       return
     }
 
@@ -412,10 +418,10 @@ export const TerminalApp = ({
     return () => {
       clearInterval(interval)
     }
-  }, [isAiPending, isPending])
+  }, [isAiThinking, isPending])
 
   useEffect(() => {
-    if (!isCursorBlinkActive || isPending || isAiPending) {
+    if (!isCursorBlinkActive || isPending || isAiThinking) {
       return
     }
 
@@ -426,7 +432,7 @@ export const TerminalApp = ({
     return () => {
       clearTimeout(timeout)
     }
-  }, [cursorActivityId, isAiPending, isCursorBlinkActive, isPending])
+  }, [cursorActivityId, isAiThinking, isCursorBlinkActive, isPending])
 
   useEffect(() => {
     if (!externalEventSocket) {
@@ -1702,9 +1708,10 @@ export const TerminalApp = ({
             aiModeState.input,
           )}
           commandSuggestionIndex={aiModeState.commandSuggestionIndex}
-          isPending={isAiPending}
+          isPending={isAiThinking}
           isOffline={isAiOffline}
           pendingFrameIndex={frameIndex}
+          agentName={aiAgentName}
           permissionMessage={
             aiPermissionRequest
               ? formatAcpPermissionMessage(aiPermissionRequest)

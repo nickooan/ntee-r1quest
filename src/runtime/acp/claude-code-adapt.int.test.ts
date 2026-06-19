@@ -424,6 +424,73 @@ describe("Claude Code ACP adapter integration", () => {
     expect(claude.currentPermissionRequest).toBeUndefined()
   })
 
+  test("queues concurrent permission requests and resolves them in order", async () => {
+    const onPermissionRequest =
+      jest.fn<(request: ClaudeCodeAcpPermissionRequest) => void>()
+    const claude = initClaudeCodeAcp({ onPermissionRequest })
+
+    const base = createPermissionRequest()
+    const requestA: RequestPermissionRequest = {
+      ...base,
+      toolCall: { toolCallId: "tool-a", title: "A", status: "pending" },
+    }
+    const requestB: RequestPermissionRequest = {
+      ...base,
+      toolCall: { toolCallId: "tool-b", title: "B", status: "pending" },
+    }
+
+    let responseA: RequestPermissionResponse | undefined
+    let responseB: RequestPermissionResponse | undefined
+
+    promptMock.mockImplementation(async () => {
+      // Two permission requests issued concurrently within the same turn.
+      const a = clientHandler?.requestPermission(requestA).then((response) => {
+        responseA = response
+      })
+      const b = clientHandler?.requestPermission(requestB).then((response) => {
+        responseB = response
+      })
+
+      await Promise.all([a, b])
+
+      return { stopReason: "end_turn" } satisfies PromptResponse
+    })
+
+    await claude.run()
+    const promptResult = claude.write("run two commands")
+
+    await flushPromises()
+
+    // Only the first request is surfaced and active; the second waits in queue.
+    expect(onPermissionRequest).toHaveBeenCalledTimes(1)
+    expect(claude.currentPermissionRequest).toEqual(requestA)
+
+    // Answering the first surfaces the second.
+    await claude.write({
+      type: "permission",
+      decision: { type: "selected", optionId: "approved" },
+    })
+    await flushPromises()
+
+    expect(onPermissionRequest).toHaveBeenCalledTimes(2)
+    expect(claude.currentPermissionRequest).toEqual(requestB)
+
+    // Answering the second drains the queue and lets the turn complete.
+    await claude.write({
+      type: "permission",
+      decision: { type: "selected", optionId: "denied" },
+    })
+    await promptResult
+
+    expect(claude.currentPermissionRequest).toBeUndefined()
+    expect(responseA).toEqual({
+      outcome: { outcome: "selected", optionId: "approved" },
+    })
+    expect(responseB).toEqual({
+      outcome: { outcome: "selected", optionId: "denied" },
+    })
+  })
+
   test("notifies when the Claude ACP process exits", async () => {
     const onExit =
       jest.fn<

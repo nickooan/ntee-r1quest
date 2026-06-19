@@ -39,6 +39,7 @@ npx ntee-r1quest -r ./example/request
 - [Key Manual](#key-manual)
 - [Request History and Cache](#request-history-and-cache)
 - [AI Adapter](#ai-adapter)
+- [AI Debug Log](#ai-debug-log)
 - [Config](#config)
 
 **Writing requests**
@@ -382,6 +383,34 @@ If `-ai` is not provided, `ntee-r1quest` reads `.r1qconfig.yaml`. If no adapter
 is declared, `@ai` shows a configuration error instead of choosing one
 implicitly.
 
+### AI Debug Log
+
+For diagnosing AI sessions (for example a "thinking" indicator that seems stuck),
+set the `R1QUEST_ACP_DEBUG` environment variable to record the ACP exchange to a
+file:
+
+```bash
+# Logs to ~/.ntee-r1quest/acp-debug.log
+R1QUEST_ACP_DEBUG=1 r1q -r ./example/request -ai claude
+
+# Or write to a specific path
+R1QUEST_ACP_DEBUG=/tmp/acp.log r1q -r ./example/request -ai claude
+```
+
+Each line is timestamped and records the prompt lifecycle, so you can follow a
+turn end to end:
+
+- `prompt_sent` / `prompt_resolved` (with `stopReason`) / `prompt_failed` — the
+  turn opening and closing.
+- `session_update` — every update the agent streams, with its `kind` and (for
+  tool calls) `title` and `status`.
+- `permission_requested` / `permission_active` / `permission_resolved` — the
+  permission lifecycle.
+
+The log is disabled unless the variable is set, is best-effort, and never affects
+the app. Reproduce the issue, then read the file (for example
+`tail -f ~/.ntee-r1quest/acp-debug.log`).
+
 ## Config
 
 Config lookup checks the current directory first:
@@ -661,6 +690,9 @@ body {
 Rules and cautions:
 
 - `ref` paths are resolved relative to the `.nts` file.
+- `@env(...)` cannot be used in `.nts` files — it is a compile error
+  (`Unsupported macro operator: env`). Read env values in a `.ntd` and reference
+  them with `@i(...)`. See [`@env(KEY)`](#envkey).
 - `@f(...)` is only valid inside request body values.
 - `@f(...)` takes a literal file path, not an `@i(...)` macro.
 - File paths in `@f(...)` are resolved relative to the `.nts` file.
@@ -669,6 +701,17 @@ Rules and cautions:
 - Comments start with `//`.
 
 ## Macros
+
+At a glance — which macro is allowed where:
+
+| Macro       | `.ntd` files | `.nts` files          | Defaults (`or`)   |
+| ----------- | ------------ | --------------------- | ----------------- |
+| `@i(key)`   | ❌ no        | ✅ yes                | ✅ value position |
+| `@env(KEY)` | ✅ yes       | ❌ no (compile error) | ✅ value position |
+| `@f(path)`  | ❌ no        | ✅ body values only   | —                 |
+
+`or` defaults apply in **value position** (body, header, auth, `.ntd` values),
+not inside quoted strings — there, only plain `@i(key)` interpolates.
 
 ### `@i(key)`
 
@@ -739,6 +782,12 @@ type get
 
 auth bearer @i(token)
 ```
+
+> **`@env` is `.ntd`-only.** Writing `@env(...)` anywhere in a `.nts` file — a
+> value, a header, or inside a string — is a **compile error**
+> (`Unsupported macro operator: env`), not literal text. To use an environment
+> variable in a request, define it in a `.ntd` (as above) and read it with
+> `@i(...)`.
 
 **Defaults.** Use `@env(KEY or <value>)` to fall back when the variable is unset.
 The default must be an immediate string, number, or boolean:

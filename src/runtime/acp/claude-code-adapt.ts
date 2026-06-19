@@ -21,6 +21,7 @@ import {
   type SessionUpdate,
 } from "@agentclientprotocol/sdk"
 import { APP_NAME, VERSION } from "../version.ts"
+import { logAcpDebug } from "./acp-debug.ts"
 import {
   AcpConversationManager,
   type AcpConversation,
@@ -129,7 +130,10 @@ export class ClaudeCodeAcpAdapter {
   private process?: ChildProcessWithoutNullStreams
   private connection?: ClientSideConnection
   private sessionId?: string
-  private pendingPermission?: PendingPermission
+  // Permission requests are queued so concurrent requests are surfaced and
+  // answered one at a time; `activePermission` is the one shown to the UI.
+  private readonly pendingPermissions: PendingPermission[] = []
+  private activePermission?: PendingPermission
   private runPromise?: Promise<this>
   private readonly conversationManager: AcpConversationManager
   private isStopping = false
@@ -164,7 +168,7 @@ export class ClaudeCodeAcpAdapter {
   }
 
   get currentPermissionRequest(): ClaudeCodeAcpPermissionRequest | undefined {
-    return this.pendingPermission?.request
+    return this.activePermission?.request
   }
 
   get promptConversations(): ClaudeCodeAcpConversation[] {
@@ -292,9 +296,15 @@ export class ClaudeCodeAcpAdapter {
   stop(): void {
     this.isStopping = true
 
-    if (this.pendingPermission) {
-      this.pendingPermission.resolve(createCancelledPermissionResponse())
-      this.pendingPermission = undefined
+    const cancelled = createCancelledPermissionResponse()
+
+    if (this.activePermission) {
+      this.activePermission.resolve(cancelled)
+      this.activePermission = undefined
+    }
+
+    while (this.pendingPermissions.length > 0) {
+      this.pendingPermissions.shift()?.resolve(cancelled)
     }
 
     this.process?.kill()
@@ -331,16 +341,26 @@ export class ClaudeCodeAcpAdapter {
       trimmedText,
     )
 
+    logAcpDebug("prompt_sent", { messageId: conversation.id })
+
     try {
       const response = await this.connection.prompt({
         sessionId: this.sessionId,
         messageId: conversation.id,
         prompt,
       })
+      logAcpDebug("prompt_resolved", {
+        messageId: conversation.id,
+        stopReason: response.stopReason,
+      })
       this.conversationManager.completeConversation(conversation.id, response)
 
       return response
     } catch (error) {
+      logAcpDebug("prompt_failed", {
+        messageId: conversation.id,
+        error: error instanceof Error ? error.message : String(error),
+      })
       this.conversationManager.failConversation(conversation.id, error)
       this.reportError(error)
       throw error
@@ -350,46 +370,97 @@ export class ClaudeCodeAcpAdapter {
   private async handleSessionUpdate(
     notification: SessionNotification,
   ): Promise<void> {
-    this.conversationManager.recordConversationUpdate(notification.update)
+    const update = notification.update
+    logAcpDebug("session_update", {
+      kind: update.sessionUpdate,
+      // tool calls carry the status that reveals a background/in-progress turn.
+      title: "title" in update ? update.title : undefined,
+      status: "status" in update ? update.status : undefined,
+    })
+    this.conversationManager.recordConversationUpdate(update)
     await this.onResponse?.({
       sessionId: notification.sessionId,
-      update: notification.update,
+      update,
     })
   }
 
-  private async handlePermissionRequest(
+  private handlePermissionRequest(
     request: RequestPermissionRequest,
   ): Promise<RequestPermissionResponse> {
-    try {
-      const decision = await this.onPermissionRequest?.(request)
+    // Queue the request instead of holding a single slot. A second concurrent
+    // request used to overwrite the first, orphaning its promise — the agent
+    // then waited forever for that reply and the prompt turn never completed
+    // (the UI stayed "thinking" even after the response finished).
+    logAcpDebug("permission_requested", {
+      toolCallId: request.toolCall.toolCallId,
+      title: request.toolCall.title,
+      queued: this.pendingPermissions.length + (this.activePermission ? 1 : 0),
+    })
+    return new Promise<RequestPermissionResponse>((resolve) => {
+      this.pendingPermissions.push({ request, resolve })
 
-      if (decision) {
-        return toPermissionResponse(decision)
+      if (!this.activePermission) {
+        void this.activateNextPermission()
       }
+    })
+  }
 
-      return await new Promise<RequestPermissionResponse>((resolve) => {
-        this.pendingPermission = {
-          request,
-          resolve,
-        }
-      })
+  private async activateNextPermission(): Promise<void> {
+    const next = this.pendingPermissions.shift()
+    this.activePermission = next
+
+    if (!next) {
+      return
+    }
+
+    let decision: ClaudeCodeAcpPermissionDecision | void
+
+    try {
+      decision = await this.onPermissionRequest?.(next.request)
     } catch (error) {
       this.reportError(error)
-      return createCancelledPermissionResponse()
+      decision = { type: "cancelled" }
+    }
+
+    // stop() or a user response may have moved past this request while the
+    // handler awaited; if so it is already resolved, so leave it alone.
+    if (this.activePermission !== next) {
+      return
+    }
+
+    logAcpDebug("permission_active", {
+      toolCallId: next.request.toolCall.toolCallId,
+      autoDecided: Boolean(decision),
+    })
+
+    // A returned decision is handled immediately; otherwise the request stays
+    // active and is resolved later through write() (resolvePermission).
+    if (decision) {
+      this.activePermission = undefined
+      next.resolve(toPermissionResponse(decision))
+      void this.activateNextPermission()
     }
   }
 
   private resolvePermission(
     decision: ClaudeCodeAcpPermissionDecision,
   ): Promise<void> {
-    if (!this.pendingPermission) {
+    const active = this.activePermission
+
+    if (!active) {
       return Promise.reject(
         new Error("No Claude Code ACP permission request is pending."),
       )
     }
 
-    this.pendingPermission.resolve(toPermissionResponse(decision))
-    this.pendingPermission = undefined
+    logAcpDebug("permission_resolved", {
+      toolCallId: active.request.toolCall.toolCallId,
+      decision: decision.type,
+    })
+    this.activePermission = undefined
+    active.resolve(toPermissionResponse(decision))
+    // Surface the next queued request (if any) so it can be answered in turn.
+    void this.activateNextPermission()
 
     return Promise.resolve()
   }
