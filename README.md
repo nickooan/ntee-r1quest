@@ -539,7 +539,8 @@ Supported value types:
 - null
 - array
 - object
-- `@env(KEY)` / `@env(KEY or <default>)` environment variable macro
+- `@env(KEY)` / `@env(KEY or <default>)` environment variable macro — standalone
+  or embedded inside a bare value (e.g. `path: /todos/@env(id or 1)`)
 
 Rules and cautions:
 
@@ -550,6 +551,10 @@ Rules and cautions:
 - Keys may be bare identifiers such as `content-type`, or quoted strings when
   needed.
 - `.ntd` files can use `@env(KEY)`, but cannot use `@i(...)` or `@f(...)`.
+- `@env(...)` may stand alone as a value **or** be embedded inside a bare
+  (unquoted) value, where it resolves and is spliced into the surrounding text,
+  e.g. `path: /todos/@env(id or 1)` → `/todos/1`. Embedding works only in bare
+  values — inside a quoted string the `@env(...)` text stays literal.
 - Comments start with `//`.
 
 Good:
@@ -802,6 +807,25 @@ If the variable is unset and there is no default, compilation throws an error.
 To supply values at run time without exporting them, pass
 [`-env`](#cli-reference): `-env '{"API_TOKEN":"abc"}'` (values merge over
 `process.env` and win on duplicate keys).
+
+**Embedding in bare values.** `@env(...)` can also appear **inside** a bare
+(unquoted) value. It resolves and is spliced into the surrounding text, so you
+can build paths and identifiers from environment variables:
+
+```ntd
+path: /todos/@env(TODO_ID or 1)
+path-between: /todos/@env(TODO_ID or 1)/comments
+```
+
+With `TODO_ID` unset these compile to `/todos/1` and `/todos/1/comments`; with
+`TODO_ID=42` they become `/todos/42` and `/todos/42/comments`. A standalone
+`@env(...)` keeps its native type (e.g. a number default stays a number), while
+an embedded one is stringified into the value.
+
+> Embedding works only in **bare** values. Inside a **quoted** string the
+> `@env(...)` text is treated as literal characters — `path: "/todos/@env(id)"`
+> stores `/todos/@env(id)` verbatim. Likewise a literal `@` that is not a valid
+> `@env(...)` macro (e.g. `/users/@me`) is preserved as-is.
 
 ### `@f(path)`
 

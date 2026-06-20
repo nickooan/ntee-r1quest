@@ -41,6 +41,13 @@ Use these rules:
   unset. The default must be an immediate string, number, or boolean — never
   another macro. Examples: `@env(PORT or 8080)`, `@env(TOKEN or "dev")`,
   `@env(DEBUG or false)`.
+- `@env(...)` may stand alone as a value or be embedded inside a bare (unquoted)
+  value, where it resolves and is spliced into the surrounding text. Example:
+  `path: /todos/@env(id or 1)` compiles to `/todos/1` (or `/todos/<value>` when
+  set). A standalone `@env(...)` keeps its native type; an embedded one is
+  stringified. Embedding works only in bare values — inside a quoted string the
+  `@env(...)` text stays literal (e.g. `"/todos/@env(id)"` is verbatim), and a
+  non-macro `@` such as `/users/@me` is preserved as-is.
 - Do not use `@i(...)` in `.ntd` files.
 - Do not use `@f(...)` in `.ntd` files.
 - Quote strings that include `://`, `//`, commas, braces, brackets, or newlines.

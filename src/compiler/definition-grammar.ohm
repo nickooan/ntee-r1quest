@@ -95,7 +95,21 @@ R1QuestDefinition {
     = "\\" ("\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t")
 
   bareString
-    = bareStringChar+
+    = bareStringPart+
+
+  bareStringPart
+    = embeddedMacro
+    | bareStringChar
+
+  // A lexical @env(...) macro embedded inside a larger bare value, e.g.
+  // `/todos/@env(id or 1)`. Ohm forbids applying the syntactic `EnvMacro` rule
+  // from this lexical context, so the shape is mirrored here with explicit
+  // horizontal-space handling around the `or` default.
+  embeddedMacro
+    = optAt envMacroActionName "(" macroKey embeddedMacroDefault? ")"
+
+  embeddedMacroDefault
+    = horizontalSpace1 "or" horizontalSpace1 macroDefaultValue horizontalSpace
 
   bareStringChar
     = ~valueTerminator any
@@ -112,6 +126,9 @@ R1QuestDefinition {
 
   horizontalSpace
     = (" " | "\t")*
+
+  horizontalSpace1
+    = (" " | "\t")+
 
   objectKey
     = letter identifierPart*

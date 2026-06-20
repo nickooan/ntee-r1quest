@@ -1,0 +1,6 @@
+pathDefault: /todos/@env(EMBED_TEST_ID or 1)
+pathSet: /todos/@env(EMBED_TEST_ID or 1)
+pathBetween: /todos/@env(EMBED_TEST_ID or 1)/comments
+pathStringDefault: /todos/@env(EMBED_TEST_MISSING or "abc")
+literalAt: /users/@me
+plain: /todos/1
