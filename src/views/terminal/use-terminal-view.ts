@@ -205,6 +205,11 @@ export const useTerminalView = ({
       ? serializeEditModeContent(editModeState)
       : openViewFile?.content
   const content = openFileContent ?? historyContent ?? responseContent
+  // The Result pane text suitable for copying: the same content shown in the
+  // pane, but excluding the transient `pending…` animation frame, which is UI
+  // chrome rather than real output.
+  const resultContent =
+    openFileContent ?? historyContent ?? (isPending ? "" : responseContent)
   const contentLines = useMemo(() => normalizeLines(content), [content])
   const filePaneLayout = openViewFile
     ? buildFilePaneLayout(responsePaneWidth, viewHeight, contentLines.length)
@@ -339,6 +344,7 @@ export const useTerminalView = ({
     responseContentHeight,
     highlightedEntryIndex,
     content,
+    resultContent,
     contentLines,
     activeContentWidth,
     activeContentHeight,

@@ -54,6 +54,7 @@ import {
   recordInput,
   type ApiCallRecord,
 } from "../runtime/cache/index.ts"
+import { copyToClipboard } from "../runtime/clipboard.ts"
 import { formatAcpPermissionMessage } from "./terminal/ai-session.ts"
 import { CommandLine } from "./terminal/command-line.tsx"
 import { CommandSuggestionOverlay } from "./terminal/command-suggestions.tsx"
@@ -69,6 +70,10 @@ import { buildFilePaneLayout } from "./terminal/file-content.tsx"
 import { useFileNavigation } from "./terminal/file-navigation.ts"
 import { ResponsePane } from "./terminal/response-pane.tsx"
 import { CacheNoticeOverlay } from "./terminal/cache-notice-overlay.tsx"
+import {
+  CopiedNoticeOverlay,
+  CopyFailedNoticeOverlay,
+} from "./terminal/copied-notice-overlay.tsx"
 import { SearchNotFoundOverlay } from "./terminal/search-not-found-overlay.tsx"
 import { Sidebar } from "./terminal/sidebar.tsx"
 import { TerminalHeader } from "./terminal/terminal-header.tsx"
@@ -169,6 +174,9 @@ export const TerminalApp = ({
     null,
   )
   const [cacheErasedNotice, setCacheErasedNotice] = useState(false)
+  const [copiedNotice, setCopiedNotice] = useState(false)
+  // Failure message for `@report`/`@copy`; null when no failure notice is shown.
+  const [copyFailedNotice, setCopyFailedNotice] = useState<string | null>(null)
   const {
     aiModeState,
     setAiModeState,
@@ -272,6 +280,7 @@ export const TerminalApp = ({
     responseContentHeight,
     highlightedEntryIndex,
     content,
+    resultContent,
     contentLines,
     activeContentWidth,
     activeContentHeight,
@@ -560,6 +569,26 @@ export const TerminalApp = ({
       return true
     }
 
+    if (appCommand.command === "copy-report") {
+      // Copy exactly what the Result pane shows (sans the pending animation).
+      // Confirm only once the clipboard utility has accepted the text; surface a
+      // failure notice when there is nothing to copy or no clipboard tool.
+      if (resultContent.trim() === "") {
+        setCopyFailedNotice("Nothing to copy from the Result pane")
+        return true
+      }
+
+      void copyToClipboard(resultContent).then((copied) => {
+        if (copied) {
+          setCopiedNotice(true)
+        } else {
+          setCopyFailedNotice("No clipboard tool available")
+        }
+      })
+
+      return true
+    }
+
     return false
   }
 
@@ -689,11 +718,14 @@ export const TerminalApp = ({
     setCursorActivityId((currentValue) => currentValue + 1)
     setIsCursorBlinkActive(true)
 
-    // The cache-erased notice is modal: Enter/Esc dismisses it (and clears the
-    // submitted "@cc" text); nothing else is processed while it is shown.
-    if (cacheErasedNotice) {
+    // The cache-erased and copy notices are modal: Enter/Esc dismisses them
+    // (and clears the submitted "@cc"/"@report" text); nothing else is processed
+    // while one is shown.
+    if (cacheErasedNotice || copiedNotice || copyFailedNotice) {
       if (key.return || key.escape) {
         setCacheErasedNotice(false)
+        setCopiedNotice(false)
+        setCopyFailedNotice(null)
 
         if (mode === TerminalMode.View) {
           setViewModeState((state) => ({
@@ -1728,6 +1760,14 @@ export const TerminalApp = ({
       )}
       {cacheErasedNotice && (
         <CacheNoticeOverlay width={width} height={height} />
+      )}
+      {copiedNotice && <CopiedNoticeOverlay width={width} height={height} />}
+      {copyFailedNotice && (
+        <CopyFailedNoticeOverlay
+          width={width}
+          height={height}
+          message={copyFailedNotice}
+        />
       )}
     </Box>
   )

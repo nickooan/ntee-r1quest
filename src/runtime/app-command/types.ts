@@ -7,7 +7,7 @@ export enum TerminalMode {
   History = "history",
 }
 
-export type AppActionCommand = "exit" | "reload" | "clean-cache"
+export type AppActionCommand = "exit" | "reload" | "clean-cache" | "copy-report"
 
 export type ParsedAppCommandInput = {
   source: string

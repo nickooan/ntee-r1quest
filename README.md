@@ -58,7 +58,10 @@ npx ntee-r1quest -r ./example/request
 
 ## Quick Start
 
-`ntee-r1quest` targets **Node.js 24 or newer** (`node --version`).
+`ntee-r1quest` targets **Node.js 24 or newer** (`node --version`) and runs on
+**macOS and Linux only**. Windows is not supported — some features (such as
+`@report` clipboard copy) shell out to platform tools that are unavailable
+there; use WSL if you are on Windows.
 
 Run a request collection with `npx`:
 
@@ -143,7 +146,15 @@ Action commands run a task instead of switching modes:
 | -------------- | ------- | ----------------------------------------------- |
 | `@reload`      |         | Reload config and restart the terminal runtime. |
 | `@clean-cache` | `@cc`   | Clear input history and request history.        |
+| `@report`      | `@copy` | Copy the Result pane content to the clipboard.  |
 | `@exit`        | `@quit` | Exit the app.                                   |
+
+`@report` (alias `@copy`) copies exactly what the Result pane shows — the
+response, an open file, or a history record — to the system clipboard, excluding
+the loading animation and pane borders. On success it shows a confirmation
+overlay; if there is nothing to copy or no clipboard tool is available, it shows
+a failure overlay instead. Press Enter to dismiss either one. Clipboard support
+is macOS and Linux only (see [Quick Start](#quick-start)).
 
 You can also press Shift+Tab to cycle the three main modes:
 
