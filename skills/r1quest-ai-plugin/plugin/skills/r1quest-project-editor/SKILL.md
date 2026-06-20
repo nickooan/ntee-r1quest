@@ -47,7 +47,10 @@ When updating `.ntd` files:
   owns that concept.
 - Add new keys near related keys.
 - Quote strings containing `://`, `//`, commas, braces, brackets, or newlines.
-- Use `@env(KEY)` for secrets, tokens, and environment-specific credentials.
+- Use `@env(KEY)` for secrets, tokens, and environment-specific credentials. It
+  may stand alone or be embedded inside a bare (unquoted) value — e.g.
+  `path: /todos/@env(id or 1)` resolves to `/todos/1`. Embedding does not work in
+  quoted strings, where `@env(...)` stays literal.
 
 When updating `.nts` files:
 
