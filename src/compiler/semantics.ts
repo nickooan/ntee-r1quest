@@ -439,8 +439,13 @@ export const definitionSemantics = definitionGrammar
       return parseQuotedString(this.sourceString)
     },
 
-    bareString(_) {
-      return this.sourceString.trim()
+    // A bare value may embed @env(...) macros (e.g. `/todos/@env(id or 1)`).
+    // Resolve each embedded macro and concatenate it with the literal text.
+    bareString(parts) {
+      return parts.children
+        .map((part) => part.toBareSegment())
+        .join("")
+        .trim()
     },
 
     number(_sign, _digits, _dot, _fraction, _terminator) {
@@ -453,6 +458,28 @@ export const definitionSemantics = definitionGrammar
 
     null(_value, _terminator) {
       return null
+    },
+  })
+  // Renders one segment of a bare value to its string contribution: literal
+  // characters pass through, while an embedded @env(...) macro is resolved and
+  // stringified so it can be spliced into the surrounding text.
+  .addOperation<string>("toBareSegment()", {
+    bareStringPart(part) {
+      return part.toBareSegment()
+    },
+
+    embeddedMacro(_at, actionName, _open, key, defaultNode, _close) {
+      return stringifyMacroValue(
+        resolveEnvMacro(
+          actionName.sourceString,
+          key.sourceString,
+          readMacroDefault(defaultNode),
+        ),
+      )
+    },
+
+    bareStringChar(_) {
+      return this.sourceString
     },
   })
   .addOperation<string>("toKey()", {
@@ -477,6 +504,10 @@ export const definitionSemantics = definitionGrammar
   // string/number/boolean value, never a reference.
   .addOperation<ScopeValue>("toDefaultValue()", {
     MacroDefault(_or, value) {
+      return value.toDefaultValue()
+    },
+
+    embeddedMacroDefault(_sp1, _or, _sp2, value, _sp3) {
       return value.toDefaultValue()
     },
 
@@ -647,17 +678,24 @@ const interpolateMacros = (
         undefined,
       )
 
-      if (resolvedValue === null) {
-        return "null"
-      }
-
-      if (typeof resolvedValue === "object") {
-        return JSON.stringify(resolvedValue)
-      }
-
-      return String(resolvedValue)
+      return stringifyMacroValue(resolvedValue)
     },
   )
+}
+
+// Renders a macro's resolved value for splicing into surrounding text. Mirrors
+// the coercion used when interpolating @i(...) macros so embedded @env(...)
+// macros stringify consistently.
+const stringifyMacroValue = (value: ScopeValue): string => {
+  if (value === null) {
+    return "null"
+  }
+
+  if (typeof value === "object") {
+    return JSON.stringify(value)
+  }
+
+  return String(value)
 }
 
 const toHeaderValue = (value: ScopeValue): HeaderValue => {

@@ -358,6 +358,35 @@ describe("compiler", () => {
     })
   })
 
+  describe("embedded @env macros in bare values", () => {
+    afterEach(() => {
+      setEnvOverrides({})
+      delete process.env.EMBED_TEST_ID
+    })
+
+    test("resolves embedded macros, using defaults when the env var is unset", () => {
+      delete process.env.EMBED_TEST_ID
+
+      expect(buildItermediateObject("test/data/embedded-env.ntd", {})).toEqual({
+        pathDefault: "/todos/1",
+        pathSet: "/todos/1",
+        pathBetween: "/todos/1/comments",
+        pathStringDefault: "/todos/abc",
+        literalAt: "/users/@me",
+        plain: "/todos/1",
+      })
+    })
+
+    test("splices the resolved env value into the surrounding path", () => {
+      process.env.EMBED_TEST_ID = "42"
+
+      const result = buildItermediateObject("test/data/embedded-env.ntd", {})
+
+      expect(result.pathSet).toBe("/todos/42")
+      expect(result.pathBetween).toBe("/todos/42/comments")
+    })
+  })
+
   test("compiles macro body values", () => {
     expect(
       compileFile("test/data/compiler-macro-body.nts", CompileSourceType.File),
