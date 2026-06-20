@@ -3,6 +3,22 @@
   "version": "0.13.1",
   "homepage": "https://codeberg.org/nickoan/ntee-r1quest",
   "license": "GPL-3.0-only",
+  "keywords": [
+    "http",
+    "http-client",
+    "rest",
+    "rest-client",
+    "api",
+    "api-client",
+    "graphql",
+    "cli",
+    "tui",
+    "terminal",
+    "postman",
+    "request",
+    "curl",
+    "ai"
+  ],
   "main": "dist/index.js",
   "bin": {
     "ntee-r1quest": "./dist/index.js",
