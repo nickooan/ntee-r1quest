@@ -197,8 +197,17 @@ export const useTerminalView = ({
         externalContent,
         isPending,
         frameIndex,
+        width: responseContentWidth,
       }),
-    [response, localError, error, externalContent, isPending, frameIndex],
+    [
+      response,
+      localError,
+      error,
+      externalContent,
+      isPending,
+      frameIndex,
+      responseContentWidth,
+    ],
   )
   const openFileContent =
     openViewFile && mode === TerminalMode.Edit && editModeState

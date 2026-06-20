@@ -1,10 +1,5 @@
 import type { ApiCallRecord } from "../../runtime/cache/index.ts"
-
-const indentBlock = (text: string, pad = "  "): string =>
-  text
-    .split("\n")
-    .map((line) => (line.length > 0 ? pad + line : line))
-    .join("\n")
+import { indentBlock, sectionRule } from "./section-format.ts"
 
 // Pretty-prints a header/body value: JSON objects (or JSON-looking strings) are
 // indented, everything else is shown as-is.
@@ -45,11 +40,6 @@ const formatHeaders = (headers: Record<string, unknown>): string => {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, value]) => `${name}: ${String(value)}`)
     .join("\n")
-}
-
-const sectionRule = (label: string, width: number): string => {
-  const prefix = `── ${label} `
-  return prefix + "─".repeat(Math.max(3, width - prefix.length))
 }
 
 /**

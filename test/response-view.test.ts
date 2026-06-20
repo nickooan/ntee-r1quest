@@ -8,6 +8,7 @@ import {
   formatResponseHeaders,
   formatPending,
 } from "../src/views/response.tsx"
+import { sectionRule } from "../src/views/terminal/section-format.ts"
 
 describe("response view", () => {
   test("formats response headers as key value lines", () => {
@@ -62,7 +63,7 @@ describe("response view", () => {
 
   test("formats terminal error output", () => {
     expect(formatError(new Error("Unable to connect."))).toBe(
-      `--------------- Error ---------------
+      `${sectionRule("Error", 60)}
 
 Unable to connect.`,
     )
@@ -95,24 +96,24 @@ Unable to connect.`,
       response,
     )
 
-    expect(formatError(error))
-      .toBe(`--------------- Response of get /missing-resource ---------------
-
+    expect(formatError(error)).toBe(`/missing-resource [GET]
 404 Not Found
 
---------------- Headers ---------------
+${sectionRule("Request", 60)}
+URL     https://ntee.io/missing-resource?debug=true
+Method  GET
 
-content-type: application/json
-x-request-id: error-123
+${sectionRule("Response", 60)}
+Status  404 Not Found
 
---------------- Body ---------------
+Headers
+  content-type: application/json
+  x-request-id: error-123
 
-{
-  "message": "Not found"
-}
-
---------------- End of get /missing-resource ---------------
-`)
+Body
+  {
+    "message": "Not found"
+  }`)
   })
 
   test("formats a full response with status headers and body", () => {
@@ -138,28 +139,28 @@ x-request-id: error-123
       request: {},
     }
 
-    expect(formatResponse(response))
-      .toBe(`--------------- Response of get /xxx/xx/xxx ---------------
-
+    expect(formatResponse(response)).toBe(`/xxx/xx/xxx [GET]
 200 OK
 
---------------- Headers ---------------
+${sectionRule("Request", 60)}
+URL     https://ntee.io/xxx/xx/xxx
+Method  GET
 
-content-type: application/json
-x-request-id: abc-123
+${sectionRule("Response", 60)}
+Status  200 OK
 
---------------- Body ---------------
+Headers
+  content-type: application/json
+  x-request-id: abc-123
 
-{
-  "content": [
-    {
-      "name": "abc"
-    }
-  ]
-}
-
---------------- End of get /xxx/xx/xxx ---------------
-`)
+Body
+  {
+    "content": [
+      {
+        "name": "abc"
+      }
+    ]
+  }`)
   })
 
   test("adds the trace id below the status line when present", () => {
@@ -181,11 +182,11 @@ x-request-id: abc-123
 
     const traced = formatResponse(response, "batch-42")
 
-    // The trace id sits at the bottom of the status section, above Headers.
+    // The trace id sits under the status line, above the Request section.
     expect(traced).toContain(`200 OK
 Trace: batch-42
 
---------------- Headers ---------------`)
+${sectionRule("Request", 60)}`)
   })
 
   test("formats a full text response with headers and multiline body", () => {
@@ -205,22 +206,22 @@ Trace: batch-42
       request: {},
     }
 
-    expect(formatResponse(response))
-      .toBe(`--------------- Response of post /text-response ---------------
-
+    expect(formatResponse(response)).toBe(`/text-response [POST]
 200 OK
 
---------------- Headers ---------------
+${sectionRule("Request", 60)}
+URL     /text-response?line=2
+Method  POST
 
-content-type: text/plain
-x-request-id: text-123
+${sectionRule("Response", 60)}
+Status  200 OK
 
---------------- Body ---------------
+Headers
+  content-type: text/plain
+  x-request-id: text-123
 
-line 1
-line 2
-
---------------- End of post /text-response ---------------
-`)
+Body
+  line 1
+  line 2`)
   })
 })
