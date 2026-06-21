@@ -1,9 +1,10 @@
-import type { AxiosResponse } from "axios"
+import { isAxiosError, type AxiosResponse } from "axios"
 import {
   compileFile,
   CompileSourceType,
   parseEnvOverrides,
   setEnvOverrides,
+  type ScopeObject,
 } from "../compiler/semantics.ts"
 import { resolveAdaptorName, type AcpAdaptorName } from "./acp/index.ts"
 import {
@@ -70,6 +71,32 @@ const normalizeSource = (source: string): string => {
   return trimmedSource.endsWith(".nts") ? trimmedSource : `${trimmedSource}.nts`
 }
 
+// Persists one call to the cache. Awaited so one-shot CLI runs persist the
+// entry before the process exits.
+const recordCall = async (
+  scopeObject: ScopeObject,
+  response: AxiosResponse,
+  startedAt: number,
+  traceId?: string,
+): Promise<void> => {
+  await recordApiCall({
+    at: startedAt,
+    durationMs: Date.now() - startedAt,
+    traceId,
+    request: {
+      url: scopeObject.url,
+      method: scopeObject.method,
+      headers: scopeObject.headers,
+      body: scopeObject.body,
+    },
+    response: {
+      status: response.status,
+      headers: response.headers as Record<string, unknown>,
+      data: response.data,
+    },
+  })
+}
+
 const runRequest = async (options: ExecuteOptions): Promise<AxiosResponse> => {
   const previousWorkingDirectory = process.cwd()
 
@@ -82,28 +109,31 @@ const runRequest = async (options: ExecuteOptions): Promise<AxiosResponse> => {
 
     const scopeObject = compileFile(options.source, CompileSourceType.File)
     const startedAt = Date.now()
-    const response = await executeRequest(scopeObject)
 
-    // Record successful calls only; failures throw above and are skipped.
-    // Awaited so one-shot CLI runs persist the entry before the process exits.
-    await recordApiCall({
-      at: startedAt,
-      durationMs: Date.now() - startedAt,
-      traceId: options.traceId,
-      request: {
-        url: scopeObject.url,
-        method: scopeObject.method,
-        headers: scopeObject.headers,
-        body: scopeObject.body,
-      },
-      response: {
-        status: response.status,
-        headers: response.headers as Record<string, unknown>,
-        data: response.data,
-      },
-    })
+    try {
+      const response = await executeRequest(scopeObject)
+      await recordCall(scopeObject, response, startedAt, options.traceId)
 
-    return response
+      return response
+    } catch (error) {
+      // A request that reached the server but returned a non-2xx status throws,
+      // yet still carries a response with a status — record it before
+      // re-throwing so failed calls are kept in history. Pure runtime failures
+      // (network errors, missing url, unsupported content type, ...) carry no
+      // response and are skipped.
+      const failedResponse = isAxiosError(error) ? error.response : undefined
+
+      if (failedResponse && typeof failedResponse.status === "number") {
+        await recordCall(
+          scopeObject,
+          failedResponse,
+          startedAt,
+          options.traceId,
+        )
+      }
+
+      throw error
+    }
   } finally {
     process.chdir(previousWorkingDirectory)
   }

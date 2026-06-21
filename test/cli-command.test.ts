@@ -42,6 +42,8 @@ const {
   resolveSock,
 } = await import("../src/runtime/cli-command.ts")
 const { initializeHomeConfig } = await import("../src/runtime/config.ts")
+const { getApiCall, formatEndpointLabel } =
+  await import("../src/runtime/cache/index.ts")
 
 const server = setupServer()
 
@@ -239,6 +241,39 @@ describe("CLI command runtime", () => {
     await expect(executePathArgument(["-r", "test/data"])).resolves.toBe(
       undefined,
     )
+  })
+
+  test("records failed responses with a status but skips runtime errors", async () => {
+    const root = join(process.cwd(), "test/data")
+    const endpoint = formatEndpointLabel("https://ntee.io", "get")
+
+    // A 2xx response is recorded as before.
+    server.use(
+      http.get("https://ntee.io", () =>
+        HttpResponse.json({ ok: true }, { status: 200 }),
+      ),
+    )
+    await execute("get", root)
+    expect(getApiCall(endpoint)?.response.status).toBe(200)
+
+    // A non-2xx response throws (axios default) but still carries a response,
+    // so it is recorded.
+    server.use(
+      http.get("https://ntee.io", () =>
+        HttpResponse.json({ message: "Not found" }, { status: 404 }),
+      ),
+    )
+    await expect(execute("get", root)).rejects.toThrow()
+
+    const failed = getApiCall(endpoint)
+    expect(failed?.response.status).toBe(404)
+    expect(failed?.response.data).toEqual({ message: "Not found" })
+
+    // A runtime error (network failure, no response) throws and is NOT
+    // recorded: the previous 404 record is left untouched.
+    server.use(http.get("https://ntee.io", () => HttpResponse.error()))
+    await expect(execute("get", root)).rejects.toThrow()
+    expect(getApiCall(endpoint)?.response.status).toBe(404)
   })
 
   test("uses .r1qconfig.yaml root from the current directory", () => {

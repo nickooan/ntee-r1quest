@@ -1,9 +1,14 @@
 # ntee-r1quest
 
 A Postman-like terminal app for running HTTP requests from a **file-based
-collection**. Collections are plain text, so teams can keep them in Git,
-generate them from OpenAPI/GraphQL specs, review changes in pull requests, and
-run the same request set locally or in CI.
+collection**. Collections are plain text — `.nts` requests and `.ntd` data — so
+teams can keep them in Git, generate them from OpenAPI/GraphQL specs, review
+changes in pull requests, and run the same request set locally or in CI.
+
+It also pairs with your **local AI coding agent**. In `@ai` mode you talk to
+Claude Code, Codex, or Cursor right inside the app: the agent can write and edit
+requests, trigger them, and have the responses reflected live in the Result
+pane — so you build and debug an API flow together without leaving the terminal.
 
 ```bash
 npx ntee-r1quest -r ./example/request
@@ -15,15 +20,19 @@ npx ntee-r1quest -r ./example/request
 
 - 📁 **Plain-text collections** — `.nts` requests and `.ntd` data you can version
   control and review.
-- 🖥️ **Modal terminal UI** — run, view, edit, search, browse history, and chat
-  with a local AI agent.
+- 🤖 **Collaborate with your local AI agent** — in `@ai` mode, pair with Claude
+  Code, Codex, or Cursor right inside the app. The agent can write and edit
+  requests, trigger them, and have the results reflected live in the Result pane,
+  so you build and debug API flows together.
+- 🖥️ **Modal terminal UI** — run, view, edit, search, and browse history without
+  leaving the keyboard.
 - 🔁 **Reusable data + environment macros**, now with defaults: `@i(key or …)`,
   `@env(KEY or …)`, plus file uploads via `@f(…)`.
 - ⚡ **One-shot execution** (`-p`) for scripts and CI, with env injection
   (`-env`) and trace tagging (`-ti`).
 - 🕘 **History & cache** — browse past request/response pairs (grouped by trace),
   with input history and editor autosuggestions.
-- 🤖 **GraphQL-friendly**, with an AI plugin (skills) for Claude Code, Codex, and
+- 🧩 **GraphQL-friendly**, with an AI plugin (skills) for Claude Code, Codex, and
   Cursor.
 
 ## Index
@@ -86,6 +95,22 @@ First-time setup — create the home config with a short wizard (when
 ```bash
 npx ntee-r1quest --init
 ```
+
+### Install from source
+
+You can also install directly from source and link it into your global npm. The
+script clones the Codeberg repo into `~/.ntee-r1quest/source`, builds, and links
+the `r1q` / `ntee-r1quest` commands:
+
+```bash
+curl -fsSL https://codeberg.org/nickoan/ntee-r1quest/raw/branch/main/install.sh | sh
+```
+
+Re-run the same command any time to **update** to the latest source (it pulls and
+rebuilds in place — no re-link needed). Pin a specific version with
+`NTEE_REF=v0.13.3`, or clone from a mirror with `NTEE_REPO=<url>`. Requires
+`git`, Node.js 24+, and `npm`; only `ntee-r1quest` is built from source —
+dependencies still come from your configured registry.
 
 ## CLI Reference
 
