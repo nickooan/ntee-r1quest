@@ -1,6 +1,7 @@
 import type { AppCommandDefinition } from "../types.ts"
 import { AiCommand } from "./ai.ts"
 import { CleanCacheCommand } from "./clean-cache.ts"
+import { CopyReportCommand } from "./copy-report.ts"
 import { EditCommand } from "./edit.ts"
 import { ExitCommand } from "./exit.ts"
 import { HistoryCommand } from "./history.ts"
@@ -19,11 +20,13 @@ export const appCommands: AppCommandDefinition[] = [
   new ReloadCommand(),
   new CleanCacheCommand(),
   new HistoryCommand(),
+  new CopyReportCommand(),
 ]
 
 export {
   AiCommand,
   CleanCacheCommand,
+  CopyReportCommand,
   EditCommand,
   ExitCommand,
   HistoryCommand,

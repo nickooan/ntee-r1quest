@@ -12,6 +12,10 @@ import {
 } from "./src/runtime/cli-command.ts"
 import { resolveAdaptorName } from "./src/runtime/acp/index.ts"
 import {
+  formatInstallClaudePluginResult,
+  installClaudePlugin,
+} from "./src/runtime/claude-plugin.ts"
+import {
   clearRuntimeConfigCache,
   getHomeConfigPath,
   initializeHomeConfig,
@@ -90,6 +94,24 @@ const formatInitializeResult = (result: InitializeHomeConfigResult): string => {
   }
 
   return `${output.join("\n")}\n`
+}
+
+const runInstallClaudePluginArgument = (args: string[]): boolean => {
+  if (!parseArguments(args).installClaudePlugin) {
+    return false
+  }
+
+  const result = installClaudePlugin()
+
+  process.stdout.write(formatInstallClaudePluginResult(result))
+
+  if (!result.ok) {
+    // Nothing installed (npm install without the plugin source); fail the run so
+    // scripts can react, after pointing the user to the Codeberg source.
+    process.exitCode = 1
+  }
+
+  return true
 }
 
 const runInitArgument = async (args: string[]): Promise<boolean> => {
@@ -219,7 +241,7 @@ if (import.meta.main) {
 
   if (immediateCommandOutput !== undefined) {
     process.stdout.write(immediateCommandOutput)
-  } else {
+  } else if (!runInstallClaudePluginArgument(args)) {
     const didRunInitArgument = await runInitArgument(args)
 
     if (!didRunInitArgument) {

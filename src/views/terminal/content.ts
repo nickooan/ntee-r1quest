@@ -7,6 +7,8 @@ export type TerminalContentOptions = {
   externalContent?: string
   isPending?: boolean
   frameIndex: number
+  // Result pane content width, used to size the response/error section rules.
+  width?: number
 }
 
 export const formatTerminalContent = ({
@@ -15,13 +17,14 @@ export const formatTerminalContent = ({
   externalContent,
   isPending,
   frameIndex,
+  width,
 }: TerminalContentOptions): string => {
   if (isPending) {
     return formatPending(frameIndex)
   }
 
   if (error !== undefined) {
-    return formatError(error)
+    return formatError(error, undefined, width)
   }
 
   if (externalContent !== undefined) {
@@ -29,7 +32,7 @@ export const formatTerminalContent = ({
   }
 
   if (response) {
-    return formatResponse(response)
+    return formatResponse(response, undefined, width)
   }
 
   return ""

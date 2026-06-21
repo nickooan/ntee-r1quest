@@ -1,4 +1,14 @@
+import json
 from pathlib import Path
+
+
+def app_version():
+    """Read the current version from package.json so the demo never goes stale."""
+    try:
+        return json.loads(Path("package.json").read_text()).get("version", "")
+    except Exception:
+        return ""
+
 
 WIDTH = 620
 HEIGHT = 340
@@ -203,18 +213,18 @@ def draw_ai_overlay(frame):
     rect(frame, x - 6, y - 6, w + 12, h + 12, COLORS["bg"])
     draw_box(frame, x, y, w, h, color=COLORS["dim"])
     draw_text(frame, x - 10, y - 8, "ESC", COLORS["fg"], COLORS["dim"])
-    draw_text(frame, x + 202, y - 8, " AI CHAT ", COLORS["fg"], COLORS["bg"])
+    draw_text(frame, x + 156, y - 8, " CLAUDE CHAT ", COLORS["fg"], COLORS["bg"])
     draw_rows(
         frame,
         x + 16,
         y + 24,
         [
-            "USER: ADD A QUICK HEADER",
+            "USER: ADD ACCEPT HEADER + RUN",
             "",
-            "------------- AI RESPONSE -------------",
-            "OPENED REQUEST/FOLDER-1/GET-POST.",
-            "ADD:",
-            "HEADER ACCEPT, APPLICATION/JSON",
+            "------- CLAUDE RESPONSE -------",
+            "EDITED FOLDER-1/GET-POST.NTS",
+            "+ HEADER ACCEPT, APPLICATION/JSON",
+            "RAN IT: 200 OK, SHOWN IN RESULT",
             "",
             "ESC HIDES CHAT; SESSION CONTINUES.",
             ("> APPLY CHANGE_", COLORS["cyan"], None),
@@ -229,7 +239,7 @@ def draw_app(scene):
     rect(frame, 0, 0, WIDTH, 28, COLORS["bar"])
     draw_text(frame, 18, 9, "NTEE R1QUEST", COLORS["green"])
     draw_text(frame, 18, 42, ">_ NTEE R1QUEST", COLORS["fg"])
-    draw_text(frame, 18, 62, "VER: 0.5.0", COLORS["green"])
+    draw_text(frame, 18, 62, f"VER: {app_version()}", COLORS["green"])
     draw_text(frame, 18, 82, "TIME SPEND 183 MS,", COLORS["dim"])
 
     left_x = 18
@@ -350,14 +360,14 @@ SCENES = [
             "  > FOLDER-2",
         ],
         "result": [
-            "RESPONSE OF GET /TODOS/1",
+            "/TODOS/1 [GET]",
             ("200 OK", COLORS["green"], None),
-            "",
+            "-- REQUEST ---------",
+            "URL     @I(HOST)/TODOS/1",
+            "METHOD  GET",
+            "-- RESPONSE --------",
+            "STATUS  200 OK",
             "HEADERS",
-            "CONTENT-TYPE: APPLICATION/JSON",
-            "",
-            "BODY",
-            '{ "USERID": 1, "ID": 1 }',
         ],
         "prompt": "@QUERY >EXAMPLE_",
     },
@@ -372,14 +382,18 @@ SCENES = [
         ],
         "title": "SEARCHING",
         "result": [
-            "RESPONSE OF GET /TODOS/1",
+            "/TODOS/1 [GET]",
             "200 OK",
-            "",
+            "-- RESPONSE --------",
+            "STATUS  200 OK",
             "HEADERS",
-            ("CONTENT-TYPE: APPLICATION/JSON", COLORS["black"], COLORS["yellow"]),
-            "",
+            (
+                "  CONTENT-TYPE: APPLICATION/JSON",
+                COLORS["black"],
+                COLORS["yellow"],
+            ),
             "BODY",
-            '{ "TITLE": "DELECTUS AUT AUTEM" }',
+            '  { "TITLE": "DELECTUS AUT AUTEM" }',
         ],
         "prompt": "@SEARCH >CONTENT-TYPE_",
     },
@@ -446,7 +460,7 @@ SCENES = [
             "5 |",
             "6 | HEADER ACCEPT, @I(CONTENT)",
             "",
-            "AI IS FOR QUICK LOCAL ACTIONS.",
+            "AI CAN WRITE AND RUN REQUESTS.",
         ],
         "prompt": "@AI >APPLY CHANGE_",
         "ai": True,

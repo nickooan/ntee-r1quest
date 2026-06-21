@@ -1,5 +1,6 @@
 import { describe, expect, test } from "@jest/globals"
 import {
+  isAppCopyReportCommand,
   isAppExitCommand,
   isAppReloadCommand,
   parseAppCommandInput,
@@ -30,6 +31,9 @@ describe("app commands", () => {
     expect(isAppExitCommand("@exit")).toBe(true)
     expect(isAppExitCommand("@quit")).toBe(true)
     expect(isAppReloadCommand("@reload")).toBe(true)
+    expect(isAppCopyReportCommand("@report")).toBe(true)
+    expect(isAppCopyReportCommand("@copy")).toBe(true)
+    expect(isAppCopyReportCommand("@reload")).toBe(false)
   })
 
   test("resolves terminal command kinds", () => {
@@ -51,6 +55,14 @@ describe("app commands", () => {
     expect(resolveAppInputCommand("@clean-cache")).toEqual({
       type: "app",
       command: "clean-cache",
+    })
+    expect(resolveAppInputCommand("@report")).toEqual({
+      type: "app",
+      command: "copy-report",
+    })
+    expect(resolveAppInputCommand("@copy")).toEqual({
+      type: "app",
+      command: "copy-report",
     })
     expect(resolveAppInputCommand("request/example")).toEqual({
       type: "request",

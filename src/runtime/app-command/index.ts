@@ -9,6 +9,7 @@ import {
 export {
   AiCommand,
   CleanCacheCommand,
+  CopyReportCommand,
   EditCommand,
   ExitCommand,
   HistoryCommand,
@@ -54,6 +55,10 @@ export const isAppExitCommand = (command: string): boolean => {
 
 export const isAppReloadCommand = (command: string): boolean => {
   return resolveAppCommand(command) === "reload"
+}
+
+export const isAppCopyReportCommand = (command: string): boolean => {
+  return resolveAppCommand(command) === "copy-report"
 }
 
 export const resolveModeCommand = (command: string): TerminalMode | null => {

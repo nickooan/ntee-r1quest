@@ -42,5 +42,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Finder (MacOS) folder config
 .DS_Store
 
+# Python bytecode cache (from bin/scripts/*.py)
+__pycache__/
+*.pyc
+
 examples/.claude
 .claude

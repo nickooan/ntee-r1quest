@@ -2,16 +2,15 @@ import { isAxiosError, type AxiosResponse } from "axios"
 import type { AxiosResponseHeaders, RawAxiosResponseHeaders } from "axios"
 import { useEffect, useState } from "react"
 import { render, Text } from "ink"
+import { indentBlock, sectionRule } from "./terminal/section-format.ts"
 
 type HeaderValue = string | number | boolean | null | string[] | undefined
 type ResponseHeaders = RawAxiosResponseHeaders | AxiosResponseHeaders
 
-const sectionBorder = "---------------"
+// Section-rule width used when a pane width is not supplied (e.g. one-shot
+// output). Matches the history view's default so both read the same.
+const defaultSectionWidth = 60
 const pendingFrames = [".", "..", "..."]
-
-// A section divider, e.g. "--------------- Headers ---------------".
-const formatSectionTitle = (title: string): string =>
-  `${sectionBorder} ${title} ${sectionBorder}`
 
 // ── Header formatting ──────────────────────────────────────────────────────
 
@@ -69,57 +68,60 @@ const formatRequestPath = (url?: string, baseURL?: string): string => {
   }
 }
 
-const formatRequestDescription = (response: AxiosResponse): string => {
-  const method = String(response.config.method ?? "request").toLowerCase()
-  const path = formatRequestPath(response.config.url, response.config.baseURL)
-
-  return `${method} ${path}`
-}
-
 // ── Output assembly ────────────────────────────────────────────────────────
 
-// Joins the given blocks with a single blank line between each, dropping any
-// empty block (e.g. a body-less 204 or a response with no headers).
-const joinSections = (sections: string[]): string =>
-  sections.filter((section) => section !== "").join("\n\n")
-
+/**
+ * Renders a live response as a sectioned Results view matching the history
+ * view: a `<path> [<METHOD>]` summary, the status (and trace id when present),
+ * then Request and Response blocks with aligned fields and indented headers and
+ * body. `width` sizes the section rules to the Result pane.
+ */
 export const formatResponse = (
   response: AxiosResponse,
   traceId?: string,
+  width = defaultSectionWidth,
 ): string => {
-  const requestDescription = formatRequestDescription(response)
+  const method = String(response.config.method ?? "request").toUpperCase()
+  const path = formatRequestPath(response.config.url, response.config.baseURL)
+  const url = response.config.url ?? "(unknown)"
   const statusLine = `${response.status} ${response.statusText}`.trim()
   const headers = formatResponseHeaders(response.headers)
   const body = formatResponseBody(response.data)
 
-  // When the request was tagged with a trace id, show it as the last line of
-  // the status section — below the status line, above the Headers section.
-  const statusSection = traceId
-    ? `${statusLine}\nTrace: ${traceId}`
-    : statusLine
-
-  const output = joinSections([
-    formatSectionTitle(`Response of ${requestDescription}`),
-    statusSection,
-    formatSectionTitle("Headers"),
-    headers,
-    formatSectionTitle("Body"),
-    body,
-    formatSectionTitle(`End of ${requestDescription}`),
-  ])
-
-  return `${output}\n`
+  return [
+    `${path} [${method}]`,
+    statusLine,
+    // The trace id (when present) sits under the status line, above Request.
+    ...(traceId ? [`Trace: ${traceId}`] : []),
+    "",
+    sectionRule("Request", width),
+    `URL     ${url}`,
+    `Method  ${method}`,
+    "",
+    sectionRule("Response", width),
+    `Status  ${statusLine}`,
+    "",
+    "Headers",
+    indentBlock(headers === "" ? "(none)" : headers),
+    "",
+    "Body",
+    indentBlock(body === "" ? "(empty)" : body),
+  ].join("\n")
 }
 
-export const formatError = (error: unknown, traceId?: string): string => {
+export const formatError = (
+  error: unknown,
+  traceId?: string,
+  width = defaultSectionWidth,
+): string => {
   // An axios error with a response is shown as a normal response view.
   if (isAxiosError(error) && error.response) {
-    return formatResponse(error.response, traceId)
+    return formatResponse(error.response, traceId, width)
   }
 
   const message = error instanceof Error ? error.message : String(error)
 
-  return joinSections([formatSectionTitle("Error"), message])
+  return [sectionRule("Error", width), "", message].join("\n")
 }
 
 // ── Pending indicator ──────────────────────────────────────────────────────

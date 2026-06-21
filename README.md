@@ -1,9 +1,14 @@
 # ntee-r1quest
 
 A Postman-like terminal app for running HTTP requests from a **file-based
-collection**. Collections are plain text, so teams can keep them in Git,
-generate them from OpenAPI/GraphQL specs, review changes in pull requests, and
-run the same request set locally or in CI.
+collection**. Collections are plain text — `.nts` requests and `.ntd` data — so
+teams can keep them in Git, generate them from OpenAPI/GraphQL specs, review
+changes in pull requests, and run the same request set locally or in CI.
+
+It also pairs with your **local AI coding agent**. In `@ai` mode you talk to
+Claude Code, Codex, or Cursor right inside the app: the agent can write and edit
+requests, trigger them, and have the responses reflected live in the Result
+pane — so you build and debug an API flow together without leaving the terminal.
 
 ```bash
 npx ntee-r1quest -r ./example/request
@@ -15,15 +20,19 @@ npx ntee-r1quest -r ./example/request
 
 - 📁 **Plain-text collections** — `.nts` requests and `.ntd` data you can version
   control and review.
-- 🖥️ **Modal terminal UI** — run, view, edit, search, browse history, and chat
-  with a local AI agent.
+- 🤖 **Collaborate with your local AI agent** — in `@ai` mode, pair with Claude
+  Code, Codex, or Cursor right inside the app. The agent can write and edit
+  requests, trigger them, and have the results reflected live in the Result pane,
+  so you build and debug API flows together.
+- 🖥️ **Modal terminal UI** — run, view, edit, search, and browse history without
+  leaving the keyboard.
 - 🔁 **Reusable data + environment macros**, now with defaults: `@i(key or …)`,
   `@env(KEY or …)`, plus file uploads via `@f(…)`.
 - ⚡ **One-shot execution** (`-p`) for scripts and CI, with env injection
   (`-env`) and trace tagging (`-ti`).
 - 🕘 **History & cache** — browse past request/response pairs (grouped by trace),
   with input history and editor autosuggestions.
-- 🤖 **GraphQL-friendly**, with an AI plugin (skills) for Claude Code, Codex, and
+- 🧩 **GraphQL-friendly**, with an AI plugin (skills) for Claude Code, Codex, and
   Cursor.
 
 ## Index
@@ -58,7 +67,10 @@ npx ntee-r1quest -r ./example/request
 
 ## Quick Start
 
-`ntee-r1quest` targets **Node.js 24 or newer** (`node --version`).
+`ntee-r1quest` targets **Node.js 24 or newer** (`node --version`) and runs on
+**macOS and Linux only**. Windows is not supported — some features (such as
+`@report` clipboard copy) shell out to platform tools that are unavailable
+there; use WSL if you are on Windows.
 
 Run a request collection with `npx`:
 
@@ -84,22 +96,39 @@ First-time setup — create the home config with a short wizard (when
 npx ntee-r1quest --init
 ```
 
+### Install from source
+
+You can also install directly from source and link it into your global npm. The
+script clones the Codeberg repo into `~/.ntee-r1quest/source`, builds, and links
+the `r1q` / `ntee-r1quest` commands:
+
+```bash
+curl -fsSL https://codeberg.org/nickoan/ntee-r1quest/raw/branch/main/install.sh | sh
+```
+
+Re-run the same command any time to **update** to the latest source (it pulls and
+rebuilds in place — no re-link needed). Pin a specific version with
+`NTEE_REF=v0.13.3`, or clone from a mirror with `NTEE_REPO=<url>`. Requires
+`git`, Node.js 24+, and `npm`; only `ntee-r1quest` is built from source —
+dependencies still come from your configured registry.
+
 ## CLI Reference
 
 ```bash
 ntee-r1quest [-r <root>] [-ai <adapter>] [-p <request>] [-ti <id>] [-env <json>]
-ntee-r1quest --init | --version
+ntee-r1quest --init | --version | --install-claude-plugin
 ```
 
-| Flag        | Argument                | Purpose                                                                                 |
-| ----------- | ----------------------- | --------------------------------------------------------------------------------------- |
-| `-r`        | `<root>`                | Request collection root. Falls back to config, then the current directory.              |
-| `-ai`       | `codex\|claude\|cursor` | AI adapter for `@ai` mode.                                                              |
-| `-p`        | `<request>`             | Run one request and print the response without opening the UI (`.nts` optional).        |
-| `-ti`       | `<id>`                  | Tag the run with a trace id so related requests group in history (`@h <id>`). Optional. |
-| `-env`      | `'{"K":"V"}'`           | Supply `@env(...)` values as JSON, merged over `process.env` (these win). Optional.     |
-| `--init`    | —                       | Open the home-config wizard, then print the paths created.                              |
-| `--version` | —                       | Print the installed version and exit.                                                   |
+| Flag                      | Argument                | Purpose                                                                                              |
+| ------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| `-r`                      | `<root>`                | Request collection root. Falls back to config, then the current directory.                           |
+| `-ai`                     | `codex\|claude\|cursor` | AI adapter for `@ai` mode.                                                                           |
+| `-p`                      | `<request>`             | Run one request and print the response without opening the UI (`.nts` optional).                     |
+| `-ti`                     | `<id>`                  | Tag the run with a trace id so related requests group in history (`@h <id>`). Optional.              |
+| `-env`                    | `'{"K":"V"}'`           | Supply `@env(...)` values as JSON, merged over `process.env` (these win). Optional.                  |
+| `--init`                  | —                       | Open the home-config wizard, then print the paths created.                                           |
+| `--version`               | —                       | Print the installed version and exit.                                                                |
+| `--install-claude-plugin` | —                       | Install the R1Quest plugin into Claude Code via the `claude` CLI. Requires a source install (below). |
 
 **One-shot examples**
 
@@ -143,7 +172,15 @@ Action commands run a task instead of switching modes:
 | -------------- | ------- | ----------------------------------------------- |
 | `@reload`      |         | Reload config and restart the terminal runtime. |
 | `@clean-cache` | `@cc`   | Clear input history and request history.        |
+| `@report`      | `@copy` | Copy the Result pane content to the clipboard.  |
 | `@exit`        | `@quit` | Exit the app.                                   |
+
+`@report` (alias `@copy`) copies exactly what the Result pane shows — the
+response, an open file, or a history record — to the system clipboard, excluding
+the loading animation and pane borders. On success it shows a confirmation
+overlay; if there is nothing to copy or no clipboard tool is available, it shows
+a failure overlay instead. Press Enter to dismiss either one. Clipboard support
+is macOS and Linux only (see [Quick Start](#quick-start)).
 
 You can also press Shift+Tab to cycle the three main modes:
 
