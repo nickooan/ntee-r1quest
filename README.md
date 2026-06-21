@@ -116,18 +116,19 @@ dependencies still come from your configured registry.
 
 ```bash
 ntee-r1quest [-r <root>] [-ai <adapter>] [-p <request>] [-ti <id>] [-env <json>]
-ntee-r1quest --init | --version
+ntee-r1quest --init | --version | --install-claude-plugin
 ```
 
-| Flag        | Argument                | Purpose                                                                                 |
-| ----------- | ----------------------- | --------------------------------------------------------------------------------------- |
-| `-r`        | `<root>`                | Request collection root. Falls back to config, then the current directory.              |
-| `-ai`       | `codex\|claude\|cursor` | AI adapter for `@ai` mode.                                                              |
-| `-p`        | `<request>`             | Run one request and print the response without opening the UI (`.nts` optional).        |
-| `-ti`       | `<id>`                  | Tag the run with a trace id so related requests group in history (`@h <id>`). Optional. |
-| `-env`      | `'{"K":"V"}'`           | Supply `@env(...)` values as JSON, merged over `process.env` (these win). Optional.     |
-| `--init`    | —                       | Open the home-config wizard, then print the paths created.                              |
-| `--version` | —                       | Print the installed version and exit.                                                   |
+| Flag                      | Argument                | Purpose                                                                                              |
+| ------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| `-r`                      | `<root>`                | Request collection root. Falls back to config, then the current directory.                           |
+| `-ai`                     | `codex\|claude\|cursor` | AI adapter for `@ai` mode.                                                                           |
+| `-p`                      | `<request>`             | Run one request and print the response without opening the UI (`.nts` optional).                     |
+| `-ti`                     | `<id>`                  | Tag the run with a trace id so related requests group in history (`@h <id>`). Optional.              |
+| `-env`                    | `'{"K":"V"}'`           | Supply `@env(...)` values as JSON, merged over `process.env` (these win). Optional.                  |
+| `--init`                  | —                       | Open the home-config wizard, then print the paths created.                                           |
+| `--version`               | —                       | Print the installed version and exit.                                                                |
+| `--install-claude-plugin` | —                       | Install the R1Quest plugin into Claude Code via the `claude` CLI. Requires a source install (below). |
 
 **One-shot examples**
 

@@ -89,4 +89,5 @@ ok "Installed: $(r1q --version 2>/dev/null || echo "(restart your shell, then ru
 ok "Next steps:"
 ok "  • run 'r1q --init' to create your config (~/.ntee-r1quest/r1qconfig.yaml)"
 ok "  • run 'r1q -r <collection>' to start (see the README for all flags)"
+ok "  • using Claude Code? 'r1q --install-claude-plugin' adds the R1Quest skills"
 ok "Update any time by re-running this installer."

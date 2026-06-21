@@ -12,6 +12,7 @@ export type ParsedArgs = {
   env?: string
   init?: boolean
   version?: boolean
+  installClaudePlugin?: boolean
 }
 
 type CustomCommandFile = {
@@ -45,7 +46,7 @@ export type RuntimeConfig = {
 
 const argumentNames = ["-r", "-ai", "-p", "-ti", "-env"] as const
 type ArgumentName = (typeof argumentNames)[number]
-const flagNames = ["--init", "--version"] as const
+const flagNames = ["--init", "--version", "--install-claude-plugin"] as const
 type FlagName = (typeof flagNames)[number]
 
 const argumentKeys: Record<
@@ -59,9 +60,10 @@ const argumentKeys: Record<
   "-env": "env",
 }
 
-const flagKeys: Record<FlagName, "init" | "version"> = {
+const flagKeys: Record<FlagName, "init" | "version" | "installClaudePlugin"> = {
   "--init": "init",
   "--version": "version",
+  "--install-claude-plugin": "installClaudePlugin",
 }
 
 let cachedConfig: RuntimeConfig | undefined
