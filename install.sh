@@ -57,10 +57,20 @@ else
   git -C "$DIR" checkout "$REF"
 fi
 
-# npm ci pulls dependencies from your configured registry (mirrors are fine —
-# only ntee-r1quest itself is built from source here), then build emits dist/.
-ok "Installing dependencies and building ..."
+# Force the official npm registry for this session so dependency installs are
+# not affected by a local/private registry configured in the environment. This
+# only exports the variable for the commands below; the user's npm config is
+# left untouched.
+export npm_config_registry="https://registry.npmjs.org/"
+
+# npm ci pulls dependencies from the official registry set above (only
+# ntee-r1quest itself is built from source here), then build emits dist/.
+ok "Installing dependencies and building (registry: $npm_config_registry) ..."
 (cd "$DIR" && npm ci && npm run build)
+
+# Done fetching from the registry — drop the override so the rest of the script
+# (and anything sourcing it) uses the normal npm config again.
+unset npm_config_registry
 
 # tsc emits a non-executable entry, so the symlinked command (npm link or the
 # ~/.local/bin fallback) needs the exec bit set after each build.
