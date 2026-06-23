@@ -27,7 +27,7 @@ export type AiProps = {
   agentName?: string
 }
 
-const borderColor = "#5a5a5a"
+const borderColor = "yellow"
 const permissionModalBackgroundColor = "#1f1f1f"
 const pendingFrames = [".", "..", "..."]
 const paddingX = 1
@@ -386,6 +386,7 @@ export const Ai = memo(function Ai({
       height={modalHeight}
       borderStyle="single"
       borderColor={borderColor}
+      backgroundColor={permissionModalBackgroundColor}
       flexDirection="column"
     >
       <Box position="absolute" top={-1} left={-1}>
