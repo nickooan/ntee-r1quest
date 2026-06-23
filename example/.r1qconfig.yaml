@@ -1,4 +1,6 @@
 sock: ./test.sock
+# Days an AI session is kept before startup cleanup prunes it (default: 7).
+session-cleanup-period: 7
 custom-suggestions:
   - some-style-id
   - x-trace-token

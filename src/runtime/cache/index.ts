@@ -16,8 +16,10 @@ export {
 export { listTraceCalls } from "./trace.ts"
 export {
   addAiSession,
+  refreshAiSession,
   listAiSessions,
   getLatestAiSession,
+  pruneExpiredAiSessions,
   type AiSessionRecord,
 } from "./system.ts"
 export { clearCache } from "./clear.ts"

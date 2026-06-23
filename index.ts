@@ -11,6 +11,7 @@ import {
   resolveRuntimeConfig,
 } from "./src/runtime/cli-command.ts"
 import { resolveAdaptorName } from "./src/runtime/acp/index.ts"
+import { runStartupBeforeActions } from "./src/runtime/startup.ts"
 import {
   formatInstallClaudePluginResult,
   installClaudePlugin,
@@ -249,6 +250,9 @@ if (import.meta.main) {
       const didRunPathArgument = await runPathArgument(args, config)
 
       if (!didRunPathArgument) {
+        // Before the interactive TUI boots, prune expired AI sessions so the
+        // resume picker never lists dead sessions. Best-effort; never blocks.
+        await runStartupBeforeActions(config)
         render(React.createElement(CommandApp, { args, initialConfig: config }))
       }
     }

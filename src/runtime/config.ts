@@ -27,7 +27,12 @@ type ConfigFile = {
   sock?: string | null
   "custom-suggestions"?: string[] | null
   "custom-ai-commands"?: CustomCommandFile[] | null
+  "session-cleanup-period"?: number | null
 }
+
+// Days an AI session is kept before the startup cleanup prunes it. Used when
+// the config omits "session-cleanup-period".
+export const DEFAULT_SESSION_CLEANUP_PERIOD_DAYS = 7
 
 type ConfigSource = {
   path: string
@@ -41,6 +46,9 @@ export type RuntimeConfig = {
   sock?: string
   customSuggestions: string[]
   customCommands: CustomCommand[]
+  // Days an AI session survives before startup cleanup prunes it (see
+  // DEFAULT_SESSION_CLEANUP_PERIOD_DAYS).
+  sessionCleanupPeriod: number
   parsedArgs: ParsedArgs
 }
 
@@ -215,6 +223,23 @@ const findConfigValue = (
   return undefined
 }
 
+// Returns the first positive, finite number configured for the key, or
+// undefined. Mirrors findConfigValue but for numeric options.
+const findConfigNumber = (
+  sources: ConfigSource[],
+  key: keyof ConfigFile,
+): number | undefined => {
+  for (const source of sources) {
+    const value = source.config[key]
+
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return value
+    }
+  }
+
+  return undefined
+}
+
 const findConfigValues = (
   sources: ConfigSource[],
   key: keyof ConfigFile,
@@ -292,6 +317,9 @@ export const loadRuntimeConfig = (args: string[] = []): RuntimeConfig => {
   const inputSock = findConfigValue(sources, "sock")
   const customSuggestions = findConfigValues(sources, "custom-suggestions")
   const customCommands = findCustomCommands(sources)
+  const sessionCleanupPeriod =
+    findConfigNumber(sources, "session-cleanup-period") ??
+    DEFAULT_SESSION_CLEANUP_PERIOD_DAYS
 
   return {
     root,
@@ -301,6 +329,7 @@ export const loadRuntimeConfig = (args: string[] = []): RuntimeConfig => {
       : undefined,
     customSuggestions,
     customCommands,
+    sessionCleanupPeriod,
     parsedArgs,
   }
 }
