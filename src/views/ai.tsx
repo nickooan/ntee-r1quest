@@ -28,6 +28,8 @@ export type AiProps = {
 
 const borderColor = "yellow"
 const permissionModalBackgroundColor = "#1f1f1f"
+// Darker than the overlay so the input bar reads as a distinct field.
+const inputBackgroundColor = "#0a0a0a"
 const pendingFrames = [".", "..", "..."]
 const paddingX = 1
 const paddingY = 1
@@ -439,13 +441,16 @@ export const Ai = memo(function Ai({
           {" ".repeat(Math.max(1, modalWidth - 2))}
         </Text>
       ))}
-      <Text>
+      <Text backgroundColor={inputBackgroundColor}>
         {" ".repeat(paddingX)}
-        <Text color="cyan">{inputPrefix}</Text>
+        <Text color="cyan" backgroundColor={inputBackgroundColor}>
+          {inputPrefix}
+        </Text>
         {inputBeforeCursor}
         <BlinkingCursor
           active={cursorBlinkActive}
           activityId={cursorActivityId}
+          backgroundColor={inputBackgroundColor}
           bold
         />
         {inputAfterCursor}
