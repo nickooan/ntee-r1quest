@@ -296,6 +296,30 @@ export const useAiController = ({
             ? refreshAiSession(aiAdaptor, sessionId)
             : addAiSession(aiAdaptor, sessionId))
         }
+
+        // When resuming, drop a divider after the replayed history so the user
+        // can see what came from the past. Skip when there was nothing to
+        // replay (or it was already added).
+        if (resumeSessionId) {
+          setAiModeState((currentState) => {
+            const lastMessage = currentState.messages.at(-1)
+
+            if (
+              currentState.messages.length === 0 ||
+              lastMessage?.role === "divider"
+            ) {
+              return currentState
+            }
+
+            return {
+              ...currentState,
+              messages: [
+                ...currentState.messages,
+                { role: "divider", content: "" },
+              ],
+            }
+          })
+        }
       })
       .catch((error: unknown) => {
         if (aiAdapterRef.current !== adapter) {

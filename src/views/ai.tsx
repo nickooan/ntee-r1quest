@@ -3,10 +3,9 @@ import { Box, Text } from "ink"
 import type { CustomCommand } from "../runtime/custom-command/index.ts"
 import { BlinkingCursor } from "./terminal/blinking-cursor.tsx"
 
-export type AiChatMessage = {
-  role: "user" | "assistant"
-  content: string
-}
+// Single source of truth lives with the AI mode state in key-helpers.
+export type { AiChatMessage } from "./key-helpers/index.ts"
+import type { AiChatMessage } from "./key-helpers/index.ts"
 
 export type AiProps = {
   width: number
@@ -104,6 +103,20 @@ const buildMessageLines = (
   width: number,
   agentName: string,
 ): string[] => {
+  if (message.role === "divider") {
+    const label = " above is history "
+    const ruleWidth = Math.max(0, width - label.length)
+    const leftWidth = Math.floor(ruleWidth / 2)
+    const rightWidth = ruleWidth - leftWidth
+
+    return [
+      `${"─".repeat(leftWidth)}${label}${"─".repeat(rightWidth)}`.slice(
+        0,
+        width,
+      ),
+    ]
+  }
+
   const lines = splitMessageContent(message.content)
   const prefix = "USER: "
   const suffix = ` :${agentName}`
@@ -411,6 +424,7 @@ export const Ai = memo(function Ai({
           {" ".repeat(paddingX)}
           <Text
             bold={line.role === "user"}
+            dimColor={line.role === "divider"}
             color={line.key === "offline" ? "red" : undefined}
           >
             {line.content}

@@ -14,7 +14,9 @@ import {
 } from "../../runtime/custom-command/index.ts"
 
 export type AiChatMessage = {
-  role: "user" | "assistant"
+  // "divider" marks the boundary between replayed history and the live session;
+  // its content is ignored and a fixed rule line is rendered instead.
+  role: "user" | "assistant" | "divider"
   content: string
 }
 
