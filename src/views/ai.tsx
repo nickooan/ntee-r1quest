@@ -3,10 +3,9 @@ import { Box, Text } from "ink"
 import type { CustomCommand } from "../runtime/custom-command/index.ts"
 import { BlinkingCursor } from "./terminal/blinking-cursor.tsx"
 
-export type AiChatMessage = {
-  role: "user" | "assistant"
-  content: string
-}
+// Single source of truth lives with the AI mode state in key-helpers.
+export type { AiChatMessage } from "./key-helpers/index.ts"
+import type { AiChatMessage } from "./key-helpers/index.ts"
 
 export type AiProps = {
   width: number
@@ -27,8 +26,10 @@ export type AiProps = {
   agentName?: string
 }
 
-const borderColor = "#5a5a5a"
+const borderColor = "yellow"
 const permissionModalBackgroundColor = "#1f1f1f"
+// Darker than the overlay so the input bar reads as a distinct field.
+const inputBackgroundColor = "#0a0a0a"
 const pendingFrames = [".", "..", "..."]
 const paddingX = 1
 const paddingY = 1
@@ -104,6 +105,20 @@ const buildMessageLines = (
   width: number,
   agentName: string,
 ): string[] => {
+  if (message.role === "divider") {
+    const label = " above is history "
+    const ruleWidth = Math.max(0, width - label.length)
+    const leftWidth = Math.floor(ruleWidth / 2)
+    const rightWidth = ruleWidth - leftWidth
+
+    return [
+      `${"─".repeat(leftWidth)}${label}${"─".repeat(rightWidth)}`.slice(
+        0,
+        width,
+      ),
+    ]
+  }
+
   const lines = splitMessageContent(message.content)
   const prefix = "USER: "
   const suffix = ` :${agentName}`
@@ -386,6 +401,7 @@ export const Ai = memo(function Ai({
       height={modalHeight}
       borderStyle="single"
       borderColor={borderColor}
+      backgroundColor={permissionModalBackgroundColor}
       flexDirection="column"
     >
       <Box position="absolute" top={-1} left={-1}>
@@ -410,6 +426,7 @@ export const Ai = memo(function Ai({
           {" ".repeat(paddingX)}
           <Text
             bold={line.role === "user"}
+            dimColor={line.role === "divider"}
             color={line.key === "offline" ? "red" : undefined}
           >
             {line.content}
@@ -424,13 +441,16 @@ export const Ai = memo(function Ai({
           {" ".repeat(Math.max(1, modalWidth - 2))}
         </Text>
       ))}
-      <Text>
+      <Text backgroundColor={inputBackgroundColor}>
         {" ".repeat(paddingX)}
-        <Text color="cyan">{inputPrefix}</Text>
+        <Text color="cyan" backgroundColor={inputBackgroundColor}>
+          {inputPrefix}
+        </Text>
         {inputBeforeCursor}
         <BlinkingCursor
           active={cursorBlinkActive}
           activityId={cursorActivityId}
+          backgroundColor={inputBackgroundColor}
           bold
         />
         {inputAfterCursor}

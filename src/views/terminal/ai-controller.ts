@@ -17,6 +17,11 @@ import {
   type CodexAcpPermissionRequest,
 } from "../../runtime/acp/index.ts"
 import { appendAcpResponse, findPermissionOptionId } from "./ai-session.ts"
+import {
+  addAiSession,
+  listAiSessions,
+  refreshAiSession,
+} from "../../runtime/cache/index.ts"
 
 type AcpAdapter = InstanceType<AcpAdaptorConstructor>
 
@@ -92,6 +97,9 @@ export const useAiController = ({
     useState<AiModeState>(createAiModeState())
   const [isAiPending, setIsAiPending] = useState(false)
   const [isAiOffline, setIsAiOffline] = useState(false)
+  // True once an adapter has been spawned for this AI session. Drives whether
+  // the next @ai is a first-time start (offer the session picker) or a reuse.
+  const [isAiActive, setIsAiActive] = useState(false)
   const [aiConversations, setAiConversations] = useState<
     CodexAcpConversation[]
   >([])
@@ -146,7 +154,8 @@ export const useAiController = ({
     }
   }, [])
 
-  const startAiMode = () => {
+  // resumeSessionId resumes an existing agent session; omit it to start fresh.
+  const startAiMode = (resumeSessionId?: string) => {
     if (!aiAdaptor) {
       const supportedAdaptors = listAdaptors().join(" or -ai ")
 
@@ -171,6 +180,7 @@ export const useAiController = ({
     let isAdapterReady = false
     const adapter = new Adaptor({
       cwd: root ?? process.cwd(),
+      sessionId: resumeSessionId,
       onResponse: (response) => {
         if (aiAdapterRef.current !== adapter) {
           return
@@ -232,6 +242,7 @@ export const useAiController = ({
           setAiPermissionRequest(undefined)
           setAiConversations([])
           setIsAiOffline(true)
+          setIsAiActive(false)
         }
       },
       onExit: () => {
@@ -244,10 +255,12 @@ export const useAiController = ({
         setAiConversations([])
         setIsAiPending(false)
         setIsAiOffline(true)
+        setIsAiActive(false)
       },
     })
 
     aiAdapterRef.current = adapter
+    setIsAiActive(true)
     setIsAiOffline(false)
     setAiModeState((currentState) => ({
       ...currentState,
@@ -262,9 +275,50 @@ export const useAiController = ({
     void adapter
       .run()
       .then(() => {
-        if (aiAdapterRef.current === adapter) {
-          isAdapterReady = true
-          setIsAiOffline(false)
+        if (aiAdapterRef.current !== adapter) {
+          return
+        }
+
+        isAdapterReady = true
+        setIsAiOffline(false)
+
+        // Reconcile the session in the cache: a freshly-created session is
+        // recorded (req: record on new session), while resuming a known one
+        // bumps its updatedAt so cleanup keeps it.
+        const sessionId = adapter.currentSessionId
+
+        if (aiAdaptor && sessionId) {
+          const isKnown = listAiSessions(aiAdaptor).some(
+            (session) => session.id === sessionId,
+          )
+
+          void (isKnown
+            ? refreshAiSession(aiAdaptor, sessionId)
+            : addAiSession(aiAdaptor, sessionId))
+        }
+
+        // When resuming, drop a divider after the replayed history so the user
+        // can see what came from the past. Skip when there was nothing to
+        // replay (or it was already added).
+        if (resumeSessionId) {
+          setAiModeState((currentState) => {
+            const lastMessage = currentState.messages.at(-1)
+
+            if (
+              currentState.messages.length === 0 ||
+              lastMessage?.role === "divider"
+            ) {
+              return currentState
+            }
+
+            return {
+              ...currentState,
+              messages: [
+                ...currentState.messages,
+                { role: "divider", content: "" },
+              ],
+            }
+          })
         }
       })
       .catch((error: unknown) => {
@@ -278,6 +332,7 @@ export const useAiController = ({
         setAiConversations([])
         setIsAiPending(false)
         setIsAiOffline(true)
+        setIsAiActive(false)
         setLocalError(error)
       })
   }
@@ -298,6 +353,7 @@ export const useAiController = ({
     setAiModeState(createAiModeState())
     setIsAiPending(false)
     setIsAiOffline(false)
+    setIsAiActive(false)
     setAiConversations([])
     setAiPermissionRequest(undefined)
   }
@@ -359,6 +415,7 @@ export const useAiController = ({
     isAiPending,
     isAiThinking,
     isAiOffline,
+    isAiActive,
     aiConversations,
     aiPermissionRequest,
     startAiMode,

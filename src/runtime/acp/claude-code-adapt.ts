@@ -65,6 +65,10 @@ export type ClaudeCodeAcpAdapterOptions = {
   env?: NodeJS.ProcessEnv
   clientName?: string
   clientVersion?: string
+  // Existing session id to resume instead of starting fresh. Honored only when
+  // the agent advertises the `loadSession` capability; otherwise a new session
+  // is created.
+  sessionId?: string
   onResponse?: (response: ClaudeCodeAcpResponse) => void | Promise<void>
   onConversationUpdate?: (
     conversation: ClaudeCodeAcpConversation,
@@ -130,6 +134,7 @@ export class ClaudeCodeAcpAdapter {
   private process?: ChildProcessWithoutNullStreams
   private connection?: ClientSideConnection
   private sessionId?: string
+  private readonly resumeSessionId?: string
   // Permission requests are queued so concurrent requests are surfaced and
   // answered one at a time; `activePermission` is the one shown to the UI.
   private readonly pendingPermissions: PendingPermission[] = []
@@ -147,6 +152,7 @@ export class ClaudeCodeAcpAdapter {
     }
     this.clientName = options.clientName ?? defaultClientName
     this.clientVersion = options.clientVersion ?? defaultClientVersion
+    this.resumeSessionId = options.sessionId
     this.onResponse = options.onResponse
     this.onPermissionRequest = options.onPermissionRequest
     this.onError = options.onError
@@ -258,7 +264,7 @@ export class ClaudeCodeAcpAdapter {
     })
 
     try {
-      await connection.initialize({
+      const initializeResponse = await connection.initialize({
         protocolVersion: PROTOCOL_VERSION,
         clientInfo: {
           name: this.clientName,
@@ -267,11 +273,25 @@ export class ClaudeCodeAcpAdapter {
         clientCapabilities: {},
       })
 
-      const session = await connection.newSession({
-        cwd: this.cwd,
-        mcpServers: [],
-      })
-      this.sessionId = session.sessionId
+      // Resume the requested session when the agent supports loadSession;
+      // otherwise fall back to a fresh session so resume never breaks startup.
+      if (
+        this.resumeSessionId &&
+        initializeResponse.agentCapabilities?.loadSession
+      ) {
+        await connection.loadSession({
+          sessionId: this.resumeSessionId,
+          cwd: this.cwd,
+          mcpServers: [],
+        })
+        this.sessionId = this.resumeSessionId
+      } else {
+        const session = await connection.newSession({
+          cwd: this.cwd,
+          mcpServers: [],
+        })
+        this.sessionId = session.sessionId
+      }
 
       return this
     } catch (error) {

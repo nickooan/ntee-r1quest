@@ -39,6 +39,7 @@ export {
 export {
   createAiModeState,
   handleAiModeInput,
+  type AiChatMessage,
   type AiModeResult,
   type AiModeState,
 } from "./ai-mode.ts"

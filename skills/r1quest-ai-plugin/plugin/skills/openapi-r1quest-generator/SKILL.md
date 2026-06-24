@@ -223,7 +223,7 @@ url "@i(host)/properties"
 type post
 
 header accept, @i(accept)
-header content-type, @i(content-type)
+header content-type, @i(content-type or "application/json")
 auth bearer @i(token)
 
 body @i(property)
@@ -255,6 +255,10 @@ body {
   auth values, and body values.
 - Use `@f(...)` only inside body values.
 - Do not use `@f(...)` in headers or auth.
+- Every request that sends a body MUST emit a `content-type` header. Source the
+  value from a referenced `.ntd` key (`@i(content-type)`), the exact media type
+  read from the OpenAPI spec, or the `or` default form
+  `@i(content-type or "application/json")`. See "Headers And Content Types".
 
 ## URL And Parameters
 
@@ -296,22 +300,61 @@ does, reuse the same `.ntd` key.
 Choose `accept` from response content types. Prefer `application/json` when
 available.
 
-Choose `content-type` from request body content types. Prefer:
+### Always emit `content-type` for requests with a body
 
-1. `application/json`
-2. `multipart/form-data`
-3. the first available OpenAPI request content type
+Every generated `.nts` that sends a body MUST include a `content-type` header.
+The runtime dispatches on `content-type`, and a request with a missing or
+unsupported `content-type` fails before sending.
+
+Resolve the value in this order:
+
+1. **Reference a shared `.ntd` key.** When the same content type is used across
+   operations, define it once and reference it. This is the preferred form:
+
+   ```ntd
+   content-type: application/json
+   ```
+
+   ```nts
+   header content-type, @i(content-type)
+   ```
+
+2. **Read the exact content type from the OpenAPI spec.** When an operation
+   declares a specific request body media type that differs from the shared
+   value, write that literal media type into the operation's `.ntd` key (or
+   inline) so the header matches the spec exactly:
+
+   ```ntd
+   content-type: application/vnd.api+json
+   ```
+
+3. **Use the `or` default fallback.** When no `.ntd` key is guaranteed to be
+   referenced, fall back to a literal default so the request still compiles:
+
+   ```nts
+   header content-type, @i(content-type or "application/json")
+   ```
+
+   The default must be an immediate quoted string. Pick it from the operation's
+   declared request media type, preferring:
+
+   1. `application/json`
+   2. `multipart/form-data`
+   3. the first available OpenAPI request content type
+
+Do not emit a `content-type` header for requests with no body (e.g. plain `get`
+or `delete`) unless the spec explicitly requires one.
 
 For JSON bodies:
 
 ```nts
-header content-type, application/json
+header content-type, @i(content-type or "application/json")
 ```
 
 For multipart bodies:
 
 ```nts
-header content-type, multipart/form-data
+header content-type, @i(content-type or "multipart/form-data")
 ```
 
 ## Auth Mapping
@@ -353,8 +396,10 @@ After generation:
 2. Compile at least one generated `.nts` file with the local `ntee-r1quest`
    compiler when available.
 3. Check that every `ref` path exists.
-4. Check that every `@i(key)` is defined by one of the referenced `.ntd` files.
-5. Check that every `@f(path)` points to an existing example file, or clearly
+4. Check that every `@i(key)` is defined by one of the referenced `.ntd` files,
+   or carries an `or` default (e.g. `@i(content-type or "application/json")`).
+5. Check that every `.nts` with a `body` declares a `content-type` header.
+6. Check that every `@f(path)` points to an existing example file, or clearly
    mark the file as a placeholder that the user must provide.
 
 Report:

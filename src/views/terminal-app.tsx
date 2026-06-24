@@ -49,9 +49,11 @@ import {
 } from "./terminal/constants.ts"
 import {
   clearCache,
+  listAiSessions,
   listApiEndpoints,
   listTraceCalls,
   recordInput,
+  type AiSessionRecord,
   type ApiCallRecord,
 } from "../runtime/cache/index.ts"
 import { copyToClipboard } from "../runtime/clipboard.ts"
@@ -75,6 +77,7 @@ import {
   CopyFailedNoticeOverlay,
 } from "./terminal/copied-notice-overlay.tsx"
 import { SearchNotFoundOverlay } from "./terminal/search-not-found-overlay.tsx"
+import { SessionPickerOverlay } from "./terminal/session-picker-overlay.tsx"
 import { Sidebar } from "./terminal/sidebar.tsx"
 import { TerminalHeader } from "./terminal/terminal-header.tsx"
 import { useTerminalView } from "./terminal/use-terminal-view.ts"
@@ -182,6 +185,7 @@ export const TerminalApp = ({
     setAiModeState,
     isAiThinking,
     isAiOffline,
+    isAiActive,
     aiPermissionRequest,
     startAiMode,
     closeAiMode,
@@ -199,6 +203,59 @@ export const TerminalApp = ({
   const width = fixedWidth ?? columns ?? defaultWidth
   // Label the AI overlay with the chosen agent (e.g. "Claude").
   const aiAgentName = getAdaptorDisplayName(aiAdaptor)
+  // Session-picker overlay: the past sessions to choose from (newest-first),
+  // or null when the picker is closed, plus the highlighted row (0 = "New
+  // session"). Shown on the first @ai when prior sessions exist.
+  const [sessionPickerSessions, setSessionPickerSessions] = useState<
+    AiSessionRecord[] | null
+  >(null)
+  const [sessionPickerIndex, setSessionPickerIndex] = useState(0)
+
+  // Single entry point for @ai. Offers the session picker on the first start
+  // when prior sessions exist; otherwise starts/reuses the adapter directly.
+  const enterAiMode = () => {
+    if (!aiAdaptor || isAiActive) {
+      startAiMode()
+      return
+    }
+
+    const sessions = [...listAiSessions(aiAdaptor)].reverse()
+
+    if (sessions.length === 0) {
+      startAiMode()
+      return
+    }
+
+    setSessionPickerSessions(sessions)
+    setSessionPickerIndex(0)
+    setMode(TerminalMode.Ai)
+  }
+
+  const confirmSessionPick = () => {
+    const sessions = sessionPickerSessions
+
+    if (!sessions) {
+      return
+    }
+
+    const index = sessionPickerIndex
+
+    setSessionPickerSessions(null)
+    setSessionPickerIndex(0)
+
+    // Row 0 is "New session"; rows below resume the matching past session.
+    if (index === 0) {
+      startAiMode()
+    } else {
+      startAiMode(sessions[index - 1]?.id)
+    }
+  }
+
+  const cancelSessionPick = () => {
+    setSessionPickerSessions(null)
+    setSessionPickerIndex(0)
+    setMode(TerminalMode.Query)
+  }
 
   // History mode: cached endpoints (loaded on entry), the endpoint matching the
   // current filter/selection, and the formatted Results content. Computed
@@ -518,6 +575,10 @@ export const TerminalApp = ({
 
   const resetTerminalState = () => {
     resetAiMode()
+    // Drop any open picker; @reload starts the next @ai fresh, which records a
+    // new session again.
+    setSessionPickerSessions(null)
+    setSessionPickerIndex(0)
     setFrameIndex(0)
     setIsCursorBlinkActive(true)
     setCursorActivityId((currentValue) => currentValue + 1)
@@ -633,7 +694,7 @@ export const TerminalApp = ({
     }
 
     if (nextMode === TerminalMode.Ai) {
-      startAiMode()
+      enterAiMode()
       setSearchModeState({
         ...searchModeState,
         input: "",
@@ -755,6 +816,32 @@ export const TerminalApp = ({
     }
 
     if (mode === TerminalMode.Ai) {
+      // The session picker (shown on first @ai) owns input while open: arrows
+      // move the selection, Enter confirms, Esc cancels back to query mode.
+      if (sessionPickerSessions) {
+        const optionCount = sessionPickerSessions.length + 1
+
+        if (key.escape) {
+          cancelSessionPick()
+          return
+        }
+
+        if (key.return) {
+          confirmSessionPick()
+          return
+        }
+
+        if (key.upArrow || key.downArrow) {
+          const direction = key.downArrow ? 1 : -1
+
+          setSessionPickerIndex(
+            (current) => (current + direction + optionCount) % optionCount,
+          )
+        }
+
+        return
+      }
+
       if (key.escape) {
         closeAiMode()
         return
@@ -1026,7 +1113,7 @@ export const TerminalApp = ({
       }
 
       if (nextMode === TerminalMode.Ai) {
-        startAiMode()
+        enterAiMode()
         setViewModeState({
           ...result.state,
           command: "",
@@ -1155,7 +1242,7 @@ export const TerminalApp = ({
       }
 
       if (nextMode === TerminalMode.Ai) {
-        startAiMode()
+        enterAiMode()
         setSearchModeState({
           ...result.state,
           input: "",
@@ -1350,7 +1437,7 @@ export const TerminalApp = ({
       }
 
       if (nextMode === TerminalMode.Ai) {
-        startAiMode()
+        enterAiMode()
         setViewModeState({
           command: "",
           scrollX: 0,
@@ -1468,7 +1555,7 @@ export const TerminalApp = ({
               historyModeState.scrollY,
             )
           } else if (nextMode === TerminalMode.Ai) {
-            startAiMode()
+            enterAiMode()
           } else if (nextMode === TerminalMode.View) {
             setMode(TerminalMode.View)
             setViewModeState(createViewModeState())
@@ -1626,7 +1713,7 @@ export const TerminalApp = ({
     }
 
     if (nextMode === TerminalMode.Ai) {
-      startAiMode()
+      enterAiMode()
       setQueryModeState(result.state)
       return
     }
@@ -1725,7 +1812,16 @@ export const TerminalApp = ({
           left={promptValue.length}
         />
       )}
-      {mode === TerminalMode.Ai && (
+      {mode === TerminalMode.Ai && sessionPickerSessions && (
+        <SessionPickerOverlay
+          width={width}
+          height={height}
+          agentName={aiAgentName}
+          sessions={sessionPickerSessions}
+          selectedIndex={sessionPickerIndex}
+        />
+      )}
+      {mode === TerminalMode.Ai && !sessionPickerSessions && (
         <Ai
           width={width}
           height={height}
