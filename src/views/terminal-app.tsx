@@ -1,7 +1,8 @@
 import { writeFileSync } from "node:fs"
-import type { AxiosResponse } from "axios"
 import { useEffect, useMemo, useState } from "react"
 import { Box, render, useInput, useWindowSize } from "ink"
+import type { RuntimeClient } from "../runtime/client/runtime-client.ts"
+import type { ExecuteResult } from "../runtime/client/types.ts"
 import {
   findSearchMatches,
   focusSearchMatch,
@@ -33,8 +34,6 @@ import {
 } from "../runtime/acp/index.ts"
 import {
   buildExternalEventCommand,
-  startExternalEventListener,
-  type ExternalEventListener,
   type ExternalRequestEvent,
 } from "../runtime/external-event/index.ts"
 import {
@@ -47,14 +46,9 @@ import {
   editModeRequiresViewFileMessage,
   paneGap,
 } from "./terminal/constants.ts"
-import {
-  clearCache,
-  listAiSessions,
-  listApiEndpoints,
-  listTraceCalls,
-  recordInput,
-  type AiSessionRecord,
-  type ApiCallRecord,
+import type {
+  AiSessionRecord,
+  ApiCallRecord,
 } from "../runtime/cache/index.ts"
 import { copyToClipboard } from "../runtime/clipboard.ts"
 import { formatAcpPermissionMessage } from "./terminal/ai-session.ts"
@@ -85,7 +79,8 @@ import { useTerminalView } from "./terminal/use-terminal-view.ts"
 export { buildTerminalViewport } from "./terminal/viewport.ts"
 
 export type TerminalAppProps = {
-  response?: AxiosResponse
+  client: RuntimeClient
+  response?: ExecuteResult
   error?: unknown
   isPending?: boolean
   root?: string
@@ -127,6 +122,7 @@ const createViewModeState = (): ViewModeState => ({
 })
 
 export const TerminalApp = ({
+  client,
   response,
   error,
   isPending = false,
@@ -187,6 +183,7 @@ export const TerminalApp = ({
     isAiOffline,
     isAiActive,
     aiPermissionRequest,
+    aiEventHandlers,
     startAiMode,
     closeAiMode,
     stopAiMode,
@@ -194,8 +191,8 @@ export const TerminalApp = ({
     respondToAiPermission,
     writeAiInput,
   } = useAiController({
+    client,
     aiAdaptor,
-    root,
     setLocalError,
     setMode,
   })
@@ -219,16 +216,20 @@ export const TerminalApp = ({
       return
     }
 
-    const sessions = [...listAiSessions(aiAdaptor)].reverse()
+    const adaptor = aiAdaptor
 
-    if (sessions.length === 0) {
-      startAiMode()
-      return
-    }
+    void (async () => {
+      const sessions = [...(await client.listAiSessions(adaptor))].reverse()
 
-    setSessionPickerSessions(sessions)
-    setSessionPickerIndex(0)
-    setMode(TerminalMode.Ai)
+      if (sessions.length === 0) {
+        startAiMode()
+        return
+      }
+
+      setSessionPickerSessions(sessions)
+      setSessionPickerIndex(0)
+      setMode(TerminalMode.Ai)
+    })()
   }
 
   const confirmSessionPick = () => {
@@ -272,23 +273,44 @@ export const TerminalApp = ({
   // is the endpoint label (already unique). Under a trace filter the same
   // endpoint can appear more than once, so the call's 1-based order is prefixed
   // to keep keys unique and show the sequence.
-  const historyEntries = useMemo(() => {
+  // Cache reads cross the RuntimeClient (async), so history entries load into
+  // state on entry rather than being derived synchronously. In-process this
+  // resolves on the next microtask; over a socket it is a real round-trip.
+  const [historyEntries, setHistoryEntries] = useState<
+    Array<{ key: string; record: ApiCallRecord }>
+  >([])
+
+  useEffect(() => {
     if (!isHistoryContext) {
-      return [] as Array<{ key: string; record: ApiCallRecord }>
+      setHistoryEntries([])
+      return
     }
 
-    if (historyTraceFilter) {
-      return listTraceCalls(historyTraceFilter).map((record, index) => ({
-        key: `${index + 1}. ${record.endpoint}`,
-        record,
-      }))
-    }
+    let cancelled = false
 
-    return listApiEndpoints().map((record) => ({
-      key: record.endpoint,
-      record,
-    }))
-  }, [isHistoryContext, historyTraceFilter])
+    void (async () => {
+      const records = historyTraceFilter
+        ? await client.listTraceCalls(historyTraceFilter)
+        : await client.listApiEndpoints()
+
+      if (cancelled) {
+        return
+      }
+
+      setHistoryEntries(
+        historyTraceFilter
+          ? records.map((record, index) => ({
+              key: `${index + 1}. ${record.endpoint}`,
+              record,
+            }))
+          : records.map((record) => ({ key: record.endpoint, record })),
+      )
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [client, isHistoryContext, historyTraceFilter])
   const historyEndpointLabels = useMemo(
     () => historyEntries.map((entry) => entry.key),
     [historyEntries],
@@ -501,10 +523,6 @@ export const TerminalApp = ({
   }, [cursorActivityId, isAiThinking, isCursorBlinkActive, isPending])
 
   useEffect(() => {
-    if (!externalEventSocket) {
-      return
-    }
-
     const handleError = (nextError: unknown) => {
       setExternalEvent(null)
       setOpenViewFile(null)
@@ -516,57 +534,52 @@ export const TerminalApp = ({
       )
     }
 
-    let listener: ExternalEventListener | undefined
+    // One subscription wires both AI session events (from the controller) and
+    // external events. The client starts the external-event listener only when
+    // a socket is configured; that handler fires only on a received event.
+    const unsubscribe = client.subscribe({
+      ...aiEventHandlers,
+      onExternalEvent: (event) => {
+        const command = buildExternalEventCommand(event)
 
-    try {
-      listener = startExternalEventListener(
-        externalEventSocket,
-        (event) => {
-          const command = buildExternalEventCommand(event)
+        setExternalEvent(event)
+        setLocalError(undefined)
+        setOpenViewFile(null)
+        setEditModeState(null)
+        setSelectedCommand(command)
+        setKeyboardSelectedCommand("")
+        setQueryModeState((currentState) => ({
+          ...currentState,
+          command: "",
+          commandCursorX: 0,
+          scrollX: 0,
+          scrollY: 0,
+        }))
+        setViewModeState({
+          command: "",
+          commandCursorX: 0,
+          scrollX: 0,
+          scrollY: 0,
+        })
+        setSearchModeState((currentState) => ({
+          ...currentState,
+          scrollX: 0,
+          scrollY: 0,
+          input: "",
+          inputCursorX: 0,
+          query: "",
+          focusedMatchIndex: 0,
+        }))
+        setSearchNotFound(false)
+        setMode((currentMode) =>
+          currentMode === TerminalMode.Ai ? currentMode : TerminalMode.Query,
+        )
+      },
+      onError: handleError,
+    })
 
-          setExternalEvent(event)
-          setLocalError(undefined)
-          setOpenViewFile(null)
-          setEditModeState(null)
-          setSelectedCommand(command)
-          setKeyboardSelectedCommand("")
-          setQueryModeState((currentState) => ({
-            ...currentState,
-            command: "",
-            commandCursorX: 0,
-            scrollX: 0,
-            scrollY: 0,
-          }))
-          setViewModeState({
-            command: "",
-            commandCursorX: 0,
-            scrollX: 0,
-            scrollY: 0,
-          })
-          setSearchModeState((currentState) => ({
-            ...currentState,
-            scrollX: 0,
-            scrollY: 0,
-            input: "",
-            inputCursorX: 0,
-            query: "",
-            focusedMatchIndex: 0,
-          }))
-          setSearchNotFound(false)
-          setMode((currentMode) =>
-            currentMode === TerminalMode.Ai ? currentMode : TerminalMode.Query,
-          )
-        },
-        handleError,
-      )
-    } catch (error) {
-      handleError(error)
-    }
-
-    return () => {
-      void listener?.close()
-    }
-  }, [externalEventSocket])
+    return unsubscribe
+  }, [client, aiEventHandlers])
 
   const exitApp = () => {
     stopAiMode()
@@ -623,7 +636,7 @@ export const TerminalApp = ({
     }
 
     if (appCommand.command === "clean-cache") {
-      void clearCache()
+      void client.clearCache()
       setHistoryTraceFilter(null)
       setHistorySelectedEndpoint("")
       setCacheErasedNotice(true)
@@ -654,7 +667,7 @@ export const TerminalApp = ({
   }
 
   const runQueryCommand = (command: string) => {
-    recordInput(command)
+    client.recordInput(command)
     setOpenViewFile(null)
     setEditModeState(null)
     setViewModeState({
@@ -1015,7 +1028,7 @@ export const TerminalApp = ({
         const nextOpenViewFile = readViewFile(root, highlightedEntry)
 
         if (nextOpenViewFile) {
-          recordInput(highlightedEntry.commandValue)
+          client.recordInput(highlightedEntry.commandValue)
           setSelectedCommand(highlightedEntry.commandValue)
           setEditModeState(null)
           setViewModeState({
@@ -1369,7 +1382,7 @@ export const TerminalApp = ({
         const nextOpenViewFile = readViewFile(root, highlightedEntry)
 
         if (nextOpenViewFile) {
-          recordInput(highlightedEntry.commandValue)
+          client.recordInput(highlightedEntry.commandValue)
           setSelectedCommand(highlightedEntry.commandValue)
           setEditModeState(null)
           setViewModeState({

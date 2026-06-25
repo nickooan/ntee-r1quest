@@ -1,8 +1,8 @@
-import type { AxiosResponse } from "axios"
 import { formatError, formatPending, formatResponse } from "../response.tsx"
+import type { ExecuteResult } from "../../runtime/client/types.ts"
 
 export type TerminalContentOptions = {
-  response?: AxiosResponse
+  response?: ExecuteResult
   error?: unknown
   externalContent?: string
   isPending?: boolean

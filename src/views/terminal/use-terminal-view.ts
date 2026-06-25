@@ -1,5 +1,5 @@
-import type { AxiosResponse } from "axios"
 import { useMemo } from "react"
+import type { ExecuteResult } from "../../runtime/client/types.ts"
 import {
   findSearchMatches,
   serializeEditModeContent,
@@ -106,7 +106,7 @@ const resolveResponsePaneTitle = (mode: TerminalMode): string => {
 }
 
 export type TerminalViewParams = {
-  response?: AxiosResponse
+  response?: ExecuteResult
   error?: unknown
   isPending: boolean
   root?: string

@@ -1,23 +1,29 @@
 #!/usr/bin/env node
-import type { AxiosResponse } from "axios"
+import { isAxiosError } from "axios"
 import { existsSync } from "node:fs"
 import React, { useMemo, useRef, useState } from "react"
 import { render } from "ink"
 import {
-  execute,
   executePathArgument,
   parseArguments,
   resolveImmediateCommandOutput,
   resolveRuntimeConfig,
 } from "./src/runtime/cli-command.ts"
-import { resolveAdaptorName } from "./src/runtime/acp/index.ts"
+import {
+  InProcessRuntimeClient,
+  toExecuteResult,
+  toRuntimeConfigDto,
+} from "./src/runtime/client/index.ts"
+import type {
+  ExecuteResult,
+  RuntimeConfigDto,
+} from "./src/runtime/client/types.ts"
 import { runStartupBeforeActions } from "./src/runtime/startup.ts"
 import {
   formatInstallClaudePluginResult,
   installClaudePlugin,
 } from "./src/runtime/claude-plugin.ts"
 import {
-  clearRuntimeConfigCache,
   getHomeConfigPath,
   initializeHomeConfig,
   type InitializeHomeConfigResult,
@@ -38,8 +44,9 @@ const runPathArgument = async (
   args: string[],
   config: RuntimeConfig,
 ): Promise<boolean> => {
+  const requestStartTime = Date.now()
+
   try {
-    const requestStartTime = Date.now()
     const response = await executePathArgument(args)
 
     if (!response) {
@@ -47,7 +54,10 @@ const runPathArgument = async (
     }
 
     const traceId = config.parsedArgs.traceId
-    const responseContent = formatResponse(response, traceId)
+    const responseContent = formatResponse(
+      toExecuteResult(response, Date.now() - requestStartTime),
+      traceId,
+    )
 
     process.stdout.write(responseContent)
 
@@ -72,7 +82,19 @@ const runPathArgument = async (
 
     return true
   } catch (error) {
-    process.stderr.write(`${formatError(error, config.parsedArgs.traceId)}\n`)
+    const traceId = config.parsedArgs.traceId
+    // A non-2xx response surfaces as a thrown AxiosError carrying `.response`;
+    // render it the same as a success (to stderr, exit 1). Only true failures
+    // with no response fall through to the error block.
+    const content =
+      isAxiosError(error) && error.response
+        ? formatResponse(
+            toExecuteResult(error.response, Date.now() - requestStartTime),
+            traceId,
+          )
+        : formatError(error, traceId)
+
+    process.stderr.write(`${content}\n`)
     process.exitCode = 1
 
     return true
@@ -153,15 +175,17 @@ const CommandApp = ({
   args: string[]
   initialConfig: RuntimeConfig
 }) => {
-  const [config, setConfig] = useState(initialConfig)
-  const [reloadId, setReloadId] = useState(0)
-  const root = config.root
-  const aiAdaptor = useMemo(
-    () => (config.ai ? resolveAdaptorName(config.ai) : undefined),
-    [config.ai],
+  const client = useMemo(
+    () => new InProcessRuntimeClient(args, initialConfig),
+    // Constructed once for the app's lifetime; reloads re-resolve config inside.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
   )
-  const externalEventSocket = config.sock
-  const [response, setResponse] = useState<AxiosResponse | undefined>()
+  const [config, setConfig] = useState<RuntimeConfigDto>(() =>
+    toRuntimeConfigDto(initialConfig),
+  )
+  const [reloadId, setReloadId] = useState(0)
+  const [response, setResponse] = useState<ExecuteResult | undefined>()
   const [error, setError] = useState<unknown>()
   const [isPending, setIsPending] = useState(false)
   const [requestDurationMs, setRequestDurationMs] = useState<
@@ -180,12 +204,7 @@ const CommandApp = ({
     setRequestDurationMs(undefined)
 
     try {
-      const nextResponse = await execute(
-        command,
-        root,
-        undefined,
-        config.parsedArgs.env,
-      )
+      const nextResponse = await client.execute({ command })
 
       if (commandRunIdRef.current === commandRunId) {
         setResponse(nextResponse)
@@ -209,27 +228,30 @@ const CommandApp = ({
     setIsPending(false)
     setRequestDurationMs(undefined)
 
-    try {
-      // Drop the cached config so a reload re-scans config files (root, ai,
-      // custom-ai-commands, ...) from disk instead of returning the boot snapshot.
-      clearRuntimeConfigCache()
-      setConfig(resolveRuntimeConfig(args))
-      setReloadId((currentValue) => currentValue + 1)
-    } catch (nextError) {
-      setError(nextError)
-    }
+    // reload() drops the cached config and re-scans config files (root, ai,
+    // custom-ai-commands, ...) from disk inside the client.
+    void client
+      .reload()
+      .then((nextConfig) => {
+        setConfig(nextConfig)
+        setReloadId((currentValue) => currentValue + 1)
+      })
+      .catch((nextError: unknown) => {
+        setError(nextError)
+      })
   }
 
   return React.createElement(TerminalApp, {
     key: reloadId,
+    client,
     response,
     error,
     isPending,
-    root,
-    version: VERSION,
-    aiAdaptor,
+    root: config.root,
+    version: config.version,
+    aiAdaptor: config.aiAdaptor,
     customCommands: config.customCommands,
-    externalEventSocket,
+    externalEventSocket: config.externalEventSocket,
     requestDurationMs,
     onCommand: runCommand,
     onReload: reloadRuntime,

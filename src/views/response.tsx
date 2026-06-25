@@ -1,11 +1,10 @@
-import { isAxiosError, type AxiosResponse } from "axios"
-import type { AxiosResponseHeaders, RawAxiosResponseHeaders } from "axios"
 import { useEffect, useState } from "react"
 import { render, Text } from "ink"
 import { indentBlock, sectionRule } from "./terminal/section-format.ts"
+import type { ExecuteResult } from "../runtime/client/types.ts"
 
 type HeaderValue = string | number | boolean | null | string[] | undefined
-type ResponseHeaders = RawAxiosResponseHeaders | AxiosResponseHeaders
+type ResponseHeaders = Record<string, unknown>
 
 // Section-rule width used when a pane width is not supplied (e.g. one-shot
 // output). Matches the history view's default so both read the same.
@@ -35,7 +34,7 @@ export const formatResponseHeaders = (headers: ResponseHeaders): string =>
 
 // ── Body formatting ────────────────────────────────────────────────────────
 
-export const formatResponseBody = (body: AxiosResponse["data"]): string => {
+export const formatResponseBody = (body: unknown): string => {
   if (typeof body === "string") {
     return body
   }
@@ -77,16 +76,16 @@ const formatRequestPath = (url?: string, baseURL?: string): string => {
  * body. `width` sizes the section rules to the Result pane.
  */
 export const formatResponse = (
-  response: AxiosResponse,
+  response: ExecuteResult,
   traceId?: string,
   width = defaultSectionWidth,
 ): string => {
-  const method = String(response.config.method ?? "request").toUpperCase()
-  const path = formatRequestPath(response.config.url, response.config.baseURL)
-  const url = response.config.url ?? "(unknown)"
+  const method = String(response.request.method ?? "request").toUpperCase()
+  const path = formatRequestPath(response.request.url, response.request.baseURL)
+  const url = response.request.url ?? "(unknown)"
   const statusLine = `${response.status} ${response.statusText}`.trim()
   const headers = formatResponseHeaders(response.headers)
-  const body = formatResponseBody(response.data)
+  const body = formatResponseBody(response.body)
 
   return [
     `${path} [${method}]`,
@@ -109,16 +108,14 @@ export const formatResponse = (
   ].join("\n")
 }
 
+// Renders a true failure (no HTTP response) as an Error block. Responses with a
+// status — including non-2xx — are converted to an ExecuteResult upstream and
+// rendered via formatResponse, so they never reach here.
 export const formatError = (
   error: unknown,
-  traceId?: string,
+  _traceId?: string,
   width = defaultSectionWidth,
 ): string => {
-  // An axios error with a response is shown as a normal response view.
-  if (isAxiosError(error) && error.response) {
-    return formatResponse(error.response, traceId, width)
-  }
-
   const message = error instanceof Error ? error.message : String(error)
 
   return [sectionRule("Error", width), "", message].join("\n")
