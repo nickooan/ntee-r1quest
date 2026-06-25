@@ -1,7 +1,8 @@
-// Package app is the Bubble Tea TUI. Modes covered: query (type a path → execute,
-// or browse the tree with the arrows and Enter), view (read a file with syntax
-// highlighting), and edit (a minimal editor: insert/delete/newline/cursor + save).
-// Search/history and AI streaming are later D6 increments.
+// Package app is the Bubble Tea TUI. Modes: query (type/browse with a suggestion
+// popup; Up/Down scroll the result, Shift+Up/Down move the sidebar highlight,
+// Enter enters a directory or executes a request), view (syntax-highlighted file
+// reader), edit (editor with a completion overlay), search, history, and AI
+// (streaming, modal). Shift+Tab quick-switches the primary modes.
 package app
 
 import (
@@ -73,15 +74,24 @@ type Model struct {
 	ready  bool
 	mode   mode
 
-	command         string
-	cursor          int
-	selectedCommand string // keyboard tree selection (a commandValue)
+	command string
+	cursor  int
+	// selectedCommand is the CONFIRMED selection (set on Enter / parent-dir): it
+	// drives directory expansion. keyboardSelectedCommand is the sidebar
+	// HIGHLIGHT (moved by Shift+arrows / suggestion nav): it never expands.
+	selectedCommand         string
+	keyboardSelectedCommand string
 
-	pending  bool
-	response *runtime.ExecuteResult
-	errText  string
-	external string
-	scrollY  int
+	inputSuggestIndex int
+
+	pending        bool
+	response       *runtime.ExecuteResult
+	errText        string
+	external       string
+	scrollX        int
+	scrollY        int
+	lastMaxScrollX int
+	lastMaxScrollY int
 
 	openFile    *filetree.OpenViewFile
 	fileScrollY int
@@ -123,6 +133,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
+		m.refreshResponseScrollLimits()
 		return m, nil
 
 	case executeDoneMsg:
@@ -131,14 +142,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.response = &result
 		m.errText = ""
 		m.external = ""
+		m.scrollX = 0
 		m.scrollY = 0
+		m.refreshResponseScrollLimits()
 		return m, nil
 
 	case executeErrMsg:
 		m.pending = false
 		m.response = nil
 		m.errText = msg.err.Error()
+		m.scrollX = 0
 		m.scrollY = 0
+		m.refreshResponseScrollLimits()
 		return m, nil
 
 	case ExternalEventMsg:
@@ -146,7 +161,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.response = nil
 		m.errText = ""
 		m.external = msg.Event.ResponseContent
+		m.scrollX = 0
 		m.scrollY = 0
+		m.refreshResponseScrollLimits()
 		return m, nil
 
 	case historyLoadedMsg:
@@ -226,29 +243,69 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // ── Query mode ──────────────────────────────────────────────────────────────
 
 func (m Model) handleQueryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	entries := m.treeEntries()
+	suggestions := m.queryInputSuggestions(entries)
+	if m.inputSuggestIndex >= len(suggestions) {
+		m.inputSuggestIndex = 0
+	}
+	popupOpen := len(suggestions) > 0
+
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
-	case tea.KeyEnter:
-		return m.submitQuery()
+
+	// Shift+arrows: move the sidebar highlight (never expands) / move the cursor.
+	case tea.KeyShiftUp:
+		m.moveSidebarSelection(entries, -1)
+		return m, nil
+	case tea.KeyShiftDown:
+		m.moveSidebarSelection(entries, 1)
+		return m, nil
+	case tea.KeyShiftLeft:
+		m.cursor = input.MoveCursor(m.command, m.cursor, -1)
+		return m, nil
+	case tea.KeyShiftRight:
+		m.cursor = input.MoveCursor(m.command, m.cursor, 1)
+		return m, nil
+
+	// Up/Down: navigate the popup when open, else scroll the result pane.
 	case tea.KeyUp:
-		m.moveSelection(-1)
+		if popupOpen {
+			m.moveInputSuggestion(suggestions, -1)
+			return m, nil
+		}
+		m.scrollY = input.Clamp(m.scrollY-1, 0, m.lastMaxScrollY)
 		return m, nil
 	case tea.KeyDown:
-		m.moveSelection(1)
+		if popupOpen {
+			m.moveInputSuggestion(suggestions, 1)
+			return m, nil
+		}
+		m.scrollY = input.Clamp(m.scrollY+1, 0, m.lastMaxScrollY)
 		return m, nil
+
+	// Left/Right: scroll the result pane horizontally.
+	case tea.KeyLeft:
+		m.scrollX = input.Clamp(m.scrollX-1, 0, m.lastMaxScrollX)
+		return m, nil
+	case tea.KeyRight:
+		m.scrollX = input.Clamp(m.scrollX+1, 0, m.lastMaxScrollX)
+		return m, nil
+
+	case tea.KeyEnter:
+		return m.submitQuery(entries, suggestions)
+
+	case tea.KeyEsc:
+		m.moveQueryToParentDirectory()
+		return m, nil
+
 	case tea.KeyBackspace:
 		next, cursor, ok := input.RemoveBeforeCursor(m.command, m.cursor)
 		if ok {
 			m.command = next
 			m.cursor = cursor
+			m.inputSuggestIndex = 0
 		}
-		return m, nil
-	case tea.KeyLeft:
-		m.cursor = input.MoveCursor(m.command, m.cursor, -1)
-		return m, nil
-	case tea.KeyRight:
-		m.cursor = input.MoveCursor(m.command, m.cursor, 1)
 		return m, nil
 	case tea.KeyRunes, tea.KeySpace:
 		text := string(msg.Runes)
@@ -256,34 +313,65 @@ func (m Model) handleQueryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			text = " "
 		}
 		m.command, m.cursor = input.InsertAtCursor(m.command, m.cursor, text)
+		m.inputSuggestIndex = 0
 		return m, nil
 	}
 	return m, nil
 }
 
-func (m Model) submitQuery() (tea.Model, tea.Cmd) {
-	command := strings.TrimSpace(m.command)
+// submitQuery acts on the highlighted entry by TYPE: a directory is entered (not
+// executed), a request is executed; a path that matches nothing is a no-op (so
+// the runtime is never asked to open a directory or a missing file).
+func (m Model) submitQuery(
+	entries []filetree.FileTreeEntry,
+	suggestions []filetree.InputSuggestion,
+) (tea.Model, tea.Cmd) {
 	m.notice = ""
+	trimmed := strings.TrimSpace(m.command)
 
-	if strings.HasPrefix(command, "@") {
-		return m.handleAppCommand(command)
-	}
-	if command != "" {
-		return m.startExecute(command)
+	if strings.HasPrefix(trimmed, "@") {
+		return m.handleAppCommand(trimmed)
 	}
 
-	// Empty command: act on the keyboard tree selection.
-	selected := m.selectedCommand
-	if selected == "" {
+	// Resolve the entry to act on: the selected suggestion (popup open), else the
+	// sidebar highlight — but only when there is something to act on.
+	var highlighted *filetree.FileTreeEntry
+	if len(suggestions) > 0 {
+		idx := input.Clamp(m.inputSuggestIndex, 0, len(suggestions)-1)
+		entry := suggestions[idx].Entry
+		highlighted = &entry
+	} else if trimmed != "" || m.keyboardSelectedCommand != "" || m.selectedCommand != "" {
+		if idx := m.highlightedEntryIndex(entries); idx >= 0 {
+			entry := entries[idx]
+			highlighted = &entry
+		}
+	}
+
+	if highlighted == nil {
 		return m, nil
 	}
-	if strings.HasSuffix(selected, "/") {
-		// Directory: drop it into the command to expand it.
-		m.command = selected
-		m.cursor = len([]rune(selected))
+
+	m.keyboardSelectedCommand = ""
+	m.inputSuggestIndex = 0
+	switch highlighted.Type {
+	case "directory":
+		// Enter the directory (drives expansion); do not execute.
+		m.selectedCommand = highlighted.CommandValue
+		m.command = highlighted.CommandValue
+		m.cursor = len([]rune(highlighted.CommandValue))
+		return m, nil
+	case "request":
+		m.selectedCommand = highlighted.CommandValue
+		m.command = ""
+		m.cursor = 0
+		return m.startExecute(highlighted.CommandValue)
+	default:
+		// Plain file: fill the command, no execute.
+		m.selectedCommand = highlighted.CommandValue
+		m.command = highlighted.CommandValue
+		m.cursor = len([]rune(highlighted.CommandValue))
 		return m, nil
 	}
-	return m.startExecute(selected)
 }
 
 func (m Model) startExecute(command string) (tea.Model, tea.Cmd) {
@@ -331,22 +419,65 @@ func (m Model) handleAppCommand(command string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) moveSelection(direction int) {
-	entries := m.treeEntries()
+// sidebarCommand drives directory EXPANSION (typed command, else confirmed
+// selection). highlightedSidebarCommand drives the HIGHLIGHT (keyboard
+// selection takes precedence).
+func (m Model) sidebarCommand() string {
+	return filetree.ResolveSidebarCommand(m.command, m.selectedCommand)
+}
+
+func (m Model) highlightedSidebarCommand() string {
+	if m.keyboardSelectedCommand != "" {
+		return m.keyboardSelectedCommand
+	}
+	return m.sidebarCommand()
+}
+
+func (m Model) highlightedEntryIndex(entries []filetree.FileTreeEntry) int {
+	return filetree.ResolveHighlightedEntry(entries, m.highlightedSidebarCommand())
+}
+
+func (m Model) queryInputSuggestions(entries []filetree.FileTreeEntry) []filetree.InputSuggestion {
+	return filetree.BuildInputSuggestions(entries, m.command, filetree.MaxInputSuggestions)
+}
+
+// moveSidebarSelection moves the highlight only (Shift+Up/Down) — it never
+// changes selectedCommand, so a highlighted directory is not expanded.
+func (m *Model) moveSidebarSelection(entries []filetree.FileTreeEntry, direction int) {
 	if len(entries) == 0 {
 		return
 	}
-	current := -1
-	for i, entry := range entries {
-		if entry.CommandValue == m.selectedCommand {
-			current = i
-			break
-		}
-	}
+	current := m.highlightedEntryIndex(entries)
 	next := filetree.ResolveNextFileTreeSelectionIndex(entries, current, direction)
 	if next >= 0 {
-		m.selectedCommand = entries[next].CommandValue
+		m.keyboardSelectedCommand = entries[next].CommandValue
 	}
+}
+
+func (m *Model) moveInputSuggestion(suggestions []filetree.InputSuggestion, direction int) {
+	n := len(suggestions)
+	if n == 0 {
+		return
+	}
+	m.inputSuggestIndex = ((m.inputSuggestIndex+direction)%n + n) % n
+	m.keyboardSelectedCommand = suggestions[m.inputSuggestIndex].Entry.CommandValue
+}
+
+func (m *Model) moveQueryToParentDirectory() {
+	source := m.command
+	if strings.TrimSpace(source) == "" {
+		source = m.selectedCommand
+	}
+	parent, ok := filetree.ResolveParentDirectoryCommand(source)
+	if !ok {
+		return
+	}
+	m.keyboardSelectedCommand = ""
+	m.selectedCommand = parent
+	m.command = parent
+	m.cursor = len([]rune(parent))
+	m.scrollX = 0
+	m.scrollY = 0
 }
 
 // quickSwitch cycles the primary modes: query → history → ai → query. From a
@@ -368,8 +499,10 @@ func (m Model) quickSwitch() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) treeEntries() []filetree.FileTreeEntry {
-	command := filetree.ResolveSidebarCommand(m.command, m.selectedCommand)
-	return filetree.BuildFileTreeEntries(m.config.Root, filetree.BuildExpandedDirectoryPaths(command))
+	return filetree.BuildFileTreeEntries(
+		m.config.Root,
+		filetree.BuildExpandedDirectoryPaths(m.sidebarCommand()),
+	)
 }
 
 // openFileForMode opens a file in view/edit mode. target is an explicit path
@@ -377,10 +510,13 @@ func (m Model) treeEntries() []filetree.FileTreeEntry {
 func (m Model) openFileForMode(target string, forEdit bool) (tea.Model, tea.Cmd) {
 	command := target
 	if command == "" {
+		command = m.keyboardSelectedCommand
+	}
+	if command == "" {
 		command = m.selectedCommand
 	}
 	if command == "" {
-		m.errText = "select a file (↑/↓) or pass a path, e.g. @e folder/get"
+		m.errText = "select a file (shift+↑/↓) or pass a path, e.g. @e folder/get"
 		return m, nil
 	}
 
@@ -746,15 +882,23 @@ func (m Model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.editDismissed = true
 			return m, nil
 		}
-		m.mode = modeQuery
-		m.openFile = nil
+		// Discard edits and return to the file view (not all the way to query).
+		// The view reads openFile.Content, so unsaved changes are dropped.
 		m.notice = ""
+		if m.openFile != nil {
+			m.mode = modeView
+			m.fileScrollY = 0
+		} else {
+			m.mode = modeQuery
+		}
 		return m, nil
 	case tea.KeyCtrlS:
 		if m.openFile != nil {
 			if err := filetree.WriteViewFile(m.openFile.Path, m.edit.content()); err != nil {
 				m.errText = err.Error()
 			} else {
+				// Keep the view's content in sync with what was saved.
+				m.openFile.Content = m.edit.content()
 				m.edit.dirty = false
 				m.notice = "saved"
 			}

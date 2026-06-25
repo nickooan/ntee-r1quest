@@ -83,8 +83,17 @@ func TestTypingBuildsCommand(t *testing.T) {
 }
 
 func TestEnterExecutesAndRendersResponse(t *testing.T) {
+	// Enter executes only a matched REQUEST entry, so the request must exist.
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "folder"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "folder", "get.nts"), []byte("url x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	fake := &fakeClient{result: runtime.ExecuteResult{Status: 200, StatusText: "OK"}}
-	m := New(fake, runtime.ConfigDTO{})
+	m := New(fake, runtime.ConfigDTO{Root: root})
 	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = typeRunes(m, "folder/get")
 
@@ -189,7 +198,7 @@ func TestEditInsertAndSave(t *testing.T) {
 	}
 }
 
-func TestTreeNavigationMovesSelection(t *testing.T) {
+func TestShiftArrowMovesSidebarSelection(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "a.nts"), []byte("url x\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -201,13 +210,106 @@ func TestTreeNavigationMovesSelection(t *testing.T) {
 	m := New(&fakeClient{}, runtime.ConfigDTO{Root: root})
 	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyDown})
-	if m.selectedCommand != "a" {
-		t.Fatalf("first Down should select a, got %q", m.selectedCommand)
+	// Shift+Down moves the HIGHLIGHT (keyboardSelectedCommand), not selectedCommand.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyShiftDown})
+	if m.keyboardSelectedCommand != "a" {
+		t.Fatalf("first shift+down should highlight a, got %q", m.keyboardSelectedCommand)
 	}
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyShiftDown})
+	if m.keyboardSelectedCommand != "b" {
+		t.Fatalf("second shift+down should highlight b, got %q", m.keyboardSelectedCommand)
+	}
+	// Plain Down must NOT move the sidebar selection (it scrolls the result).
+	before := m.keyboardSelectedCommand
 	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyDown})
-	if m.selectedCommand != "b" {
-		t.Fatalf("second Down should select b, got %q", m.selectedCommand)
+	if m.keyboardSelectedCommand != before {
+		t.Fatalf("plain Down should not change the sidebar highlight")
+	}
+}
+
+func TestShiftNavOntoDirectoryDoesNotExpand(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "orders"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "orders", "get.nts"), []byte("url x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(&fakeClient{}, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyShiftDown}) // highlight "orders/"
+	if m.keyboardSelectedCommand != "orders/" {
+		t.Fatalf("expected orders/ highlighted, got %q", m.keyboardSelectedCommand)
+	}
+	// The tree must NOT have expanded (selectedCommand unchanged → no orders/get).
+	for _, e := range m.treeEntries() {
+		if e.CommandValue == "orders/get" {
+			t.Fatal("directory should not auto-expand on highlight")
+		}
+	}
+}
+
+func TestEnterOnDirectoryEntersNotExecute(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "orders"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "orders", "get.nts"), []byte("url x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := &fakeClient{}
+	m := New(fake, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.keyboardSelectedCommand = "orders/"
+
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil || m.pending || len(fake.recorded) != 0 {
+		t.Fatalf("Enter on a directory must not execute; recorded=%v pending=%v", fake.recorded, m.pending)
+	}
+	if m.selectedCommand != "orders/" || m.command != "orders/" {
+		t.Fatalf("Enter on a directory should enter it; selected=%q command=%q", m.selectedCommand, m.command)
+	}
+	// Now expanded → orders/get is visible.
+	found := false
+	for _, e := range m.treeEntries() {
+		if e.CommandValue == "orders/get" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("entering a directory should expand it")
+	}
+}
+
+func TestEnterOnNonMatchingPathIsNoop(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.nts"), []byte("url x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := &fakeClient{}
+	m := New(fake, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = typeRunes(m, "nope/missing")
+
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil || m.pending || len(fake.recorded) != 0 {
+		t.Fatalf("Enter on a non-matching path must be a no-op; recorded=%v", fake.recorded)
+	}
+}
+
+func TestEscMovesToParentDirectory(t *testing.T) {
+	m := New(&fakeClient{}, runtime.ConfigDTO{})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.command = "orders/sub/"
+	m.selectedCommand = "orders/sub/"
+
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.command != "orders/" || m.selectedCommand != "orders/" || m.keyboardSelectedCommand != "" {
+		t.Fatalf("Esc should go to parent dir; command=%q selected=%q", m.command, m.selectedCommand)
 	}
 }
 
@@ -320,6 +422,35 @@ func TestAIModeStreamingFlow(t *testing.T) {
 	}
 	if len(fake.aiDecisions) != 1 || fake.aiDecisions[0] != "a1" {
 		t.Fatalf("allow decision not dispatched: %v", fake.aiDecisions)
+	}
+}
+
+func TestEditEscDiscardsToView(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "get.nts"), []byte("url example.com\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(&fakeClient{}, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.selectedCommand = "get"
+	m.command = "@e"
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.mode != modeEdit {
+		t.Fatalf("expected edit mode, got %d", m.mode)
+	}
+
+	m = typeRunes(m, "zzz") // unsaved change (no suggestion match, so no popup)
+	if m.editOverlayOpen() {
+		t.Fatal("did not expect a suggestion popup for 'zzz'")
+	}
+
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.mode != modeView {
+		t.Fatalf("esc from edit should return to view, got mode %d", m.mode)
+	}
+	if m.openFile == nil || m.openFile.Content != "url example.com\n" {
+		t.Fatalf("discarded edit should leave the original file content; got %v", m.openFile)
 	}
 }
 

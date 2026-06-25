@@ -53,7 +53,7 @@ func (m Model) View() string {
 	case modeSearch:
 		mainBody = m.renderSearch(mainWidth-4, bodyHeight-2)
 	default:
-		mainBody = m.renderResponse(mainWidth-4, bodyHeight-2)
+		mainBody = m.renderQueryMain(mainWidth-4, bodyHeight-2)
 	}
 	mainPane := paneStyle.Width(mainWidth - 2).Height(bodyHeight - 2).Render(mainBody)
 
@@ -68,7 +68,7 @@ func (m Model) renderStatusLine() string {
 		if m.openFile != nil {
 			name = m.openFile.FileName
 		}
-		return promptStyle.Render("@view") + " " + name + "   ↑/↓ scroll · e edit · q back"
+		return promptStyle.Render("@view") + " " + name + "   ↑/↓ scroll · e edit · esc back"
 	case modeEdit:
 		name := ""
 		if m.openFile != nil {
@@ -104,13 +104,17 @@ func (m Model) renderStatusLine() string {
 }
 
 func (m Model) renderSidebar(width, height int) string {
-	command := filetree.ResolveSidebarCommand(m.command, m.selectedCommand)
-	entries := filetree.BuildFileTreeEntries(m.config.Root, filetree.BuildExpandedDirectoryPaths(command))
+	// Expansion follows the confirmed command; the highlight follows the keyboard
+	// selection (so navigating onto a directory highlights without expanding it).
+	entries := filetree.BuildFileTreeEntries(
+		m.config.Root,
+		filetree.BuildExpandedDirectoryPaths(m.sidebarCommand()),
+	)
 	if len(entries) == 0 {
 		return "(no requests)"
 	}
 
-	highlighted := filetree.ResolveHighlightedEntry(entries, command)
+	highlighted := filetree.ResolveHighlightedEntry(entries, m.highlightedSidebarCommand())
 	vp := filetree.BuildFileTreeViewport(entries, height, 0, highlighted)
 
 	lines := make([]string, 0, len(vp.Entries))
@@ -242,10 +246,66 @@ func padTo(s string, width int) string {
 	return s
 }
 
+// renderQueryMain renders the result pane, reserving the bottom rows for the
+// input-suggestion popup (shown just above the @query line).
+func (m Model) renderQueryMain(width, height int) string {
+	overlay := m.renderCommandSuggestions(width)
+	resultHeight := max(1, height-len(overlay))
+	rows := []string{m.renderResponse(width, resultHeight)}
+	rows = append(rows, overlay...)
+	return strings.Join(rows, "\n")
+}
+
+func (m Model) renderCommandSuggestions(width int) []string {
+	suggestions := m.queryInputSuggestions(m.treeEntries())
+	if len(suggestions) == 0 {
+		return nil
+	}
+
+	const maxVisible = 6
+	selected := input.Clamp(m.inputSuggestIndex, 0, len(suggestions)-1)
+	start := 0
+	if selected >= maxVisible {
+		start = selected - maxVisible + 1
+	}
+	end := min(start+maxVisible, len(suggestions))
+
+	lines := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		label := padTo(truncateRunes(" "+suggestions[i].Label, width), width)
+		if i == selected {
+			lines = append(lines, selectedEntryStyle.Render(label))
+		} else {
+			lines = append(lines, suggestionFileStyle.Render(label))
+		}
+	}
+	return lines
+}
+
 func (m Model) renderResponse(width, height int) string {
 	content := m.responseContent(width)
-	vp := view.BuildTerminalViewport(content, width, height, 0, m.scrollY)
+	vp := view.BuildTerminalViewport(content, width, height, m.scrollX, m.scrollY)
 	return strings.Join(vp.Lines, "\n")
+}
+
+// responseViewportDims mirrors the width/height math in View for the result pane,
+// so the key handler can clamp scroll against the real content size.
+func (m Model) responseViewportDims() (int, int) {
+	bodyHeight := max(3, m.height-4)
+	sidebarWidth := input.Clamp(m.width/4, 14, max(14, m.width-24))
+	mainWidth := max(3, m.width-sidebarWidth-1)
+	return mainWidth - 4, bodyHeight - 2
+}
+
+func (m *Model) refreshResponseScrollLimits() {
+	width, height := m.responseViewportDims()
+	if width < 1 || height < 1 {
+		m.lastMaxScrollX, m.lastMaxScrollY = 0, 0
+		return
+	}
+	vp := view.BuildTerminalViewport(m.responseContent(width), width, height, 0, 0)
+	m.lastMaxScrollX = vp.MaxScrollX
+	m.lastMaxScrollY = vp.MaxScrollY
 }
 
 func (m Model) responseContent(width int) string {
@@ -486,7 +546,8 @@ var (
 	searchMatchStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("7"))
 	searchFocusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("3")).Bold(true)
 
-	aiUserStyle     = lipgloss.NewStyle().Bold(true)
-	suggestionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("8"))
-	aiModalStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("11"))
+	aiUserStyle         = lipgloss.NewStyle().Bold(true)
+	suggestionStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("8"))
+	suggestionFileStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	aiModalStyle        = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("11"))
 )

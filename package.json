@@ -46,6 +46,8 @@
     "start": "node ./dist/index.js -r ./example",
     "start:p": "node ./dist/index.js -r ./example -p request/example",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --runInBand",
+    "test:tui": "cd tui && go test ./...",
+    "test:tui-int": "npm run build && cd tui && go test -tags integration ./...",
     "typecheck": "tsc -p tsconfig.json",
     "pack:dry-run": "npm run build && npm pack --dry-run",
     "clean": "node ./bin/scripts/clean-dist.mjs",

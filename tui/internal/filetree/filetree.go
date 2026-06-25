@@ -281,6 +281,25 @@ func ResolveNextFileTreeSelectionIndex(entries []FileTreeEntry, highlightedIndex
 	return min(max(highlightedIndex+direction, 0), len(entries)-1)
 }
 
+// ResolveParentDirectoryCommand returns the parent directory command of the
+// given path (with a trailing slash), or ok=false when there is no parent.
+// Mirrors command.ts resolveParentDirectoryCommand.
+func ResolveParentDirectoryCommand(commandValue string) (string, bool) {
+	normalized := strings.ReplaceAll(strings.TrimSpace(commandValue), "\\", "/")
+	if normalized == "" {
+		return "", false
+	}
+	parts := splitNonEmpty(normalized, "/")
+	if len(parts) == 0 {
+		return "", false
+	}
+	parts = parts[:len(parts)-1]
+	if len(parts) == 0 {
+		return "", true
+	}
+	return strings.Join(parts, "/") + "/", true
+}
+
 // ResolveSidebarCommand picks the path that drives the sidebar: the typed input
 // unless it is empty or an @-command, in which case the keyboard selection.
 // Mirrors resolveSidebarCommand.
