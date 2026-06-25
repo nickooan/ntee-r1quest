@@ -2,7 +2,7 @@ import { describe, expect, test } from "@jest/globals"
 import {
   buildAiMessageLines,
   buildVisibleAiMessageLines,
-} from "../src/views/ai.tsx"
+} from "../src/views/terminal/ai-layout.ts"
 
 describe("ai view", () => {
   test("does not include full message content in render keys", () => {

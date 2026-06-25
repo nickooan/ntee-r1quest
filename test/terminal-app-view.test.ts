@@ -17,7 +17,7 @@ import {
   buildFilePaneLayout,
   buildGraphqlHighlightLines,
   highlightLine,
-} from "../src/views/terminal/file-content.tsx"
+} from "../src/views/terminal/file-content-highlight.ts"
 
 describe("terminal app view", () => {
   test("builds a fixed viewport from scroll offsets", () => {

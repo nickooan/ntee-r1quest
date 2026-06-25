@@ -46,10 +46,7 @@ import {
   editModeRequiresViewFileMessage,
   paneGap,
 } from "./terminal/constants.ts"
-import type {
-  AiSessionRecord,
-  ApiCallRecord,
-} from "../runtime/cache/index.ts"
+import type { AiSessionRecord, ApiCallRecord } from "../runtime/cache/index.ts"
 import { copyToClipboard } from "../runtime/clipboard.ts"
 import { formatAcpPermissionMessage } from "./terminal/ai-session.ts"
 import { CommandLine } from "./terminal/command-line.tsx"
@@ -62,7 +59,7 @@ import {
 import { useAiController } from "./terminal/ai-controller.ts"
 import { resolveEditScroll } from "./terminal/edit-scroll.ts"
 import { useEditSuggestions } from "./terminal/edit-suggestions.ts"
-import { buildFilePaneLayout } from "./terminal/file-content.tsx"
+import { buildFilePaneLayout } from "./terminal/file-content-highlight.ts"
 import { useFileNavigation } from "./terminal/file-navigation.ts"
 import { ResponsePane } from "./terminal/response-pane.tsx"
 import { CacheNoticeOverlay } from "./terminal/cache-notice-overlay.tsx"

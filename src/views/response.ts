@@ -1,5 +1,3 @@
-import { useEffect, useState } from "react"
-import { render, Text } from "ink"
 import { indentBlock, sectionRule } from "./terminal/section-format.ts"
 import type { ExecuteResult } from "../runtime/client/types.ts"
 
@@ -127,24 +125,4 @@ export const formatPending = (frameIndex: number): string => {
   const frame = pendingFrames[frameIndex % pendingFrames.length]
 
   return `pending${frame}`
-}
-
-export const PendingView = () => {
-  const [frameIndex, setFrameIndex] = useState(0)
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setFrameIndex((currentFrameIndex) => currentFrameIndex + 1)
-    }, 250)
-
-    return () => {
-      clearInterval(interval)
-    }
-  }, [])
-
-  return <Text>{formatPending(frameIndex)}</Text>
-}
-
-export const displayPending = () => {
-  return render(<PendingView />)
 }

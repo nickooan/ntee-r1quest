@@ -1,4 +1,4 @@
-import { formatError, formatPending, formatResponse } from "../response.tsx"
+import { formatError, formatPending, formatResponse } from "../response.ts"
 import type { ExecuteResult } from "../../runtime/client/types.ts"
 
 export type TerminalContentOptions = {

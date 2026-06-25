@@ -10,7 +10,7 @@ import {
   type ViewModeState,
 } from "../key-helpers/index.ts"
 import { TerminalMode } from "../../runtime/app-command/index.ts"
-import { buildAiLayout, buildAiMessageLines } from "../ai.tsx"
+import { buildAiLayout, buildAiMessageLines } from "./ai-layout.ts"
 import type { ExternalRequestEvent } from "../../runtime/external-event/index.ts"
 import {
   buildExpandedDirectoryPaths,
@@ -26,7 +26,7 @@ import {
   requestStatsHeight,
 } from "./constants.ts"
 import { formatTerminalContent } from "./content.ts"
-import { buildFilePaneLayout } from "./file-content.tsx"
+import { buildFilePaneLayout } from "./file-content-highlight.ts"
 import { buildTerminalViewport, normalizeLines } from "./viewport.ts"
 
 type InputStateByMode = {

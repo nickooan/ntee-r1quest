@@ -35,7 +35,7 @@ import {
 } from "./src/runtime/external-event/index.ts"
 import { VERSION } from "./src/runtime/version.ts"
 import { ConfigGenerator } from "./src/views/config-generator/index.tsx"
-import { formatError, formatResponse } from "./src/views/response.tsx"
+import { formatError, formatResponse } from "./src/views/response.ts"
 import { TerminalApp } from "./src/views/terminal-app.tsx"
 
 export { VERSION } from "./src/runtime/version.ts"

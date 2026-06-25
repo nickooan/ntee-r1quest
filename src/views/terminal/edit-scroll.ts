@@ -1,5 +1,5 @@
 import type { EditModeState, ViewModeState } from "../key-helpers/index.ts"
-import { buildFilePaneLayout } from "./file-content.tsx"
+import { buildFilePaneLayout } from "./file-content-highlight.ts"
 
 export const resolveEditScroll = (
   state: EditModeState,

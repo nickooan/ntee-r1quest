@@ -5,7 +5,7 @@ import {
   formatResponseBody,
   formatResponseHeaders,
   formatPending,
-} from "../src/views/response.tsx"
+} from "../src/views/response.ts"
 import { sectionRule } from "../src/views/terminal/section-format.ts"
 import type { ExecuteResult } from "../src/runtime/client/types.ts"
 

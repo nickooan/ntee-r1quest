@@ -123,7 +123,9 @@ describe("InProcessRuntimeClient.ai orchestration", () => {
     } as unknown as CodexAcpPermissionRequest)
     options.onExit?.({ code: 0, signal: null })
 
-    expect(updates).toEqual([{ sessionId: "s", update: { sessionUpdate: "x" } }])
+    expect(updates).toEqual([
+      { sessionId: "s", update: { sessionUpdate: "x" } },
+    ])
     expect(permissions).toEqual([{ kind: "perm" }])
     expect(stopped).toEqual([{}])
   })

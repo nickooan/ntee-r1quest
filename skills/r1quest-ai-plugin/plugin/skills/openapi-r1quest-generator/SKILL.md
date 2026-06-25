@@ -337,7 +337,6 @@ Resolve the value in this order:
 
    The default must be an immediate quoted string. Pick it from the operation's
    declared request media type, preferring:
-
    1. `application/json`
    2. `multipart/form-data`
    3. the first available OpenAPI request content type

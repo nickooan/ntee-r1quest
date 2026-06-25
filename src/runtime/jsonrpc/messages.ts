@@ -73,8 +73,9 @@ export class RpcError extends Error {
 }
 
 // A response carries no `method`; a request/notification always does.
-export const isResponse = (message: JsonRpcMessage): message is JsonRpcResponse =>
-  !("method" in message)
+export const isResponse = (
+  message: JsonRpcMessage,
+): message is JsonRpcResponse => !("method" in message)
 
 export const isFailure = (
   response: JsonRpcResponse,
