@@ -99,6 +99,11 @@ func (m Model) renderStatusLine() string {
 		}
 		return promptStyle.Render("@ai >") + " " + renderInputLine(m.aiInput, m.aiInputCursor)
 	default:
+		// While navigating (shift+arrow / popup), the input bar reflects the
+		// selected entry; typing returns to the editable typed command.
+		if m.commandPreview != "" {
+			return promptStyle.Render("@query >") + " " + previewStyle.Render(m.commandPreview)
+		}
 		return promptStyle.Render("@query >") + " " + renderInputLine(m.command, m.cursor)
 	}
 }
@@ -549,5 +554,6 @@ var (
 	aiUserStyle         = lipgloss.NewStyle().Bold(true)
 	suggestionStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("8"))
 	suggestionFileStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	previewStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
 	aiModalStyle        = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("11"))
 )

@@ -227,6 +227,42 @@ func TestShiftArrowMovesSidebarSelection(t *testing.T) {
 	}
 }
 
+func TestShiftArrowReflectsIntoInputAndPopup(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "orders"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "orders", "get.nts"), []byte("u\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "orders", "list.nts"), []byte("u\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(&fakeClient{}, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Type a prefix so the popup opens, then enter the dir so it has children.
+	m.command = "orders/"
+	m.selectedCommand = "orders/"
+
+	// Popup now lists orders/get and orders/list; shift+down navigates it and
+	// reflects the selection into the input bar + sidebar highlight + popup index.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyShiftDown})
+	if m.commandPreview == "" {
+		t.Fatal("shift+down should reflect the selection into the input bar")
+	}
+	if m.keyboardSelectedCommand != m.commandPreview {
+		t.Fatalf("sidebar highlight (%q) should match the input preview (%q)", m.keyboardSelectedCommand, m.commandPreview)
+	}
+
+	// Typing clears the preview and returns to the editable typed command.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if m.commandPreview != "" {
+		t.Fatal("typing should clear the navigation preview")
+	}
+}
+
 func TestShiftNavOntoDirectoryDoesNotExpand(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "orders"), 0o755); err != nil {

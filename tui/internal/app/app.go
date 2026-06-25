@@ -82,6 +82,11 @@ type Model struct {
 	selectedCommand         string
 	keyboardSelectedCommand string
 
+	// commandPreview reflects the currently-navigated entry in the input bar
+	// (shift+arrow / popup nav). It is display-only — it never drives expansion —
+	// and is cleared as soon as the user types. The typed text stays in command.
+	commandPreview string
+
 	inputSuggestIndex int
 
 	pending        bool
@@ -254,12 +259,22 @@ func (m Model) handleQueryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 
-	// Shift+arrows: move the sidebar highlight (never expands) / move the cursor.
+	// Shift+arrows: move the selection on the left. When a popup is open this is
+	// the same selection the popup navigates (so both stay in sync); otherwise it
+	// walks the sidebar tree. Either way it reflects into the input bar preview.
 	case tea.KeyShiftUp:
-		m.moveSidebarSelection(entries, -1)
+		if popupOpen {
+			m.moveInputSuggestion(suggestions, -1)
+		} else {
+			m.moveSidebarSelection(entries, -1)
+		}
 		return m, nil
 	case tea.KeyShiftDown:
-		m.moveSidebarSelection(entries, 1)
+		if popupOpen {
+			m.moveInputSuggestion(suggestions, 1)
+		} else {
+			m.moveSidebarSelection(entries, 1)
+		}
 		return m, nil
 	case tea.KeyShiftLeft:
 		m.cursor = input.MoveCursor(m.command, m.cursor, -1)
@@ -304,6 +319,7 @@ func (m Model) handleQueryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if ok {
 			m.command = next
 			m.cursor = cursor
+			m.commandPreview = ""
 			m.inputSuggestIndex = 0
 		}
 		return m, nil
@@ -313,6 +329,7 @@ func (m Model) handleQueryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			text = " "
 		}
 		m.command, m.cursor = input.InsertAtCursor(m.command, m.cursor, text)
+		m.commandPreview = ""
 		m.inputSuggestIndex = 0
 		return m, nil
 	}
@@ -327,6 +344,7 @@ func (m Model) submitQuery(
 	suggestions []filetree.InputSuggestion,
 ) (tea.Model, tea.Cmd) {
 	m.notice = ""
+	m.commandPreview = ""
 	trimmed := strings.TrimSpace(m.command)
 
 	if strings.HasPrefix(trimmed, "@") {
@@ -450,7 +468,10 @@ func (m *Model) moveSidebarSelection(entries []filetree.FileTreeEntry, direction
 	current := m.highlightedEntryIndex(entries)
 	next := filetree.ResolveNextFileTreeSelectionIndex(entries, current, direction)
 	if next >= 0 {
+		// Reflect the highlighted entry in the input bar (preview only — does not
+		// expand directories).
 		m.keyboardSelectedCommand = entries[next].CommandValue
+		m.commandPreview = entries[next].CommandValue
 	}
 }
 
@@ -460,7 +481,10 @@ func (m *Model) moveInputSuggestion(suggestions []filetree.InputSuggestion, dire
 		return
 	}
 	m.inputSuggestIndex = ((m.inputSuggestIndex+direction)%n + n) % n
+	// Selection reflects in all three: the sidebar highlight, the popup index,
+	// and the input bar preview.
 	m.keyboardSelectedCommand = suggestions[m.inputSuggestIndex].Entry.CommandValue
+	m.commandPreview = suggestions[m.inputSuggestIndex].InsertText
 }
 
 func (m *Model) moveQueryToParentDirectory() {
@@ -473,6 +497,7 @@ func (m *Model) moveQueryToParentDirectory() {
 		return
 	}
 	m.keyboardSelectedCommand = ""
+	m.commandPreview = ""
 	m.selectedCommand = parent
 	m.command = parent
 	m.cursor = len([]rune(parent))
