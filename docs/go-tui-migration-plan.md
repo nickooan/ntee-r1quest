@@ -263,17 +263,39 @@ external-event|clipboard` imports from the view layer.
 3. Implement `SocketRuntimeClient` (TS) and run the TUI against it from a second
    process — proves the protocol end-to-end before any Go exists.
 
-### Phase D — Build the Go TUI against the proven protocol
+### Phase D — Build the Go TUI against the proven protocol — DONE (core)
 
-1. Spike the riskless-but-bulky ports: pure-view-logic + Go-bound runtime.
-2. Rewrite rendering in Bubble Tea / Lipgloss; key-helpers become `Update`.
-3. Implement the Go `SocketRuntimeClient`; spawn + supervise the TS runtime server.
+Implemented in `tui/` (Go module). Pure logic ported with mirrored tests
+(`internal/{input,view,filetree}`); the Go RPC client + supervisor
+(`internal/runtime`); the Bubble Tea app (`internal/app`) with **query, view,
+edit, search, history, and AI** modes; the TS headless entrypoint
+`src/runtime-server.ts`. Verified: all Go unit tests, plus a **cross-language
+integration test** (Go client ↔ real TS runtime over a UDS) covering `getConfig`
+and a real `execute` (HTTP 200 through the full pipeline).
+
+Remaining polish (not blocking architecture): editor-suggestions overlay in edit
+mode, clipboard (`@copy`), full app-command/custom-command routing, the
+thinking-indicator quiet-window heuristic, and live TTY/ACP smoke tests.
 
 ### Phase E — Cutover
 
-1. Port/extend tests; benchmark startup + render.
-2. Switch the `r1q` / `ntee-r1quest` bin to the Go binary (Node still needed only
-   for the runtime process + npm ACP agents).
+Groundwork (done): `npm run build:tui` builds `bin/r1q-tui`; `npm run start:go`
+runs the Go TUI against the built runtime; `.prettierignore`/`.gitignore` updated.
+
+The Go TUI ships **opt-in** today (run via `start:go` / the `r1q-tui` binary) so
+the production Ink TUI stays the default `r1q` bin until parity is reached.
+
+Gate to flip the default `r1q` bin to Go:
+
+1. Clear the Phase D polish list above (esp. editor-suggestions, clipboard,
+   full app/custom-command routing).
+2. Manual TTY smoke of every mode + a live ACP run (claude/codex/cursor).
+3. Benchmark startup + render vs the Ink TUI.
+4. Distribution: ship a prebuilt `r1q-tui` per platform (e.g. goreleaser) since a
+   Go binary can't be `npm`-published as source; Node stays required for the
+   runtime process + npm ACP agents.
+5. Repoint the `bin` entry (or have `index.ts` exec the Go binary when present),
+   keeping a fallback/flag to the Ink TUI for one release.
 
 ## 6. Risk register
 

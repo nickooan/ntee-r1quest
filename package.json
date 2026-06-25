@@ -36,6 +36,8 @@
   },
   "scripts": {
     "build": "node ./bin/scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node ./bin/scripts/copy-grammar-assets.mjs",
+    "build:tui": "node ./bin/scripts/build-tui.mjs",
+    "start:go": "npm run build && npm run build:tui && ./bin/r1q-tui -r ./example -runtime dist/src/runtime-server.js",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "start:codex": "node ./dist/index.js -r ./example -ai codex",
