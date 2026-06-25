@@ -323,6 +323,80 @@ func TestAIModeStreamingFlow(t *testing.T) {
 	}
 }
 
+func TestEditModeSuggestionAccept(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "get.nts"), []byte("url example.com\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(&fakeClient{}, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.selectedCommand = "get"
+	m.command = "@e"
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.mode != modeEdit {
+		t.Fatalf("expected edit mode, got %d", m.mode)
+	}
+
+	// Type "re" → the "ref" keyword suggestion should appear.
+	m = typeRunes(m, "re")
+	if !m.editOverlayOpen() {
+		t.Fatalf("expected a suggestion overlay; suggestions=%+v", m.editSuggestions)
+	}
+
+	// Tab accepts the selected suggestion, replacing the typed token.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyTab})
+	if !strings.HasPrefix(m.edit.lines[0], "ref ") {
+		t.Fatalf("expected line to start with 'ref ', got %q", m.edit.lines[0])
+	}
+}
+
+func TestSearchAliasEntersSearchMode(t *testing.T) {
+	m := New(&fakeClient{}, runtime.ConfigDTO{})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	res := runtime.ExecuteResult{Status: 200, StatusText: "OK"}
+	m.response = &res
+
+	m.command = "@s"
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.mode != modeSearch {
+		t.Fatalf("@s should enter search mode, got %d", m.mode)
+	}
+}
+
+func TestEditCommandWithPathArgument(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "folder"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "folder", "get.nts"), []byte("url x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(&fakeClient{}, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.command = "@e folder/get"
+
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.mode != modeEdit || m.openFile == nil || m.openFile.FileName != "get.nts" {
+		t.Fatalf("@e <path> should open that file; mode=%d file=%v", m.mode, m.openFile)
+	}
+}
+
+func TestQuickSwitchShiftTab(t *testing.T) {
+	m := New(&fakeClient{}, runtime.ConfigDTO{})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyShiftTab})
+	if cmd == nil {
+		t.Fatal("shift+tab from query should load history")
+	}
+	m, _ = apply(m, cmd())
+	if m.mode != modeHistory {
+		t.Fatalf("shift+tab from query should reach history, got %d", m.mode)
+	}
+}
+
 func TestEnterIgnoredWhenEmpty(t *testing.T) {
 	m := New(&fakeClient{}, runtime.ConfigDTO{})
 	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})

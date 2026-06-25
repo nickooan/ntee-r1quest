@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,6 +32,12 @@ func main() {
 }
 
 func run(node, script, root, ai string) error {
+	// Resolve the root to an absolute path so request resolution is independent
+	// of the runtime process's working directory.
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+
 	supervisor, err := runtime.Start(runtime.StartOptions{
 		NodeBin:      node,
 		ServerScript: script,

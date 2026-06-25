@@ -79,3 +79,19 @@ func (e *editor) move(dx, dy int) {
 	e.cy = input.Clamp(e.cy+dy, 0, len(e.lines)-1)
 	e.cx = input.Clamp(e.cx+dx, 0, len(e.line()))
 }
+
+// replaceWord replaces the token [wordStart, cursor) on the current line with
+// insertText, positioning the cursor at cursorOffset within it (0 = end). Used
+// to accept an editor suggestion.
+func (e *editor) replaceWord(wordStart int, insertText string, cursorOffset int) {
+	line := e.line()
+	cx := input.Clamp(e.cx, 0, len(line))
+	start := input.Clamp(wordStart, 0, cx)
+	e.lines[e.cy] = string(line[:start]) + insertText + string(line[cx:])
+	if cursorOffset != 0 {
+		e.cx = start + cursorOffset
+	} else {
+		e.cx = start + len([]rune(insertText))
+	}
+	e.dirty = true
+}

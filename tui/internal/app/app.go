@@ -7,14 +7,18 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"codeberg.org/nickoan/ntee-r1quest/tui/internal/clip"
+	"codeberg.org/nickoan/ntee-r1quest/tui/internal/command"
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/filetree"
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/input"
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/runtime"
+	"codeberg.org/nickoan/ntee-r1quest/tui/internal/suggest"
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/view"
 )
 
@@ -46,6 +50,7 @@ type executeDoneMsg struct{ result runtime.ExecuteResult }
 type executeErrMsg struct{ err error }
 type historyLoadedMsg struct{ records []runtime.ApiCallRecord }
 type historyErrMsg struct{ err error }
+type copiedMsg struct{ err error }
 
 // AI messages — sent from the supervisor's event handlers (main) into the
 // program, so they are exported.
@@ -82,6 +87,10 @@ type Model struct {
 	fileScrollY int
 	edit        editor
 	notice      string
+
+	editSuggestions  []suggest.Item
+	editSuggestIndex int
+	editDismissed    bool
 
 	history      []runtime.ApiCallRecord
 	historyIndex int
@@ -151,6 +160,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.errText = msg.err.Error()
 		return m, nil
 
+	case copiedMsg:
+		if msg.err != nil {
+			m.errText = "copy failed: " + msg.err.Error()
+		} else {
+			m.notice = "copied"
+		}
+		return m, nil
+
 	case AiStartedMsg:
 		m.aiActive = true
 		m.aiOffline = false
@@ -183,6 +200,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Shift+Tab quick-switches between the primary modes from anywhere.
+		if msg.Type == tea.KeyShiftTab {
+			return m.quickSwitch()
+		}
 		switch m.mode {
 		case modeView:
 			return m.handleViewKey(msg)
@@ -278,24 +299,34 @@ func (m Model) handleAppCommand(command string) (tea.Model, tea.Cmd) {
 	m.command = ""
 	m.cursor = 0
 
-	switch command {
+	// Split `@verb arg` (e.g. `@e folder/get`, `@v config`).
+	verb := command
+	arg := ""
+	if i := strings.IndexByte(command, ' '); i >= 0 {
+		verb = command[:i]
+		arg = strings.TrimSpace(command[i+1:])
+	}
+
+	switch verb {
 	case "@q", "@query":
 		m.mode = modeQuery
 		m.openFile = nil
 	case "@v", "@view":
-		return m.openSelected(false)
+		return m.openFileForMode(arg, false)
 	case "@e", "@edit":
-		return m.openSelected(true)
+		return m.openFileForMode(arg, true)
 	case "@h", "@history":
 		return m, loadHistoryCmd(m.client)
 	case "@ai":
 		return m.enterAI()
-	case "@search":
+	case "@copy", "@report":
+		return m, copyCmd(m.currentMainContent())
+	case "@s", "@search":
 		return m.enterSearch(modeQuery, m.currentMainContent()), nil
 	case "@exit", "@quit":
 		return m, tea.Quit
 	default:
-		m.errText = "unknown command: " + command
+		m.errText = "unknown command: " + verb
 	}
 	return m, nil
 }
@@ -318,17 +349,48 @@ func (m *Model) moveSelection(direction int) {
 	}
 }
 
+// quickSwitch cycles the primary modes: query → history → ai → query. From a
+// file/content mode it returns to query.
+func (m Model) quickSwitch() (tea.Model, tea.Cmd) {
+	switch m.mode {
+	case modeQuery:
+		return m, loadHistoryCmd(m.client)
+	case modeHistory:
+		return m.enterAI()
+	case modeAI:
+		m.mode = modeQuery
+		return m, nil
+	default:
+		m.mode = modeQuery
+		m.openFile = nil
+		return m, nil
+	}
+}
+
 func (m Model) treeEntries() []filetree.FileTreeEntry {
 	command := filetree.ResolveSidebarCommand(m.command, m.selectedCommand)
 	return filetree.BuildFileTreeEntries(m.config.Root, filetree.BuildExpandedDirectoryPaths(command))
 }
 
-func (m Model) openSelected(forEdit bool) (tea.Model, tea.Cmd) {
-	entries := m.treeEntries()
-	command := filetree.ResolveSidebarCommand(m.command, m.selectedCommand)
+// openFileForMode opens a file in view/edit mode. target is an explicit path
+// (`@e folder/get`); when empty it falls back to the keyboard tree selection.
+func (m Model) openFileForMode(target string, forEdit bool) (tea.Model, tea.Cmd) {
+	command := target
+	if command == "" {
+		command = m.selectedCommand
+	}
+	if command == "" {
+		m.errText = "select a file (↑/↓) or pass a path, e.g. @e folder/get"
+		return m, nil
+	}
+
+	entries := filetree.BuildFileTreeEntries(
+		m.config.Root,
+		filetree.BuildExpandedDirectoryPaths(command),
+	)
 	idx := filetree.ResolveHighlightedEntry(entries, command)
 	if idx < 0 {
-		m.errText = "no file selected"
+		m.errText = "no file matches " + command
 		return m, nil
 	}
 	entry := entries[idx]
@@ -500,6 +562,12 @@ func (m Model) currentHistoryRecord() (runtime.ApiCallRecord, bool) {
 	return m.history[m.historyIndex], true
 }
 
+func copyCmd(text string) tea.Cmd {
+	return func() tea.Msg {
+		return copiedMsg{err: clip.Copy(text)}
+	}
+}
+
 func loadHistoryCmd(client runtimeClient) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -557,12 +625,17 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if text == "" {
 			return m, nil
 		}
+		// A `/name args` custom command expands to its configured instruction.
+		prompt := text
+		if resolved, ok := command.ResolveCustomCommandPrompt(m.config.CustomCommands, text); ok {
+			prompt = resolved
+		}
 		m.aiMessages = append(m.aiMessages, view.ChatMessage{Role: "user", Content: text})
 		m.aiInput = ""
 		m.aiInputCursor = 0
 		m.aiThinking = true
 		m.aiScrollY = 0
-		return m, aiPromptCmd(m.client, text)
+		return m, aiPromptCmd(m.client, prompt)
 	case tea.KeyBackspace:
 		next, cursor, ok := input.RemoveBeforeCursor(m.aiInput, m.aiInputCursor)
 		if ok {
@@ -658,10 +731,21 @@ func agentDisplayName(adaptor string) string {
 // ── Edit mode ───────────────────────────────────────────────────────────────
 
 func (m Model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	overlay := m.editOverlayOpen()
+
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
+	case tea.KeyTab:
+		if overlay {
+			m.acceptSuggestion()
+		}
+		return m, nil
 	case tea.KeyEsc:
+		if overlay {
+			m.editDismissed = true
+			return m, nil
+		}
 		m.mode = modeQuery
 		m.openFile = nil
 		m.notice = ""
@@ -677,22 +761,42 @@ func (m Model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyEnter:
+		if overlay {
+			m.acceptSuggestion()
+			return m, nil
+		}
 		m.edit.newline()
+		m.recomputeEditSuggestions()
 		return m, nil
 	case tea.KeyBackspace:
 		m.edit.backspace()
+		m.editDismissed = false
+		m.recomputeEditSuggestions()
 		return m, nil
 	case tea.KeyLeft:
 		m.edit.move(-1, 0)
+		m.recomputeEditSuggestions()
 		return m, nil
 	case tea.KeyRight:
 		m.edit.move(1, 0)
+		m.recomputeEditSuggestions()
 		return m, nil
 	case tea.KeyUp:
+		if overlay {
+			n := len(m.editSuggestions)
+			m.editSuggestIndex = (m.editSuggestIndex - 1 + n) % n
+			return m, nil
+		}
 		m.edit.move(0, -1)
+		m.recomputeEditSuggestions()
 		return m, nil
 	case tea.KeyDown:
+		if overlay {
+			m.editSuggestIndex = (m.editSuggestIndex + 1) % len(m.editSuggestions)
+			return m, nil
+		}
 		m.edit.move(0, 1)
+		m.recomputeEditSuggestions()
 		return m, nil
 	case tea.KeyRunes, tea.KeySpace:
 		text := string(msg.Runes)
@@ -700,9 +804,82 @@ func (m Model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			text = " "
 		}
 		m.edit.insert(text)
+		m.editDismissed = false
+		m.recomputeEditSuggestions()
 		return m, nil
 	}
 	return m, nil
+}
+
+var editRefPattern = regexp.MustCompile(`^\s*ref\s+(\S*)$`)
+
+func (m Model) editOverlayOpen() bool {
+	return !m.editDismissed && len(m.editSuggestions) > 0
+}
+
+func (m *Model) recomputeEditSuggestions() {
+	if m.mode != modeEdit || m.openFile == nil {
+		m.editSuggestions = nil
+		return
+	}
+	items, _ := m.editContext()
+	m.editSuggestions = items
+	if m.editSuggestIndex >= len(items) {
+		m.editSuggestIndex = 0
+	}
+}
+
+// editContext returns the suggestions for the cursor's current token and where
+// that token starts (so an accepted suggestion can replace it).
+func (m Model) editContext() ([]suggest.Item, int) {
+	line := []rune(m.edit.lines[m.edit.cy])
+	cx := input.Clamp(m.edit.cx, 0, len(line))
+	before := string(line[:cx])
+
+	if rm := editRefPattern.FindStringSubmatch(before); rm != nil {
+		fragment := rm[1]
+		fragStart := cx - len([]rune(fragment))
+		return suggest.BuildRefSuggestionItems(m.openFile.Path, fragment), fragStart
+	}
+
+	word, start := trailingWord(line, cx)
+	if word == "" {
+		return nil, cx
+	}
+	lower := strings.ToLower(word)
+	all := suggest.BuildEditorSuggestionItems(m.openFile.Path, m.edit.content(), m.config.CustomSuggestions)
+	var matched []suggest.Item
+	for _, item := range all {
+		if strings.HasPrefix(strings.ToLower(item.Label), lower) ||
+			strings.HasPrefix(strings.ToLower(item.InsertText), lower) {
+			matched = append(matched, item)
+		}
+	}
+	return matched, start
+}
+
+func (m *Model) acceptSuggestion() {
+	if m.editSuggestIndex < 0 || m.editSuggestIndex >= len(m.editSuggestions) {
+		return
+	}
+	item := m.editSuggestions[m.editSuggestIndex]
+	_, wordStart := m.editContext()
+	m.edit.replaceWord(wordStart, item.InsertText, item.CursorOffset)
+	m.editDismissed = false
+	m.recomputeEditSuggestions()
+}
+
+func trailingWord(line []rune, cx int) (string, int) {
+	start := cx
+	for start > 0 && isWordRune(line[start-1]) {
+		start--
+	}
+	return string(line[start:cx]), start
+}
+
+func isWordRune(r rune) bool {
+	return r == '-' || r == '_' || r == '@' ||
+		(r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
 }
 
 func executeCmd(client runtimeClient, command string) tea.Cmd {

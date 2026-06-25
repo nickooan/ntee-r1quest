@@ -22,6 +22,17 @@ func (m Model) View() string {
 	)
 
 	bodyHeight := max(3, m.height-4)
+
+	// AI mode is a centered modal over a blank body, matching the Ink overlay.
+	if m.mode == modeAI {
+		body := lipgloss.Place(
+			m.width, bodyHeight,
+			lipgloss.Center, lipgloss.Center,
+			m.renderAIModal(bodyHeight),
+		)
+		return lipgloss.JoinVertical(lipgloss.Left, header, body, m.renderStatusLine())
+	}
+
 	sidebarWidth := input.Clamp(m.width/4, 14, max(14, m.width-24))
 	mainWidth := max(3, m.width-sidebarWidth-1)
 
@@ -41,8 +52,6 @@ func (m Model) View() string {
 		mainBody = m.renderHistory(mainWidth-4, bodyHeight-2)
 	case modeSearch:
 		mainBody = m.renderSearch(mainWidth-4, bodyHeight-2)
-	case modeAI:
-		mainBody = m.renderAI(mainWidth-4, bodyHeight-2)
 	default:
 		mainBody = m.renderResponse(mainWidth-4, bodyHeight-2)
 	}
@@ -266,8 +275,11 @@ func (m Model) renderFile(width, height int) string {
 		return ""
 	}
 
+	overlay := m.renderEditOverlay(width)
+	fileHeight := max(1, height-len(overlay))
+
 	graphql := view.BuildGraphqlHighlightLines(lines)
-	gutterWidth := len(strconv.Itoa(max(len(lines), height)))
+	gutterWidth := len(strconv.Itoa(max(len(lines), fileHeight)))
 	contentWidth := max(1, width-gutterWidth-3)
 
 	start := m.fileScrollY
@@ -276,14 +288,14 @@ func (m Model) renderFile(width, height int) string {
 		if m.edit.cy < start {
 			start = m.edit.cy
 		}
-		if m.edit.cy >= start+height {
-			start = m.edit.cy - height + 1
+		if m.edit.cy >= start+fileHeight {
+			start = m.edit.cy - fileHeight + 1
 		}
 	}
-	start = input.Clamp(start, 0, max(0, len(lines)-height))
+	start = input.Clamp(start, 0, max(0, len(lines)-fileHeight))
 
 	rows := make([]string, 0, height)
-	for i := start; i < start+height; i++ {
+	for i := start; i < start+fileHeight; i++ {
 		if i >= len(lines) {
 			rows = append(rows, "")
 			continue
@@ -301,7 +313,35 @@ func (m Model) renderFile(width, height int) string {
 		}
 		rows = append(rows, number+content)
 	}
+	rows = append(rows, overlay...)
 	return strings.Join(rows, "\n")
+}
+
+// renderEditOverlay renders the completion list (up to a few items) shown at the
+// bottom of the edit pane.
+func (m Model) renderEditOverlay(width int) []string {
+	if m.mode != modeEdit || !m.editOverlayOpen() {
+		return nil
+	}
+	const maxItems = 6
+	items := m.editSuggestions
+
+	start := 0
+	if m.editSuggestIndex >= maxItems {
+		start = m.editSuggestIndex - maxItems + 1
+	}
+	end := min(start+maxItems, len(items))
+
+	lines := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		label := padTo(truncateRunes(" "+items[i].Label, width), width)
+		if i == m.editSuggestIndex {
+			lines = append(lines, selectedEntryStyle.Render(label))
+		} else {
+			lines = append(lines, suggestionStyle.Render(label))
+		}
+	}
+	return lines
 }
 
 func renderHighlighted(line, lang string, width int) string {
@@ -361,6 +401,13 @@ func renderInputLine(text string, cursor int) string {
 		after = string(runes[at+1:])
 	}
 	return before + cursorStyle.Render(cursorChar) + after
+}
+
+func (m Model) renderAIModal(bodyHeight int) string {
+	modalWidth := input.Clamp(m.width*8/10, 24, max(24, m.width-4))
+	modalHeight := input.Clamp(bodyHeight*9/10, 6, bodyHeight)
+	inner := m.renderAI(modalWidth-2, modalHeight-2)
+	return aiModalStyle.Width(modalWidth - 2).Height(modalHeight - 2).Render(inner)
 }
 
 func (m Model) renderAI(width, height int) string {
@@ -439,5 +486,7 @@ var (
 	searchMatchStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("7"))
 	searchFocusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("3")).Bold(true)
 
-	aiUserStyle = lipgloss.NewStyle().Bold(true)
+	aiUserStyle     = lipgloss.NewStyle().Bold(true)
+	suggestionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("8"))
+	aiModalStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("11"))
 )
