@@ -869,6 +869,22 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Multi-line editing. Ctrl+J inserts a newline — it's the one combo every
+	// terminal delivers reliably (a distinct line-feed, no config needed). Cursor
+	// moves accept Shift or Option + Up/Down. Handled before the type switch since
+	// plain Up/Down (which scroll the transcript) ignore modifiers.
+	switch {
+	case msg.Type == tea.KeyCtrlJ:
+		m.aiInput, m.aiInputCursor = input.InsertAtCursor(m.aiInput, m.aiInputCursor, "\n")
+		return m, nil
+	case msg.Type == tea.KeyShiftUp || (msg.Type == tea.KeyUp && msg.Alt):
+		m.aiInputCursor = input.MoveCursorVertical(m.aiInput, m.aiInputCursor, -1)
+		return m, nil
+	case msg.Type == tea.KeyShiftDown || (msg.Type == tea.KeyDown && msg.Alt):
+		m.aiInputCursor = input.MoveCursorVertical(m.aiInput, m.aiInputCursor, 1)
+		return m, nil
+	}
+
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit

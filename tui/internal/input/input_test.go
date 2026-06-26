@@ -30,6 +30,23 @@ func TestRemoveBeforeCursorAtStart(t *testing.T) {
 	}
 }
 
+func TestMoveCursorVertical(t *testing.T) {
+	const s = "abcde\nfg" // line0 len 5, line1 len 2
+
+	if got := MoveCursorVertical(s, 5, 1); got != 8 { // down clamps to short line end
+		t.Fatalf("down clamp: want 8, got %d", got)
+	}
+	if got := MoveCursorVertical(s, 8, -1); got != 2 { // up preserves column
+		t.Fatalf("up preserve col: want 2, got %d", got)
+	}
+	if got := MoveCursorVertical(s, 2, -1); got != 2 { // up on first line: no-op
+		t.Fatalf("up first line: want 2, got %d", got)
+	}
+	if got := MoveCursorVertical(s, 7, 1); got != 7 { // down on last line: no-op
+		t.Fatalf("down last line: want 7, got %d", got)
+	}
+}
+
 func TestMoveCursorClamps(t *testing.T) {
 	if MoveCursor("ab", 2, 1) != 2 {
 		t.Fatal("should clamp at end")

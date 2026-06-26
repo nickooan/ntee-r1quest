@@ -24,18 +24,21 @@ func (m Model) View() string {
 	bodyHeight := max(3, m.height-4)
 
 	// AI mode is a centered modal over a blank body, matching the Ink overlay.
-	// Before the chat, the session picker takes the modal slot.
+	// Before the chat, the session picker takes the modal slot. The body shrinks
+	// to make room for a multi-line input so the layout never overflows.
 	if m.mode == modeAI {
-		modal := m.renderAIModal(bodyHeight)
+		status := m.renderStatusLine()
+		aiBodyHeight := max(3, m.height-3-strings.Count(status, "\n"))
+		modal := m.renderAIModal(aiBodyHeight)
 		if m.aiPicking {
 			modal = m.renderSessionPicker()
 		}
 		body := lipgloss.Place(
-			m.width, bodyHeight,
+			m.width, aiBodyHeight,
 			lipgloss.Center, lipgloss.Center,
 			modal,
 		)
-		return lipgloss.JoinVertical(lipgloss.Left, header, body, m.renderStatusLine())
+		return lipgloss.JoinVertical(lipgloss.Left, header, body, status)
 	}
 
 	sidebarWidth := input.Clamp(m.width/4, 14, max(14, m.width-24))
@@ -112,7 +115,7 @@ func (m Model) renderStatusLine() string {
 		if m.aiPermission != nil {
 			return promptStyle.Render("Permission:") + " " + m.aiPermission.Title + "   [y] allow · [n] reject"
 		}
-		return promptStyle.Render("@ai >") + " " + renderInputLine(m.aiInput, m.aiInputCursor)
+		return renderMultilineInput("@ai >", m.aiInput, m.aiInputCursor)
 	default:
 		// While navigating (shift+arrow / popup), the input bar reflects the
 		// selected entry; typing returns to the editable typed command.
@@ -479,6 +482,41 @@ func renderEditLine(line string, cx, width int) string {
 		out += strings.Repeat(" ", pad)
 	}
 	return out
+}
+
+// renderMultilineInput renders a (possibly multi-line) input with a styled
+// prompt on the first line and aligned continuation lines, placing the cursor on
+// its line. promptText is unstyled (used for width); styling is applied here.
+func renderMultilineInput(promptText, text string, cursor int) string {
+	runes := []rune(text)
+	cursor = input.Clamp(cursor, 0, len(runes))
+
+	// Cursor line index + column from newline counting.
+	lineIdx, col := 0, 0
+	for i := 0; i < cursor; i++ {
+		if runes[i] == '\n' {
+			lineIdx++
+			col = 0
+		} else {
+			col++
+		}
+	}
+
+	lines := strings.Split(text, "\n")
+	indent := strings.Repeat(" ", len([]rune(promptText))+1)
+	out := make([]string, len(lines))
+	for i, ln := range lines {
+		lead := indent
+		if i == 0 {
+			lead = promptStyle.Render(promptText) + " "
+		}
+		if i == lineIdx {
+			out[i] = lead + renderInputLine(ln, col)
+		} else {
+			out[i] = lead + ln
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 func renderInputLine(text string, cursor int) string {

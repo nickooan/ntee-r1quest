@@ -555,6 +555,40 @@ func TestResumedSessionAddsHistoryDivider(t *testing.T) {
 	}
 }
 
+func TestAiInputMultilineEditing(t *testing.T) {
+	m := New(&fakeClient{}, runtime.ConfigDTO{AIAdaptor: "claude"})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.mode = modeAI
+
+	// Ctrl+J inserts a newline instead of submitting.
+	m = typeRunes(m, "abcde")
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = typeRunes(m, "fg")
+	if m.aiInput != "abcde\nfg" {
+		t.Fatalf("ctrl+j should insert a newline; got %q", m.aiInput)
+	}
+	if len(m.aiMessages) != 0 {
+		t.Fatal("ctrl+j must not submit")
+	}
+
+	// Shift+Down from the long line clamps the cursor to the shorter line's end.
+	m.aiInputCursor = 5
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyShiftDown})
+	if m.aiInputCursor != 8 {
+		t.Fatalf("shift+down should clamp to the shorter line end (8); got %d", m.aiInputCursor)
+	}
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyUp, Alt: true})
+	if m.aiInputCursor != 2 {
+		t.Fatalf("opt+up should preserve column 2; got %d", m.aiInputCursor)
+	}
+
+	// Plain Enter submits the whole multi-line text.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if len(m.aiMessages) != 1 || m.aiMessages[0].Content != "abcde\nfg" {
+		t.Fatalf("enter should submit the multi-line input; got %+v", m.aiMessages)
+	}
+}
+
 func TestAIModeStreamingFlow(t *testing.T) {
 	fake := &fakeClient{}
 	m := New(fake, runtime.ConfigDTO{AIAdaptor: "claude"})
