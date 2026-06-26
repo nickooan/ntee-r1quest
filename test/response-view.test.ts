@@ -6,7 +6,7 @@ import {
   formatResponseHeaders,
   formatPending,
 } from "../src/views/response.ts"
-import { sectionRule } from "../src/views/terminal/section-format.ts"
+import { sectionRule } from "../src/views/section-format.ts"
 import type { ExecuteResult } from "../src/runtime/client/types.ts"
 
 const makeResult = (overrides: Partial<ExecuteResult> = {}): ExecuteResult => ({

@@ -279,33 +279,28 @@ thinking-indicator quiet-window heuristic, and live TTY/ACP smoke tests.
 
 ### Phase E — Cutover
 
-Done — the entry point now defaults to the Go TUI:
+Done — the Go TUI is the only interactive front-end; the Ink TUI has been removed.
 
 - `index.ts` (the npm `bin`) keeps handling one-shot flags (`--version`, `--init`,
   `-p`, `--install-claude-plugin`) in TS. For the **interactive** case it calls
-  `launchGoTui`, which execs `dist/bin/r1q-tui-<platform>` (passing `-r`, `-ai`, `-env`, the
-  resolved `runtime-server.js` path, and `-node process.execPath`).
-- **Fallback to Ink** when the Go binary is absent, fails to spawn, or the user
-  opts out via `R1QUEST_INK=1` / `--ink`. So published installs without the binary
-  still work (Ink), and the cutover is non-destructive.
+  `launchGoTui`, which execs `dist/bin/r1q-tui-<platform>` (passing `-r`, `-ai`,
+  `-env`, the resolved `runtime-server.js` path, and `-node process.execPath`).
+- **No fallback UI.** If the Go binary isn't built for the platform (or fails to
+  spawn) the interactive launch prints an error and exits non-zero; one-shot
+  mode (`-p`) still works everywhere. The `--init` wizard remains an Ink one-shot.
 - The Go binary forwards `-env` to the runtime server; root is resolved absolute.
-- Verified: default → Go, `R1QUEST_INK=1` → Ink, `--version` → TS one-shot. Full
-  TS + Go + cross-language suites green.
+
+The Ink interactive TUI and the runtime helpers only it used (`src/views/*`
+except `config-generator`/`response`/`section-format`, `key-helpers`,
+`runtime/app-command`, `runtime/file-manager`, `runtime/editor-suggestions`,
+`runtime/clipboard`) — ~60 files plus ~10 tests — were deleted once the Go TUI
+reached parity.
 
 Distribution (done): `build:tui` (bin/scripts/build-tui.mjs) cross-compiles
 `dist/bin/r1q-tui-<os>-<arch>` for darwin/linux × arm64/amd64 (CGO off,
 `-trimpath -ldflags=-s -w`). `prepack` → `build` (`build:ts` + `build:tui`) so
 `npm pack`/`npm publish` bundle the binaries inside `dist/` (already in `files`).
-`launchGoTui` picks `dist/bin/r1q-tui-<platform>`, else the Ink fallback.
-Verified: 4 binaries built (~4 MB each), launcher selects the host one, `npm
-pack` includes them. Publishing requires Go on the build machine;
-unsupported platforms (e.g. Windows) fall back to Ink.
-
-Remaining before dropping the Ink fallback (release-readiness, not blocking):
-
-1. Manual TTY smoke of every mode + a live ACP run (claude/codex/cursor).
-2. Benchmark startup + render vs the Ink TUI; then remove the Ink fallback after a
-   release.
+Publishing requires Go on the build machine.
 
 ## 6. Risk register
 

@@ -1060,9 +1060,9 @@ The terminal UI is a **Go / Bubble Tea** binary; the **TypeScript runtime**
 (parser, cache, AI/ACP adapters) runs as a separate process and the two speak
 JSON-RPC over a per-run Unix-domain socket. The `r1q` entry point handles
 one-shot flags (`--version`, `--init`, `-p`, `--install-claude-plugin`) in
-TypeScript, then launches the Go binary for the interactive session. If the Go
-binary is unavailable for your platform — or you set `R1QUEST_INK=1` (or pass
-`--ink`) — it falls back to the legacy Ink UI.
+TypeScript, then launches the Go binary for the interactive session. The Go
+binary is the only interactive UI; on a platform it isn't built for, use one-shot
+mode (`-p`) — there is no longer a fallback UI.
 
 ### Building from source
 

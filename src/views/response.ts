@@ -1,4 +1,4 @@
-import { indentBlock, sectionRule } from "./terminal/section-format.ts"
+import { indentBlock, sectionRule } from "./section-format.ts"
 import type { ExecuteResult } from "../runtime/client/types.ts"
 
 type HeaderValue = string | number | boolean | null | string[] | undefined
