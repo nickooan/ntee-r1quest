@@ -1058,6 +1058,34 @@ func TestAISlashCommandSuggestionPopup(t *testing.T) {
 	}
 }
 
+func TestAICustomCommandExpandsArgs(t *testing.T) {
+	cfg := runtime.ConfigDTO{
+		AIAdaptor: "claude",
+		CustomCommands: []runtime.CustomCommand{
+			{Name: "test", Instruction: "run $1 and $2"},
+		},
+	}
+	fake := &fakeClient{}
+	m := New(fake, cfg)
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.mode = modeAI
+	m.aiActive = true
+
+	m = typeRunes(m, "/test foo bar")
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		cmd()
+	}
+	// The expanded instruction is sent to the agent and shown in the chat.
+	if len(fake.aiPrompts) != 1 || fake.aiPrompts[0] != "run foo and bar" {
+		t.Fatalf("custom command should expand args for the agent; got %v", fake.aiPrompts)
+	}
+	last := m.aiMessages[len(m.aiMessages)-1]
+	if last.Role != "user" || last.Content != "run foo and bar" {
+		t.Fatalf("chat should show the expanded instruction; got %+v", last)
+	}
+}
+
 func TestAIModeStreamingFlow(t *testing.T) {
 	fake := &fakeClient{}
 	m := New(fake, runtime.ConfigDTO{AIAdaptor: "claude"})

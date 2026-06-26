@@ -1258,12 +1258,13 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.aiInputCursor = 0
 			return m.handleAppCommand(text)
 		}
-		// A `/name args` custom command expands to its configured instruction.
+		// A `/name args` custom command expands to its configured instruction; the
+		// expanded text is both shown in the chat and sent to the agent.
 		prompt := text
 		if resolved, ok := command.ResolveCustomCommandPrompt(m.config.CustomCommands, text); ok {
 			prompt = resolved
 		}
-		m.aiMessages = append(m.aiMessages, view.ChatMessage{Role: "user", Content: text})
+		m.aiMessages = append(m.aiMessages, view.ChatMessage{Role: "user", Content: prompt})
 		m.aiInput = ""
 		m.aiInputCursor = 0
 		m.aiScrollY = 0
