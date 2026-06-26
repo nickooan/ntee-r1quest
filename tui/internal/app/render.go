@@ -24,11 +24,16 @@ func (m Model) View() string {
 	bodyHeight := max(3, m.height-4)
 
 	// AI mode is a centered modal over a blank body, matching the Ink overlay.
+	// Before the chat, the session picker takes the modal slot.
 	if m.mode == modeAI {
+		modal := m.renderAIModal(bodyHeight)
+		if m.aiPicking {
+			modal = m.renderSessionPicker()
+		}
 		body := lipgloss.Place(
 			m.width, bodyHeight,
 			lipgloss.Center, lipgloss.Center,
-			m.renderAIModal(bodyHeight),
+			modal,
 		)
 		return lipgloss.JoinVertical(lipgloss.Left, header, body, m.renderStatusLine())
 	}
@@ -36,8 +41,15 @@ func (m Model) View() string {
 	sidebarWidth := input.Clamp(m.width/4, 14, max(14, m.width-24))
 	mainWidth := max(3, m.width-sidebarWidth-1)
 
+	// In search mode the sidebar tracks the mode search was entered from, so a
+	// search over @history keeps showing the history list (not the file tree).
+	sidebarMode := m.mode
+	if m.mode == modeSearch {
+		sidebarMode = m.searchPrevMode
+	}
+
 	var sidebarBody string
-	if m.mode == modeHistory {
+	if sidebarMode == modeHistory {
 		sidebarBody = m.renderHistorySidebar(sidebarWidth-4, bodyHeight-2)
 	} else {
 		sidebarBody = m.renderSidebar(sidebarWidth-4, bodyHeight-2)
@@ -68,7 +80,7 @@ func (m Model) renderStatusLine() string {
 		if m.openFile != nil {
 			name = m.openFile.FileName
 		}
-		return promptStyle.Render("@view") + " " + name + "   ↑/↓ scroll · e edit · esc back"
+		return withNotice(promptStyle.Render("@view")+" "+name+"   ↑/↓ scroll · e edit · s search · esc back", m.notice)
 	case modeEdit:
 		name := ""
 		if m.openFile != nil {
@@ -85,7 +97,7 @@ func (m Model) renderStatusLine() string {
 		return status
 	case modeHistory:
 		count := fmt.Sprintf("%d/%d", min(m.historyIndex+1, len(m.history)), len(m.history))
-		return promptStyle.Render("@history") + " " + count + "   ↑/↓ select · / search · q back"
+		return withNotice(promptStyle.Render("@history")+" "+count+"   ↑/↓ scroll · shift+↑/↓ select · s search · esc back", m.notice)
 	case modeSearch:
 		matches := view.FindSearchMatches(m.searchContent, m.searchInput)
 		summary := fmt.Sprintf("%d matches", len(matches))
@@ -94,6 +106,9 @@ func (m Model) renderStatusLine() string {
 		}
 		return promptStyle.Render("@search /") + m.searchInput + "/   " + summary + "   ↑/↓ next · esc back"
 	case modeAI:
+		if m.aiPicking {
+			return promptStyle.Render("@ai") + " resume session   ↑/↓ choose · enter confirm · esc cancel"
+		}
 		if m.aiPermission != nil {
 			return promptStyle.Render("Permission:") + " " + m.aiPermission.Title + "   [y] allow · [n] reject"
 		}
@@ -101,11 +116,22 @@ func (m Model) renderStatusLine() string {
 	default:
 		// While navigating (shift+arrow / popup), the input bar reflects the
 		// selected entry; typing returns to the editable typed command.
+		line := promptStyle.Render("@query >") + " "
 		if m.commandPreview != "" {
-			return promptStyle.Render("@query >") + " " + previewStyle.Render(m.commandPreview)
+			line += previewStyle.Render(m.commandPreview)
+		} else {
+			line += renderInputLine(m.command, m.cursor)
 		}
-		return promptStyle.Render("@query >") + " " + renderInputLine(m.command, m.cursor)
+		return withNotice(line, m.notice)
 	}
+}
+
+// withNotice appends a transient status note (e.g. "copied") to a status line.
+func withNotice(line, notice string) string {
+	if notice == "" {
+		return line
+	}
+	return line + "   " + noticeStyle.Render(notice)
 }
 
 func (m Model) renderSidebar(width, height int) string {
@@ -170,7 +196,7 @@ func (m Model) renderHistory(width, height int) string {
 		return "No cached requests yet.\n\nRun requests in @query mode to fill the history."
 	}
 	content := view.FormatHistoryEntry(record, width)
-	vp := view.BuildTerminalViewport(content, width, height, 0, 0)
+	vp := view.BuildTerminalViewport(content, width, height, 0, m.historyScrollY)
 	return strings.Join(vp.Lines, "\n")
 }
 
@@ -475,6 +501,58 @@ func (m Model) renderAIModal(bodyHeight int) string {
 	return aiModalStyle.Width(modalWidth - 2).Height(modalHeight - 2).Render(inner)
 }
 
+// renderSessionPicker mirrors the Ink SessionPickerOverlay: "New session" on top
+// then past sessions (newest-first) with their last-used time.
+func (m Model) renderSessionPicker() string {
+	const maxVisibleRows = 6
+	modalWidth := input.Clamp(m.width*8/10, 28, max(28, m.width-4))
+	contentWidth := max(1, modalWidth-4)
+
+	type option struct{ label, hint string }
+	options := []option{{label: "✚ New session"}}
+	for _, s := range m.aiPickerSessions {
+		options = append(options, option{label: s.ID, hint: formatSessionTime(s.UpdatedAt)})
+	}
+
+	visible := min(len(options), maxVisibleRows)
+	start := input.Clamp(m.aiPickerIndex-visible+1, 0, max(0, len(options)-visible))
+
+	var b strings.Builder
+	b.WriteString(sessionTitleStyle.Render(padTo(truncateRunes("Resume "+m.config.AIAdaptor+" session", contentWidth), contentWidth)) + "\n")
+	b.WriteString(sessionHintStyle.Render(padTo(truncateRunes("↑/↓ choose · enter confirm · esc cancel", contentWidth), contentWidth)) + "\n\n")
+
+	for i := start; i < start+visible; i++ {
+		opt := options[i]
+		prefix := "  "
+		if i == m.aiPickerIndex {
+			prefix = "› "
+		}
+		hint := ""
+		if opt.hint != "" {
+			hint = " " + opt.hint
+		}
+		labelWidth := max(1, contentWidth-len([]rune(prefix))-len([]rune(hint)))
+		row := padTo(truncateRunes(prefix+padTo(truncateRunes(opt.label, labelWidth), labelWidth)+hint, contentWidth), contentWidth)
+		if i == m.aiPickerIndex {
+			b.WriteString(sessionSelectedStyle.Render(row))
+		} else {
+			b.WriteString(row)
+		}
+		if i < start+visible-1 {
+			b.WriteString("\n")
+		}
+	}
+	return aiModalStyle.Width(contentWidth).Render(b.String())
+}
+
+// formatSessionTime renders an ISO timestamp as "YYYY-MM-DD HH:mm".
+func formatSessionTime(iso string) string {
+	if len(iso) >= 16 {
+		return strings.Replace(iso[:16], "T", " ", 1)
+	}
+	return iso
+}
+
 func (m Model) renderAI(width, height int) string {
 	pendingFrame := -1
 	if m.aiThinking {
@@ -555,5 +633,10 @@ var (
 	suggestionStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("8"))
 	suggestionFileStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	previewStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	noticeStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 	aiModalStyle        = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("11"))
+
+	sessionTitleStyle    = lipgloss.NewStyle().Bold(true)
+	sessionHintStyle     = lipgloss.NewStyle().Faint(true)
+	sessionSelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Background(lipgloss.Color("22")).Bold(true)
 )

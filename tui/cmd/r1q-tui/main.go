@@ -73,8 +73,8 @@ func run(node, script, root, ai, env string) error {
 		OnSessionUpdate: func(update runtime.AiSessionUpdate) {
 			program.Send(app.AiUpdateMsg{Update: update.Update})
 		},
-		OnSessionStarted: func(runtime.AiSessionStarted) {
-			program.Send(app.AiStartedMsg{})
+		OnSessionStarted: func(started runtime.AiSessionStarted) {
+			program.Send(app.AiStartedMsg{Resumed: started.Resumed})
 		},
 		OnSessionStopped: func(stopped runtime.AiSessionStopped) {
 			var err error
@@ -88,6 +88,11 @@ func run(node, script, root, ai, env string) error {
 		},
 		OnPermissionRequest: func(raw json.RawMessage) {
 			program.Send(app.AiPermissionMsg{Raw: raw})
+		},
+		// Generic runtime errors during an AI session (mirrors onError →
+		// setLocalError in the Ink controller).
+		OnError: func(err error) {
+			program.Send(app.AiErrorMsg{Err: err})
 		},
 	})
 

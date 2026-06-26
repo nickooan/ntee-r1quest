@@ -40,6 +40,7 @@ type runtimeClient interface {
 	Execute(ctx context.Context, req runtime.ExecuteRequest) (runtime.ExecuteResult, error)
 	RecordInput(command string) error
 	ListApiEndpoints(ctx context.Context) ([]runtime.ApiCallRecord, error)
+	ListAiSessions(ctx context.Context, adaptor string) ([]runtime.AiSessionRecord, error)
 	AiStart(ctx context.Context, req runtime.AiStartRequest) error
 	AiPrompt(ctx context.Context, text string) error
 	AiRespondPermission(ctx context.Context, decision runtime.AiPermissionDecision) error
@@ -52,10 +53,14 @@ type executeErrMsg struct{ err error }
 type historyLoadedMsg struct{ records []runtime.ApiCallRecord }
 type historyErrMsg struct{ err error }
 type copiedMsg struct{ err error }
+type aiSessionsLoadedMsg struct {
+	sessions []runtime.AiSessionRecord
+	err      error
+}
 
 // AI messages — sent from the supervisor's event handlers (main) into the
 // program, so they are exported.
-type AiStartedMsg struct{}
+type AiStartedMsg struct{ Resumed bool }
 type AiStoppedMsg struct{ Err error }
 type AiErrorMsg struct{ Err error }
 type AiUpdateMsg struct{ Update json.RawMessage }
@@ -107,8 +112,9 @@ type Model struct {
 	editSuggestIndex int
 	editDismissed    bool
 
-	history      []runtime.ApiCallRecord
-	historyIndex int
+	history        []runtime.ApiCallRecord
+	historyIndex   int
+	historyScrollY int
 
 	searchPrevMode mode
 	searchContent  string
@@ -123,6 +129,12 @@ type Model struct {
 	aiActive      bool
 	aiScrollY     int
 	aiPermission  *view.Permission
+
+	// Session picker shown on the first @ai when past sessions exist. Row 0 is
+	// "New session"; rows below resume aiPickerSessions[index-1] (newest-first).
+	aiPicking        bool
+	aiPickerSessions []runtime.AiSessionRecord
+	aiPickerIndex    int
 }
 
 // New builds the initial model.
@@ -175,6 +187,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode = modeHistory
 		m.history = msg.records
 		m.historyIndex = 0
+		m.historyScrollY = 0
 		m.errText = ""
 		return m, nil
 
@@ -190,9 +203,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case aiSessionsLoadedMsg:
+		// User may have left AI mode before the list resolved, or a session may
+		// already be live — in either case skip the picker.
+		if m.mode != modeAI || m.aiActive {
+			return m, nil
+		}
+		if msg.err != nil || len(msg.sessions) == 0 {
+			return m, aiStartCmd(m.client, m.config.AIAdaptor, "")
+		}
+		m.aiPickerSessions = reverseSessions(msg.sessions) // newest-first
+		m.aiPickerIndex = 0
+		m.aiPicking = true
+		return m, nil
+
 	case AiStartedMsg:
 		m.aiActive = true
 		m.aiOffline = false
+		// On resume the past conversation is replayed as sessionUpdate events;
+		// drop a divider after it so new turns are distinguishable from history.
+		if msg.Resumed {
+			if n := len(m.aiMessages); n > 0 && m.aiMessages[n-1].Role != "divider" {
+				m.aiMessages = append(m.aiMessages, view.ChatMessage{Role: "divider"})
+			}
+		}
 		return m, nil
 
 	case AiStoppedMsg:
@@ -606,7 +640,7 @@ func (m Model) handleViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.mode = modeEdit
 				m.edit = newEditor(m.openFile.Content)
 			}
-		case "/":
+		case "s":
 			if m.openFile != nil {
 				return m.enterSearch(modeView, m.openFile.Content), nil
 			}
@@ -625,26 +659,51 @@ func (m Model) handleHistoryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc:
 		m.mode = modeQuery
 		return m, nil
-	case tea.KeyUp:
+	// Shift+arrows: select an entry in the left history list (resets the
+	// right-pane scroll so each record opens at the top).
+	case tea.KeyShiftUp:
 		if m.historyIndex > 0 {
 			m.historyIndex--
+			m.historyScrollY = 0
 		}
 		return m, nil
-	case tea.KeyDown:
+	case tea.KeyShiftDown:
 		if m.historyIndex < len(m.history)-1 {
 			m.historyIndex++
+			m.historyScrollY = 0
 		}
+		return m, nil
+	// Up/Down: scroll the selected record on the right.
+	case tea.KeyUp:
+		m.historyScrollY = input.Clamp(m.historyScrollY-1, 0, m.historyMaxScrollY())
+		return m, nil
+	case tea.KeyDown:
+		m.historyScrollY = input.Clamp(m.historyScrollY+1, 0, m.historyMaxScrollY())
 		return m, nil
 	case tea.KeyRunes:
 		switch string(msg.Runes) {
-		case "q":
-			m.mode = modeQuery
-		case "/":
+		case "s":
 			return m.enterSearch(modeHistory, m.currentMainContent()), nil
 		}
 		return m, nil
 	}
 	return m, nil
+}
+
+// historyMaxScrollY clamps vertical scrolling of the selected history record to
+// its rendered height in the right pane.
+func (m Model) historyMaxScrollY() int {
+	width, height := m.responseViewportDims()
+	if width < 1 || height < 1 {
+		return 0
+	}
+	record, ok := m.currentHistoryRecord()
+	if !ok {
+		return 0
+	}
+	content := view.FormatHistoryEntry(record, width)
+	vp := view.BuildTerminalViewport(content, width, height, 0, 0)
+	return vp.MaxScrollY
 }
 
 // ── Search mode ─────────────────────────────────────────────────────────────
@@ -749,14 +808,49 @@ func (m Model) enterAI() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.mode = modeAI
+	// A live session goes straight to the chat; no picker.
 	if m.aiActive {
 		return m, nil
 	}
 	m.aiOffline = false
-	return m, aiStartCmd(m.client, m.config.AIAdaptor)
+	// Offer the session picker only when prior sessions exist (resolved async).
+	return m, listAiSessionsCmd(m.client, m.config.AIAdaptor)
 }
 
 func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The session picker captures input until a choice is confirmed or cancelled.
+	if m.aiPicking {
+		switch msg.Type {
+		case tea.KeyCtrlC:
+			return m, tea.Quit
+		case tea.KeyEsc:
+			m.clearAiPicker()
+			m.mode = modeQuery
+			return m, nil
+		case tea.KeyUp:
+			if m.aiPickerIndex > 0 {
+				m.aiPickerIndex--
+			}
+			return m, nil
+		case tea.KeyDown:
+			// Options = "New session" (0) + one row per past session.
+			if m.aiPickerIndex < len(m.aiPickerSessions) {
+				m.aiPickerIndex++
+			}
+			return m, nil
+		case tea.KeyEnter:
+			idx := m.aiPickerIndex
+			sessions := m.aiPickerSessions
+			m.clearAiPicker()
+			resume := ""
+			if idx > 0 && idx-1 < len(sessions) {
+				resume = sessions[idx-1].ID
+			}
+			return m, aiStartCmd(m.client, m.config.AIAdaptor, resume)
+		}
+		return m, nil
+	}
+
 	// A pending permission request captures input until answered.
 	if m.aiPermission != nil {
 		switch msg.Type {
@@ -811,12 +905,14 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.aiInputCursor = input.MoveCursor(m.aiInput, m.aiInputCursor, 1)
 		return m, nil
 	case tea.KeyUp:
+		// Scroll up toward older messages (clamped to the top on render).
+		m.aiScrollY++
+		return m, nil
+	case tea.KeyDown:
+		// Scroll down toward the newest messages.
 		if m.aiScrollY > 0 {
 			m.aiScrollY--
 		}
-		return m, nil
-	case tea.KeyDown:
-		m.aiScrollY++
 		return m, nil
 	case tea.KeyRunes, tea.KeySpace:
 		text := string(msg.Runes)
@@ -840,15 +936,40 @@ func (m Model) respondPermission(decision string) (tea.Model, tea.Cmd) {
 	return m, aiRespondCmd(m.client, optionID)
 }
 
-func aiStartCmd(client runtimeClient, adaptor string) tea.Cmd {
+func aiStartCmd(client runtimeClient, adaptor, resumeSessionID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := client.AiStart(ctx, runtime.AiStartRequest{Adaptor: adaptor}); err != nil {
+		req := runtime.AiStartRequest{Adaptor: adaptor, ResumeSessionID: resumeSessionID}
+		if err := client.AiStart(ctx, req); err != nil {
 			return AiErrorMsg{Err: err}
 		}
 		return nil
 	}
+}
+
+func listAiSessionsCmd(client runtimeClient, adaptor string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		sessions, err := client.ListAiSessions(ctx, adaptor)
+		return aiSessionsLoadedMsg{sessions: sessions, err: err}
+	}
+}
+
+func (m *Model) clearAiPicker() {
+	m.aiPicking = false
+	m.aiPickerSessions = nil
+	m.aiPickerIndex = 0
+}
+
+// reverseSessions returns a newest-first copy for the picker display.
+func reverseSessions(sessions []runtime.AiSessionRecord) []runtime.AiSessionRecord {
+	out := make([]runtime.AiSessionRecord, len(sessions))
+	for i, s := range sessions {
+		out[len(sessions)-1-i] = s
+	}
+	return out
 }
 
 func aiPromptCmd(client runtimeClient, text string) tea.Cmd {

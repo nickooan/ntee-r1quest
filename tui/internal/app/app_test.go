@@ -19,7 +19,9 @@ type fakeClient struct {
 	err         error
 	recorded    []string
 	endpoints   []runtime.ApiCallRecord
+	aiSessions  []runtime.AiSessionRecord
 	aiStarted   []string
+	aiResumed   []string
 	aiPrompts   []string
 	aiDecisions []string
 }
@@ -37,8 +39,13 @@ func (f *fakeClient) ListApiEndpoints(_ context.Context) ([]runtime.ApiCallRecor
 	return f.endpoints, nil
 }
 
+func (f *fakeClient) ListAiSessions(_ context.Context, _ string) ([]runtime.AiSessionRecord, error) {
+	return f.aiSessions, nil
+}
+
 func (f *fakeClient) AiStart(_ context.Context, req runtime.AiStartRequest) error {
 	f.aiStarted = append(f.aiStarted, req.Adaptor)
+	f.aiResumed = append(f.aiResumed, req.ResumeSessionID)
 	return nil
 }
 
@@ -371,6 +378,66 @@ func TestHistoryCommandLoadsAndRenders(t *testing.T) {
 	}
 }
 
+func TestHistoryShiftSelectsAndScrollSeparated(t *testing.T) {
+	recA := runtime.ApiCallRecord{Endpoint: "/a [GET]", Method: "get"}
+	recA.Response.Status = 200
+	recB := runtime.ApiCallRecord{Endpoint: "/b [GET]", Method: "get"}
+	recB.Response.Status = 201
+	fake := &fakeClient{endpoints: []runtime.ApiCallRecord{recA, recB}}
+
+	m := New(fake, runtime.ConfigDTO{})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.command = "@h"
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = apply(m, cmd())
+	if m.mode != modeHistory {
+		t.Fatalf("expected history mode, got %d", m.mode)
+	}
+
+	// Shift+Down selects the next record (left list).
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyShiftDown})
+	if m.historyIndex != 1 {
+		t.Fatalf("shift+down should select next record, got %d", m.historyIndex)
+	}
+
+	// Plain Up/Down scroll the right pane only — never the selection.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyUp})
+	if m.historyIndex != 1 {
+		t.Fatalf("plain up/down must not change selection, got %d", m.historyIndex)
+	}
+
+	// `q` no longer exits; Esc does. `s` enters search.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	if m.mode != modeHistory {
+		t.Fatalf("q must not exit history; mode=%d", m.mode)
+	}
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	if m.mode != modeSearch {
+		t.Fatalf("s should enter search from history, got %d", m.mode)
+	}
+
+	// The sidebar must keep showing the history list (not the file tree) while
+	// searching over @history. Record "/a" is the unselected entry, so it only
+	// appears in the history sidebar.
+	if !strings.Contains(m.View(), "/a") {
+		t.Fatalf("search-over-history should keep the history sidebar:\n%s", m.View())
+	}
+}
+
+func TestCopyShowsNoticeInQueryMode(t *testing.T) {
+	m := New(&fakeClient{}, runtime.ConfigDTO{})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m, _ = apply(m, copiedMsg{})
+	if m.notice != "copied" {
+		t.Fatalf("successful copy should set notice; got %q", m.notice)
+	}
+	if !strings.Contains(m.View(), "copied") {
+		t.Fatalf("query status line should show the copied notice:\n%s", m.View())
+	}
+}
+
 func TestSearchFindsMatchesInResponse(t *testing.T) {
 	m := New(&fakeClient{}, runtime.ConfigDTO{})
 	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -396,19 +463,119 @@ func TestSearchFindsMatchesInResponse(t *testing.T) {
 	}
 }
 
+func TestAiSessionPickerResumesNewestSession(t *testing.T) {
+	fake := &fakeClient{aiSessions: []runtime.AiSessionRecord{
+		{ID: "sess-old", UpdatedAt: "2026-01-01T10:00:00Z"},
+		{ID: "sess-new", UpdatedAt: "2026-02-02T12:30:00Z"},
+	}}
+	m := New(fake, runtime.ConfigDTO{AIAdaptor: "claude"})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.command = "@ai"
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = apply(m, cmd()) // resolve the session list → show picker
+	if !m.aiPicking {
+		t.Fatal("picker should appear when past sessions exist")
+	}
+	if len(fake.aiStarted) != 0 {
+		t.Fatalf("nothing should start before the user confirms: %v", fake.aiStarted)
+	}
+	if !strings.Contains(m.View(), "New session") || !strings.Contains(m.View(), "sess-new") {
+		t.Fatalf("picker should list New session + past sessions:\n%s", m.View())
+	}
+
+	// Newest-first display: row 1 is sess-new. Select it and confirm.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyDown})
+	m, startCmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.aiPicking {
+		t.Fatal("confirming should dismiss the picker")
+	}
+	if startCmd != nil {
+		startCmd()
+	}
+	if len(fake.aiResumed) != 1 || fake.aiResumed[0] != "sess-new" {
+		t.Fatalf("expected resume of newest session; got %v", fake.aiResumed)
+	}
+}
+
+func TestAiSessionPickerNewAndCancel(t *testing.T) {
+	sessions := []runtime.AiSessionRecord{{ID: "sess-1", UpdatedAt: "2026-01-01T10:00:00Z"}}
+
+	// Row 0 ("New session") starts a fresh session (empty resume id).
+	fake := &fakeClient{aiSessions: sessions}
+	m := New(fake, runtime.ConfigDTO{AIAdaptor: "claude"})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.command = "@ai"
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = apply(m, cmd())
+	m, startCmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter}) // index 0 = New session
+	if startCmd != nil {
+		startCmd()
+	}
+	if len(fake.aiResumed) != 1 || fake.aiResumed[0] != "" {
+		t.Fatalf("New session should start with no resume id; got %v", fake.aiResumed)
+	}
+
+	// Esc cancels the picker back to query mode without starting anything.
+	fake2 := &fakeClient{aiSessions: sessions}
+	m2 := New(fake2, runtime.ConfigDTO{AIAdaptor: "claude"})
+	m2, _ = apply(m2, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m2.command = "@ai"
+	m2, cmd2 := apply(m2, tea.KeyMsg{Type: tea.KeyEnter})
+	m2, _ = apply(m2, cmd2())
+	m2, _ = apply(m2, tea.KeyMsg{Type: tea.KeyEsc})
+	if m2.aiPicking || m2.mode != modeQuery {
+		t.Fatalf("esc should cancel the picker to query mode; picking=%v mode=%d", m2.aiPicking, m2.mode)
+	}
+	if len(fake2.aiStarted) != 0 {
+		t.Fatalf("cancel should not start a session: %v", fake2.aiStarted)
+	}
+}
+
+func TestResumedSessionAddsHistoryDivider(t *testing.T) {
+	m := New(&fakeClient{}, runtime.ConfigDTO{AIAdaptor: "claude"})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.mode = modeAI
+
+	// Replayed history arrives as session updates before the started event.
+	m, _ = apply(m, AiUpdateMsg{Update: json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"old reply"}}`)})
+	m, _ = apply(m, AiStartedMsg{Resumed: true})
+	if last := m.aiMessages[len(m.aiMessages)-1]; last.Role != "divider" {
+		t.Fatalf("resumed start should append a history divider; got %+v", m.aiMessages)
+	}
+
+	// A fresh (non-resumed) start adds no divider.
+	m2 := New(&fakeClient{}, runtime.ConfigDTO{AIAdaptor: "claude"})
+	m2, _ = apply(m2, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m2, _ = apply(m2, AiStartedMsg{})
+	for _, msg := range m2.aiMessages {
+		if msg.Role == "divider" {
+			t.Fatal("fresh start should not add a divider")
+		}
+	}
+}
+
 func TestAIModeStreamingFlow(t *testing.T) {
 	fake := &fakeClient{}
 	m := New(fake, runtime.ConfigDTO{AIAdaptor: "claude"})
 	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	// @ai enters AI mode and starts the session.
+	// @ai enters AI mode. With no past sessions the picker is skipped and a fresh
+	// session starts (after the async session-list resolves).
 	m.command = "@ai"
 	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.mode != modeAI {
 		t.Fatalf("expected AI mode, got %d", m.mode)
 	}
-	if cmd != nil {
-		cmd()
+	if cmd == nil {
+		t.Fatal("expected a session-list command")
+	}
+	m, startCmd := apply(m, cmd()) // aiSessionsLoadedMsg → aiStartCmd
+	if m.aiPicking {
+		t.Fatal("no picker should appear without past sessions")
+	}
+	if startCmd != nil {
+		startCmd()
 	}
 	if len(fake.aiStarted) != 1 || fake.aiStarted[0] != "claude" {
 		t.Fatalf("AiStart not dispatched: %v", fake.aiStarted)

@@ -2,6 +2,7 @@ package view
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -59,5 +60,30 @@ func TestBuildAiMessageLines(t *testing.T) {
 	}
 	if got := []rune(lines[0].Content); len(got) != 40 {
 		t.Fatalf("user line should be padded to width 40, got %d", len(got))
+	}
+}
+
+func TestAiMessagesAreLeftAlignedWithGap(t *testing.T) {
+	lines := BuildAiMessageLines([]ChatMessage{
+		{Role: "user", Content: "hi"},
+		{Role: "assistant", Content: "hello"},
+	}, 40, "Claude")
+
+	sawGap := false
+	assistantLine := ""
+	for _, l := range lines {
+		if l.Role == "" && strings.TrimSpace(l.Content) == "" {
+			sawGap = true
+		}
+		if l.Role == "assistant" {
+			assistantLine = l.Content
+		}
+	}
+	if !sawGap {
+		t.Fatalf("expected a blank gap line between turns: %+v", lines)
+	}
+	// Assistant is left-aligned with a name prefix (not right-aligned).
+	if !strings.HasPrefix(assistantLine, "Claude: ") {
+		t.Fatalf("assistant line should start with the agent prefix; got %q", assistantLine)
 	}
 }

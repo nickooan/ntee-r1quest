@@ -177,32 +177,24 @@ func buildMessageLines(message ChatMessage, width int, agentName string) []strin
 	}
 
 	lines := aiSplitContent(message.Content)
+
+	// Both speakers are left-aligned with a name prefix; continuation lines indent
+	// to align under the first. A blank line is inserted between messages (see
+	// BuildAiMessageLines) so turns are easy to tell apart.
 	prefix := "USER: "
-	contentWidth := max(1, width-len([]rune(prefix)))
-
-	if message.Role == "user" {
-		wrapped := aiWrapLines(lines, contentWidth)
-		out := make([]string, 0, len(wrapped))
-		for i, line := range wrapped {
-			lead := prefix
-			if i > 0 {
-				lead = strings.Repeat(" ", len([]rune(prefix)))
-			}
-			out = append(out, padRightView(lead+line, width))
-		}
-		return out
+	if message.Role != "user" {
+		prefix = agentName + ": "
 	}
+	contentWidth := max(1, width-len([]rune(prefix)))
+	wrapped := aiWrapLines(lines, contentWidth)
 
-	suffix := " :" + agentName
-	assistantWidth := max(1, width-len([]rune(suffix)))
-	visible := aiWrapLines(lines, assistantWidth)
-	out := make([]string, 0, len(visible)+1)
-	for i, line := range visible {
-		content := line
-		if i == 0 {
-			content += suffix
+	out := make([]string, 0, len(wrapped))
+	for i, line := range wrapped {
+		lead := prefix
+		if i > 0 {
+			lead = strings.Repeat(" ", len([]rune(prefix)))
 		}
-		out = append(out, padLeftView(content, width))
+		out = append(out, padRightView(lead+line, width))
 	}
 	return out
 }
@@ -214,7 +206,11 @@ func BuildAiMessageLines(messages []ChatMessage, width int, agentName string) []
 		agentName = "AI"
 	}
 	var out []AiLine
-	for _, message := range messages {
+	for mi, message := range messages {
+		// Blank separator between turns for readability.
+		if mi > 0 {
+			out = append(out, AiLine{Role: "", Content: ""})
+		}
 		for _, line := range buildMessageLines(message, width, agentName) {
 			out = append(out, AiLine{Role: message.Role, Content: line})
 		}
