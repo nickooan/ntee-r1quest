@@ -109,6 +109,12 @@ type Model struct {
 	edit        editor
 	notice      string
 
+	// Query-mode overlays. pendingViewFile holds a non-.nts file's command while
+	// the "view this file?" confirm is shown; messageOverlay holds a dismissible
+	// message (e.g. a binary file is not readable). Only one is active at a time.
+	pendingViewFile string
+	messageOverlay  string
+
 	editSuggestions  []suggest.Item
 	editSuggestIndex int
 	editDismissed    bool
@@ -284,6 +290,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // ── Query mode ──────────────────────────────────────────────────────────────
 
 func (m Model) handleQueryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// A dismissible message overlay (e.g. binary file) captures input.
+	if m.messageOverlay != "" {
+		switch msg.Type {
+		case tea.KeyCtrlC:
+			return m, tea.Quit
+		case tea.KeyEsc, tea.KeyEnter:
+			m.messageOverlay = ""
+		}
+		return m, nil
+	}
+
+	// The "view this non-.nts file?" confirm captures input. Enter/y → view;
+	// Esc/n → cancel, clear the input but keep the file selected.
+	if m.pendingViewFile != "" {
+		switch {
+		case msg.Type == tea.KeyCtrlC:
+			return m, tea.Quit
+		case msg.Type == tea.KeyEnter, msg.Type == tea.KeyRunes && strings.EqualFold(string(msg.Runes), "y"):
+			target := m.pendingViewFile
+			m.pendingViewFile = ""
+			return m.openFileForMode(target, false)
+		case msg.Type == tea.KeyEsc, msg.Type == tea.KeyRunes && strings.EqualFold(string(msg.Runes), "n"):
+			m.pendingViewFile = ""
+			m.command = ""
+			m.cursor = 0
+			return m, nil
+		}
+		return m, nil
+	}
+
 	entries := m.treeEntries()
 	suggestions := m.queryInputSuggestions(entries)
 	if m.inputSuggestIndex >= len(suggestions) {
@@ -420,10 +456,11 @@ func (m Model) submitQuery(
 		m.cursor = 0
 		return m.startExecute(highlighted.CommandValue)
 	default:
-		// Plain file: fill the command, no execute.
+		// Non-.nts file: it isn't executable, so ask whether to view it. Keep the
+		// file selected on the left while the confirm overlay is shown.
 		m.selectedCommand = highlighted.CommandValue
-		m.command = highlighted.CommandValue
-		m.cursor = len([]rune(highlighted.CommandValue))
+		m.keyboardSelectedCommand = highlighted.CommandValue
+		m.pendingViewFile = highlighted.CommandValue
 		return m, nil
 	}
 }
@@ -602,6 +639,14 @@ func (m Model) openFileForMode(target string, forEdit bool) (tea.Model, tea.Cmd)
 	file, ok := filetree.ReadViewFile(m.config.Root, entry.RelativePath)
 	if !ok {
 		m.errText = "cannot open " + entry.RelativePath
+		return m, nil
+	}
+	// Binary files aren't displayable — show a dismissible overlay and keep the
+	// file selected rather than entering view/edit on garbage.
+	if file.Binary {
+		m.messageOverlay = file.FileName + " is not a readable file."
+		m.keyboardSelectedCommand = entry.CommandValue
+		m.selectedCommand = entry.CommandValue
 		return m, nil
 	}
 

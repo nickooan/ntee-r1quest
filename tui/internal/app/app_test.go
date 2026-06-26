@@ -178,6 +178,85 @@ func TestViewCommandOpensFile(t *testing.T) {
 	}
 }
 
+func TestNonExecutableFileViewConfirm(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "readme.txt"), []byte("hello world\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(&fakeClient{}, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = typeRunes(m, "readme.txt")
+
+	// Enter on a non-.nts file asks whether to view it (no execute, stays in query).
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.pendingViewFile != "readme.txt" || m.mode != modeQuery {
+		t.Fatalf("should show the view confirm; pending=%q mode=%d", m.pendingViewFile, m.mode)
+	}
+	if !strings.Contains(m.View(), "not a r1q executable") {
+		t.Fatalf("overlay should explain the file is not executable:\n%s", m.View())
+	}
+
+	// Enter confirms → view mode with the file content.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.mode != modeView || m.openFile == nil || m.openFile.FileName != "readme.txt" {
+		t.Fatalf("confirm should open view mode; mode=%d file=%v", m.mode, m.openFile)
+	}
+	if !strings.Contains(m.View(), "hello world") {
+		t.Fatalf("view should show the file content:\n%s", m.View())
+	}
+}
+
+func TestNonExecutableFileViewCancelKeepsSelection(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "readme.txt"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(&fakeClient{}, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = typeRunes(m, "readme.txt")
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	// 'n' cancels: input cleared, file stays selected, still in query.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	if m.pendingViewFile != "" || m.command != "" || m.mode != modeQuery {
+		t.Fatalf("cancel should clear the confirm + input; pending=%q cmd=%q mode=%d", m.pendingViewFile, m.command, m.mode)
+	}
+	if m.keyboardSelectedCommand != "readme.txt" {
+		t.Fatalf("cancel should keep the file selected; got %q", m.keyboardSelectedCommand)
+	}
+}
+
+func TestBinaryFileShowsNotReadableOverlay(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "bin.dat"), []byte{0x00, 0x01, 'x'}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(&fakeClient{}, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = typeRunes(m, "bin.dat")
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter}) // non-.nts → confirm
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter}) // yes → open → binary
+
+	if m.messageOverlay == "" || m.mode != modeQuery {
+		t.Fatalf("binary file should show a not-readable overlay; overlay=%q mode=%d", m.messageOverlay, m.mode)
+	}
+	if !strings.Contains(m.View(), "not a readable file") {
+		t.Fatalf("overlay should say the file is not readable:\n%s", m.View())
+	}
+
+	// Enter dismisses; selection stays on the file.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.messageOverlay != "" {
+		t.Fatal("enter should dismiss the overlay")
+	}
+	if m.keyboardSelectedCommand != "bin.dat" {
+		t.Fatalf("selection should stay on the file; got %q", m.keyboardSelectedCommand)
+	}
+}
+
 func TestEditInsertAndSave(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "get.nts")

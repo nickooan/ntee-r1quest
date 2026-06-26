@@ -68,7 +68,11 @@ func (m Model) View() string {
 	case modeSearch:
 		mainBody = m.renderSearch(mainWidth-4, bodyHeight-2)
 	default:
-		mainBody = m.renderQueryMain(mainWidth-4, bodyHeight-2)
+		if m.pendingViewFile != "" || m.messageOverlay != "" {
+			mainBody = m.renderQueryOverlay(mainWidth-4, bodyHeight-2)
+		} else {
+			mainBody = m.renderQueryMain(mainWidth-4, bodyHeight-2)
+		}
 	}
 	mainPane := paneStyle.Width(mainWidth - 2).Height(bodyHeight - 2).Render(mainBody)
 
@@ -547,6 +551,25 @@ func (m Model) renderAIModal(bodyHeight int) string {
 
 // renderSessionPicker mirrors the Ink SessionPickerOverlay: "New session" on top
 // then past sessions (newest-first) with their last-used time.
+// renderQueryOverlay centers the confirm ("view this non-.nts file?") or the
+// dismissible message (binary file) box in the query main pane.
+func (m Model) renderQueryOverlay(width, height int) string {
+	var title, hint string
+	if m.pendingViewFile != "" {
+		title = m.pendingViewFile + " is not a r1q executable (.nts) file."
+		hint = "View it anyway?   [y] yes · [n] no"
+	} else {
+		title = m.messageOverlay
+		hint = "[enter] dismiss"
+	}
+
+	boxWidth := input.Clamp(max(len([]rune(title)), len([]rune(hint)))+4, 20, max(20, width-2))
+	box := aiModalStyle.Width(boxWidth).Render(
+		sessionTitleStyle.Render(title) + "\n\n" + overlayHintStyle.Render(hint),
+	)
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
 func (m Model) renderSessionPicker() string {
 	const maxVisibleRows = 6
 	modalWidth := input.Clamp(m.width*8/10, 28, max(28, m.width-4))
@@ -683,4 +706,5 @@ var (
 	sessionTitleStyle    = lipgloss.NewStyle().Bold(true)
 	sessionHintStyle     = lipgloss.NewStyle().Faint(true)
 	sessionSelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Background(lipgloss.Color("22")).Bold(true)
+	overlayHintStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
 )

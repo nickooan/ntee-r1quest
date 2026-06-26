@@ -10,6 +10,24 @@ type OpenViewFile struct {
 	FileName string
 	Path     string
 	Content  string
+	// Binary is true when the file looks like a native/binary file (not safe to
+	// display as text). Content is left empty in that case.
+	Binary bool
+}
+
+// looksBinary reports whether data appears to be a binary (non-text) file. A NUL
+// byte in the leading window is the classic, cheap heuristic used by editors.
+func looksBinary(data []byte) bool {
+	limit := len(data)
+	if limit > 8000 {
+		limit = 8000
+	}
+	for i := 0; i < limit; i++ {
+		if data[i] == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // ReadViewFile reads a file under root for viewing/editing, jailed to the root.
@@ -33,6 +51,9 @@ func ReadViewFile(root, relativePath string) (OpenViewFile, bool) {
 	data, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		return OpenViewFile{FileName: name, Path: resolvedPath, Content: err.Error()}, true
+	}
+	if looksBinary(data) {
+		return OpenViewFile{FileName: name, Path: resolvedPath, Binary: true}, true
 	}
 	return OpenViewFile{FileName: name, Path: resolvedPath, Content: string(data)}, true
 }
