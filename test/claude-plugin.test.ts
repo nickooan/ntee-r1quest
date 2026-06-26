@@ -12,7 +12,7 @@ jest.unstable_mockModule("node:child_process", () => ({
 
 const {
   installClaudePlugin,
-  isSourceInstall,
+  isPluginBundled,
   formatInstallClaudePluginResult,
 } = await import("../src/runtime/claude-plugin.ts")
 const { parseArguments } = await import("../src/runtime/config.ts")
@@ -24,8 +24,8 @@ describe("claude plugin install", () => {
     })
   })
 
-  test("detects a source install when the plugin marketplace is present", () => {
-    expect(isSourceInstall()).toBe(true)
+  test("detects the bundled plugin marketplace", () => {
+    expect(isPluginBundled()).toBe(true)
   })
 
   test("registers the marketplace and installs the plugin via the claude CLI", () => {
@@ -72,17 +72,15 @@ describe("claude plugin install", () => {
     ).toContain("'claude plugin install' failed")
   })
 
-  test("points npm-install users to the Codeberg source", () => {
+  test("explains a missing bundled plugin without pointing to git", () => {
     const message = formatInstallClaudePluginResult({
       ok: false,
-      reason: "not-source",
-      repoUrl: "https://codeberg.org/nickoan/ntee-r1quest",
-      installScriptUrl:
-        "https://codeberg.org/nickoan/ntee-r1quest/raw/branch/main/install.sh",
+      reason: "missing-plugin",
+      path: "/some/dist/skills/r1quest-ai-plugin/.claude-plugin/marketplace.json",
     })
 
-    expect(message).toContain("install from source")
-    expect(message).toContain("codeberg.org/nickoan/ntee-r1quest")
-    expect(message).toContain("r1q --install-claude-plugin")
+    expect(message).toContain("was not found")
+    expect(message).toContain("reinstall ntee-r1quest")
+    expect(message).not.toContain("codeberg.org")
   })
 })

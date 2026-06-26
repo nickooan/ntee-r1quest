@@ -23,6 +23,38 @@ func TestAppendACPResponseAccumulatesAssistant(t *testing.T) {
 	}
 }
 
+func TestAppendACPResponseSeparatesDistinctResponses(t *testing.T) {
+	var msgs []ChatMessage
+	msgs = AppendACPResponse(msgs, agentChunk("ok, looking for it."))
+	msgs = AppendACPResponse(msgs, agentChunk("response is here."))
+	if len(msgs) != 1 {
+		t.Fatalf("expected one assistant message: %+v", msgs)
+	}
+	if msgs[0].Content != "ok, looking for it.\nresponse is here." {
+		t.Fatalf("distinct responses should be newline-separated: %q", msgs[0].Content)
+	}
+}
+
+func TestAppendACPResponseMessageAfterToolNewLine(t *testing.T) {
+	var msgs []ChatMessage
+	msgs = AppendACPResponse(msgs, json.RawMessage(`{"sessionUpdate":"tool_call","title":"search"}`))
+	msgs = AppendACPResponse(msgs, agentChunk("found it."))
+	if msgs[0].Content != "\n[search]\nfound it." {
+		t.Fatalf("a message after a tool call should start a new line: %q", msgs[0].Content)
+	}
+}
+
+func TestThinkingLineUsesAgentName(t *testing.T) {
+	lines := BuildVisibleAiMessageLines(nil, 10, 40, 0, 0, false, "Codex")
+	joined := ""
+	for _, l := range lines {
+		joined += l.Content
+	}
+	if !strings.Contains(joined, "Codex is thinking") {
+		t.Fatalf("thinking line should use the agent name:\n%s", joined)
+	}
+}
+
 func TestAppendACPResponseDedupesUserEcho(t *testing.T) {
 	msgs := []ChatMessage{{Role: "user", Content: "hi"}}
 	msgs = AppendACPResponse(msgs, userChunk("hi"))

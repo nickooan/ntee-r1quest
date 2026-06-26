@@ -66,10 +66,39 @@ func appendAssistantResponse(messages []ChatMessage, content string) []ChatMessa
 	}
 	if n := len(messages); n > 0 && messages[n-1].Role == "assistant" {
 		out := append([]ChatMessage(nil), messages...)
-		out[n-1].Content += content
+		out[n-1].Content = joinAssistantChunk(out[n-1].Content, content)
 		return out
 	}
 	return append(messages, ChatMessage{Role: "assistant", Content: content})
+}
+
+// joinAssistantChunk appends a streamed chunk to the running assistant message,
+// starting a new line at a sentence/segment boundary so distinct responses don't
+// run together — while mid-sentence streaming stays on one line.
+func joinAssistantChunk(prev, next string) string {
+	if prev == "" {
+		return next
+	}
+	if strings.HasSuffix(prev, "\n") || strings.HasPrefix(next, "\n") {
+		return prev + next
+	}
+	if endsSegment(prev) {
+		return prev + "\n" + next
+	}
+	return prev + next
+}
+
+func endsSegment(s string) bool {
+	trimmed := strings.TrimRight(s, " \t")
+	runes := []rune(trimmed)
+	if len(runes) == 0 {
+		return false
+	}
+	switch runes[len(runes)-1] {
+	case '.', '!', '?', ':', ']':
+		return true
+	}
+	return false
 }
 
 func appendUserResponse(messages []ChatMessage, content string) []ChatMessage {

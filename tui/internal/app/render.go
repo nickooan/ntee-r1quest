@@ -586,7 +586,7 @@ func (m Model) renderSessionPicker() string {
 	start := input.Clamp(m.aiPickerIndex-visible+1, 0, max(0, len(options)-visible))
 
 	var b strings.Builder
-	b.WriteString(sessionTitleStyle.Render(padTo(truncateRunes("Resume "+m.config.AIAdaptor+" session", contentWidth), contentWidth)) + "\n")
+	b.WriteString(sessionTitleStyle.Render(padTo(truncateRunes("Resume "+agentDisplayName(m.config.AIAdaptor)+" session", contentWidth), contentWidth)) + "\n")
 	b.WriteString(sessionHintStyle.Render(padTo(truncateRunes("↑/↓ choose · enter confirm · esc cancel", contentWidth), contentWidth)) + "\n\n")
 
 	for i := start; i < start+visible; i++ {
@@ -624,7 +624,7 @@ func formatSessionTime(iso string) string {
 func (m Model) renderAI(width, height int) string {
 	pendingFrame := -1
 	if m.aiThinking {
-		pendingFrame = 0
+		pendingFrame = m.aiThinkingFrame
 	}
 	agent := agentDisplayName(m.config.AIAdaptor)
 	lines := view.BuildVisibleAiMessageLines(m.aiMessages, height, width, m.aiScrollY, pendingFrame, m.aiOffline, agent)

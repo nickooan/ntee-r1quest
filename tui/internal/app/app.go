@@ -25,6 +25,12 @@ import (
 
 const executeTimeout = 60 * time.Second
 
+// "AI is thinking" indicator pacing (mirrors ai-controller.ts).
+const (
+	aiThinkingTick  = 500 * time.Millisecond
+	aiThinkingQuiet = 3 * time.Second
+)
+
 type mode int
 
 const (
@@ -69,6 +75,9 @@ type AiPermissionMsg struct{ Raw json.RawMessage }
 
 // ExternalEventMsg is sent by the supervisor when another r1q run posts a result.
 type ExternalEventMsg struct{ Event runtime.ExternalRequestEvent }
+
+// aiThinkingTickMsg drives the periodic re-evaluation of the thinking indicator.
+type aiThinkingTickMsg struct{}
 
 // Model is the Bubble Tea model.
 type Model struct {
@@ -138,6 +147,17 @@ type Model struct {
 	aiScrollY     int
 	aiPermission  *view.Permission
 
+	// "thinking" indicator state. A turn is pending from prompt-send; the
+	// indicator is on until a reply has streamed, all tool calls finish, and the
+	// quiet window passes (mirrors shouldShowAiThinking). aiTicking guards against
+	// scheduling duplicate timers.
+	aiPending       bool
+	aiHasStreamed   bool
+	aiLastActivity  time.Time
+	aiTools         map[string]bool
+	aiTicking       bool
+	aiThinkingFrame int
+
 	// Session picker shown on the first @ai when past sessions exist. Row 0 is
 	// "New session"; rows below resume aiPickerSessions[index-1] (newest-first).
 	aiPicking        bool
@@ -186,6 +206,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.response = nil
 		m.errText = ""
 		m.external = msg.Event.ResponseContent
+		// Highlight the request that produced the event in the sidebar (drives
+		// expansion + highlight via selectedCommand) and clear any typed command
+		// so it doesn't override that highlight.
+		m.selectedCommand = externalEventCommand(msg.Event)
+		m.keyboardSelectedCommand = ""
+		m.command = ""
+		m.cursor = 0
+		m.commandPreview = ""
+		m.openFile = nil
+		if m.mode != modeAI {
+			m.mode = modeQuery
+		}
 		m.scrollX = 0
 		m.scrollY = 0
 		m.refreshResponseScrollLimits()
@@ -240,6 +272,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case AiStoppedMsg:
 		m.aiActive = false
 		m.aiOffline = true
+		m.aiPending = false
 		m.aiThinking = false
 		if msg.Err != nil {
 			m.errText = msg.Err.Error()
@@ -247,15 +280,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case AiErrorMsg:
+		m.aiPending = false
 		m.aiThinking = false
 		m.errText = msg.Err.Error()
 		return m, nil
 
 	case AiUpdateMsg:
 		m.aiMessages = view.AppendACPResponse(m.aiMessages, msg.Update)
-		m.aiThinking = false
+		// Activity keeps the thinking indicator alive for this turn.
+		m.aiHasStreamed = true
+		m.aiLastActivity = time.Now()
+		m.trackToolStatus(msg.Update)
+		m.aiThinking = m.computeThinking()
 		m.aiScrollY = 0
-		return m, nil
+		return m, m.startThinkingTick()
+
+	case aiThinkingTickMsg:
+		m.aiThinkingFrame++
+		m.aiThinking = m.computeThinking()
+		if !m.aiThinking {
+			m.aiTicking = false // idle: stop until the next turn/activity
+			return m, nil
+		}
+		return m, aiThinkingTickCmd()
 
 	case AiPermissionMsg:
 		if permission, ok := view.ParsePermission(msg.Raw); ok {
@@ -408,6 +455,17 @@ func (m Model) handleQueryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// externalEventCommand derives the sidebar command for a received external event
+// from its nts path + file. Mirrors buildExternalEventCommand.
+func externalEventCommand(event runtime.ExternalRequestEvent) string {
+	file := strings.ReplaceAll(strings.TrimSpace(strings.TrimSuffix(event.NtsFile, ".nts")), "\\", "/")
+	dir := strings.ReplaceAll(strings.TrimSpace(event.NtsPath), "\\", "/")
+	if dir == "" {
+		return file
+	}
+	return dir + "/" + file
 }
 
 // parseOpenSuffix recognizes a trailing `<file> @v|@view|@e|@edit` and returns
@@ -1007,8 +1065,15 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.aiMessages = append(m.aiMessages, view.ChatMessage{Role: "user", Content: text})
 		m.aiInput = ""
 		m.aiInputCursor = 0
-		m.aiThinking = true
 		m.aiScrollY = 0
+		// Begin a pending turn: show "thinking" right away. The animation ticker is
+		// started by the first streamed update (startThinkingTick); until then the
+		// indicator shows statically so the user always sees that work is happening.
+		m.aiPending = true
+		m.aiHasStreamed = false
+		m.aiLastActivity = time.Now()
+		m.aiTools = map[string]bool{}
+		m.aiThinking = true
 		return m, aiPromptCmd(m.client, prompt)
 	case tea.KeyBackspace:
 		next, cursor, ok := input.RemoveBeforeCursor(m.aiInput, m.aiInputCursor)
@@ -1089,6 +1154,63 @@ func reverseSessions(sessions []runtime.AiSessionRecord) []runtime.AiSessionReco
 		out[len(sessions)-1-i] = s
 	}
 	return out
+}
+
+// computeThinking decides whether the "AI is thinking" indicator is on for the
+// current turn (mirrors shouldShowAiThinking): busy until a reply has streamed,
+// while any tool call runs, and within the quiet window after the last activity.
+func (m Model) computeThinking() bool {
+	if !m.aiPending {
+		return false
+	}
+	if !m.aiHasStreamed {
+		return true
+	}
+	if len(m.aiTools) > 0 {
+		return true
+	}
+	return time.Since(m.aiLastActivity) < aiThinkingQuiet
+}
+
+// trackToolStatus keeps the set of in-progress tool calls current so a long
+// foreground task keeps the indicator on until its tool finishes.
+func (m *Model) trackToolStatus(raw json.RawMessage) {
+	var u struct {
+		SessionUpdate string `json:"sessionUpdate"`
+		ToolCallID    string `json:"toolCallId"`
+		Status        string `json:"status"`
+	}
+	if json.Unmarshal(raw, &u) != nil || u.ToolCallID == "" {
+		return
+	}
+	if u.SessionUpdate != "tool_call" && u.SessionUpdate != "tool_call_update" {
+		return
+	}
+	// tool_call_update only acts when it carries a status.
+	if u.SessionUpdate == "tool_call_update" && u.Status == "" {
+		return
+	}
+	if m.aiTools == nil {
+		m.aiTools = map[string]bool{}
+	}
+	if u.Status == "completed" || u.Status == "failed" {
+		delete(m.aiTools, u.ToolCallID)
+	} else {
+		m.aiTools[u.ToolCallID] = true
+	}
+}
+
+// startThinkingTick starts the indicator timer if it is not already running.
+func (m *Model) startThinkingTick() tea.Cmd {
+	if m.aiTicking {
+		return nil
+	}
+	m.aiTicking = true
+	return aiThinkingTickCmd()
+}
+
+func aiThinkingTickCmd() tea.Cmd {
+	return tea.Tick(aiThinkingTick, func(time.Time) tea.Msg { return aiThinkingTickMsg{} })
 }
 
 func aiPromptCmd(client runtimeClient, text string) tea.Cmd {

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -329,6 +330,36 @@ func TestOpenSuffixBinaryShowsOverlay(t *testing.T) {
 
 	if m.mode != modeQuery || m.messageOverlay == "" {
 		t.Fatalf("`<binary> @v` should show the not-readable overlay and stay in query; mode=%d overlay=%q", m.mode, m.messageOverlay)
+	}
+}
+
+func TestExternalEventHighlightsRequest(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "orders"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "orders", "get.nts"), []byte("url x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(&fakeClient{}, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = typeRunes(m, "stale input") // should be cleared by the event
+
+	m, _ = apply(m, ExternalEventMsg{Event: runtime.ExternalRequestEvent{
+		NtsPath:         "orders",
+		NtsFile:         "get.nts",
+		ResponseContent: "200 OK",
+	}})
+
+	if m.selectedCommand != "orders/get" {
+		t.Fatalf("external event should select the request; got %q", m.selectedCommand)
+	}
+	if m.command != "" {
+		t.Fatalf("external event should clear the typed command; got %q", m.command)
+	}
+	if m.highlightedSidebarCommand() != "orders/get" {
+		t.Fatalf("the request should be highlighted; got %q", m.highlightedSidebarCommand())
 	}
 }
 
@@ -781,6 +812,45 @@ func TestAiInputMultilineEditing(t *testing.T) {
 	}
 }
 
+func TestComputeThinking(t *testing.T) {
+	m := Model{}
+	if m.computeThinking() {
+		t.Fatal("no pending turn → idle")
+	}
+	m.aiPending = true
+	if !m.computeThinking() {
+		t.Fatal("pending with no reply yet → thinking")
+	}
+	m.aiHasStreamed = true
+	m.aiLastActivity = time.Now()
+	if !m.computeThinking() {
+		t.Fatal("recent activity → thinking (quiet window)")
+	}
+	// A running tool keeps it on even past the quiet window.
+	m.aiLastActivity = time.Now().Add(-10 * time.Second)
+	m.aiTools = map[string]bool{"t1": true}
+	if !m.computeThinking() {
+		t.Fatal("in-progress tool → thinking")
+	}
+	// Streamed, no tools, quiet elapsed → idle.
+	m.aiTools = nil
+	if m.computeThinking() {
+		t.Fatal("idle after the quiet window")
+	}
+}
+
+func TestTrackToolStatus(t *testing.T) {
+	m := Model{}
+	m.trackToolStatus(json.RawMessage(`{"sessionUpdate":"tool_call","toolCallId":"t1","status":"pending"}`))
+	if !m.aiTools["t1"] {
+		t.Fatal("tool_call should mark the tool in progress")
+	}
+	m.trackToolStatus(json.RawMessage(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed"}`))
+	if m.aiTools["t1"] {
+		t.Fatal("completed tool_call_update should clear it")
+	}
+}
+
 func TestAIModeStreamingFlow(t *testing.T) {
 	fake := &fakeClient{}
 	m := New(fake, runtime.ConfigDTO{AIAdaptor: "claude"})
@@ -827,10 +897,11 @@ func TestAIModeStreamingFlow(t *testing.T) {
 		t.Fatalf("AiPrompt not dispatched: %v", fake.aiPrompts)
 	}
 
-	// Stream an agent reply.
+	// Stream an agent reply. Thinking stays on within the quiet window (it does not
+	// clear on the first chunk) so the indicator persists while Claude works.
 	m, _ = apply(m, AiUpdateMsg{Update: json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello"}}`)})
-	if m.aiThinking {
-		t.Fatal("thinking should clear on reply")
+	if !m.aiThinking {
+		t.Fatal("thinking should persist within the quiet window after a chunk")
 	}
 	last := m.aiMessages[len(m.aiMessages)-1]
 	if last.Role != "assistant" || last.Content != "hello" {
