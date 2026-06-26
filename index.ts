@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import { isAxiosError } from "axios"
+import { spawn } from "node:child_process"
 import { existsSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import React, { useMemo, useRef, useState } from "react"
 import { render } from "ink"
 import {
@@ -258,6 +261,85 @@ const CommandApp = ({
   })
 }
 
+// Resolves the Go TUI binary: the published per-platform build under dist/bin
+// (shipped in the npm package), else a local host build at bin/r1q-tui (dev),
+// else undefined (→ Ink fallback). Only macOS/Linux on amd64/arm64 are shipped.
+const resolveGoBinary = (packageRoot: string): string | undefined => {
+  const arch = process.arch === "x64" ? "amd64" : process.arch
+  const platformBinary = resolve(
+    packageRoot,
+    "dist",
+    "bin",
+    `r1q-tui-${process.platform}-${arch}`,
+  )
+  if (existsSync(platformBinary)) {
+    return platformBinary
+  }
+
+  const devBinary = resolve(packageRoot, "bin", "r1q-tui")
+  if (existsSync(devBinary)) {
+    return devBinary
+  }
+  return undefined
+}
+
+// Launches the Go / Bubble Tea front-end for the interactive session, returning
+// true once it has run (so the caller skips the Ink TUI). Falls back to false —
+// rendering the Ink TUI — when the Go binary is absent, fails to start, or the
+// user opts out via R1QUEST_INK=1 / `--ink`. One-shot flags (--init, -p,
+// --version, --install-claude-plugin) are handled earlier and never reach here.
+const launchGoTui = (
+  args: string[],
+  config: RuntimeConfig,
+): Promise<boolean> => {
+  if (process.env.R1QUEST_INK === "1" || args.includes("--ink")) {
+    return Promise.resolve(false)
+  }
+
+  // dist/index.js → dist/ → package root (the repo root in dev).
+  const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
+  const binary = resolveGoBinary(packageRoot)
+  const runtimeScript = resolve(packageRoot, "dist", "src", "runtime-server.js")
+
+  if (!binary || !existsSync(runtimeScript)) {
+    return Promise.resolve(false)
+  }
+
+  const goArgs = [
+    "-r",
+    config.root,
+    "-runtime",
+    runtimeScript,
+    "-node",
+    process.execPath,
+  ]
+  if (config.ai) {
+    goArgs.push("-ai", config.ai)
+  }
+  if (config.parsedArgs.env) {
+    goArgs.push("-env", config.parsedArgs.env)
+  }
+
+  return new Promise<boolean>((resolveLaunch) => {
+    let settled = false
+    const child = spawn(binary, goArgs, { stdio: "inherit" })
+
+    child.on("error", () => {
+      if (!settled) {
+        settled = true
+        resolveLaunch(false)
+      }
+    })
+    child.on("exit", (code) => {
+      if (!settled) {
+        settled = true
+        process.exitCode = code ?? 0
+        resolveLaunch(true)
+      }
+    })
+  })
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2)
   const immediateCommandOutput = resolveImmediateCommandOutput(args)
@@ -275,7 +357,14 @@ if (import.meta.main) {
         // Before the interactive TUI boots, prune expired AI sessions so the
         // resume picker never lists dead sessions. Best-effort; never blocks.
         await runStartupBeforeActions(config)
-        render(React.createElement(CommandApp, { args, initialConfig: config }))
+
+        // Prefer the Go / Bubble Tea TUI; fall back to the Ink TUI when the Go
+        // binary is unavailable or the user opts out (R1QUEST_INK=1 / --ink).
+        const launchedGoTui = await launchGoTui(args, config)
+
+        if (!launchedGoTui) {
+          render(React.createElement(CommandApp, { args, initialConfig: config }))
+        }
       }
     }
   }

@@ -25,6 +25,7 @@ type StartOptions struct {
 	ServerScript string // path to dist/src/runtime-server.js
 	Root         string // request root (-r)
 	AI           string // ai adaptor (-ai), optional
+	Env          string // JSON env overrides (-env), optional
 	ReadyTimeout time.Duration
 }
 
@@ -46,6 +47,9 @@ func Start(opts StartOptions) (*Supervisor, error) {
 	args := []string{opts.ServerScript, "--socket", socketPath, "-r", opts.Root}
 	if opts.AI != "" {
 		args = append(args, "-ai", opts.AI)
+	}
+	if opts.Env != "" {
+		args = append(args, "-env", opts.Env)
 	}
 
 	cmd := exec.Command(opts.NodeBin, args...)

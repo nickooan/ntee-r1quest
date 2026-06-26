@@ -66,11 +66,18 @@ export npm_config_registry="https://registry.npmjs.org/"
 # npm ci pulls dependencies from the official registry set above (only
 # ntee-r1quest itself is built from source here), then build emits dist/.
 ok "Installing dependencies and building (registry: $npm_config_registry) ..."
-(cd "$DIR" && npm ci && npm run build)
+(cd "$DIR" && npm ci && npm run build:ts)
 
 # Done fetching from the registry — drop the override so the rest of the script
 # (and anything sourcing it) uses the normal npm config again.
 unset npm_config_registry
+
+# Build the Go / Bubble Tea TUI binaries when the Go toolchain is available;
+# otherwise the CLI falls back to the bundled Ink TUI at runtime.
+if command -v go >/dev/null 2>&1; then
+  ok "Building the Go TUI ..."
+  (cd "$DIR" && npm run build:tui:dist)
+fi
 
 # tsc emits a non-executable entry, so the symlinked command (npm link or the
 # ~/.local/bin fallback) needs the exec bit set after each build.

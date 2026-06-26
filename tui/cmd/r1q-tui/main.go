@@ -21,17 +21,18 @@ import (
 func main() {
 	root := flag.String("r", ".", "request root directory")
 	ai := flag.String("ai", "", "ACP adaptor (claude|codex|cursor)")
+	env := flag.String("env", "", "JSON env overrides for @env macros")
 	script := flag.String("runtime", "dist/src/runtime-server.js", "path to the runtime server script")
 	node := flag.String("node", "node", "node binary")
 	flag.Parse()
 
-	if err := run(*node, *script, *root, *ai); err != nil {
+	if err := run(*node, *script, *root, *ai, *env); err != nil {
 		fmt.Fprintln(os.Stderr, "r1q-tui:", err)
 		os.Exit(1)
 	}
 }
 
-func run(node, script, root, ai string) error {
+func run(node, script, root, ai, env string) error {
 	// Resolve the root to an absolute path so request resolution is independent
 	// of the runtime process's working directory.
 	if abs, err := filepath.Abs(root); err == nil {
@@ -43,6 +44,7 @@ func run(node, script, root, ai string) error {
 		ServerScript: script,
 		Root:         root,
 		AI:           ai,
+		Env:          env,
 	})
 	if err != nil {
 		return err

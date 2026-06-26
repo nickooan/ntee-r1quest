@@ -279,23 +279,34 @@ thinking-indicator quiet-window heuristic, and live TTY/ACP smoke tests.
 
 ### Phase E — Cutover
 
-Groundwork (done): `npm run build:tui` builds `bin/r1q-tui`; `npm run start:go`
-runs the Go TUI against the built runtime; `.prettierignore`/`.gitignore` updated.
+Done — the entry point now defaults to the Go TUI:
 
-The Go TUI ships **opt-in** today (run via `start:go` / the `r1q-tui` binary) so
-the production Ink TUI stays the default `r1q` bin until parity is reached.
+- `index.ts` (the npm `bin`) keeps handling one-shot flags (`--version`, `--init`,
+  `-p`, `--install-claude-plugin`) in TS. For the **interactive** case it calls
+  `launchGoTui`, which execs `bin/r1q-tui` (passing `-r`, `-ai`, `-env`, the
+  resolved `runtime-server.js` path, and `-node process.execPath`).
+- **Fallback to Ink** when the Go binary is absent, fails to spawn, or the user
+  opts out via `R1QUEST_INK=1` / `--ink`. So published installs without the binary
+  still work (Ink), and the cutover is non-destructive.
+- The Go binary forwards `-env` to the runtime server; root is resolved absolute.
+- Verified: default → Go, `R1QUEST_INK=1` → Ink, `--version` → TS one-shot. Full
+  TS + Go + cross-language suites green.
 
-Gate to flip the default `r1q` bin to Go:
+Distribution (done): `build:tui:dist` (bin/scripts/build-tui-dist.mjs)
+cross-compiles `dist/bin/r1q-tui-<os>-<arch>` for darwin/linux × arm64/amd64
+(CGO off, `-trimpath -ldflags=-s -w`). `prepack` → `build`
+(`build:ts` + `build:tui:dist`) so `npm pack`/`npm publish` bundle the binaries
+inside `dist/` (already in `files`). `launchGoTui` picks
+`dist/bin/r1q-tui-<platform>` first, then a local `bin/r1q-tui` dev build, then
+the Ink fallback. Verified: 4 binaries built (~4 MB each), launcher selects the
+host one, `npm pack` includes them. Publishing requires Go on the build machine;
+unsupported platforms (e.g. Windows) fall back to Ink.
 
-1. Clear the Phase D polish list above (esp. editor-suggestions, clipboard,
-   full app/custom-command routing).
-2. Manual TTY smoke of every mode + a live ACP run (claude/codex/cursor).
-3. Benchmark startup + render vs the Ink TUI.
-4. Distribution: ship a prebuilt `r1q-tui` per platform (e.g. goreleaser) since a
-   Go binary can't be `npm`-published as source; Node stays required for the
-   runtime process + npm ACP agents.
-5. Repoint the `bin` entry (or have `index.ts` exec the Go binary when present),
-   keeping a fallback/flag to the Ink TUI for one release.
+Remaining before dropping the Ink fallback (release-readiness, not blocking):
+
+1. Manual TTY smoke of every mode + a live ACP run (claude/codex/cursor).
+2. Benchmark startup + render vs the Ink TUI; then remove the Ink fallback after a
+   release.
 
 ## 6. Risk register
 

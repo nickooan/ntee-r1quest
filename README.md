@@ -888,7 +888,7 @@ Run the bundled examples from this repository:
 
 ```bash
 npm install
-npm run build
+npm run build:ts
 npm run start
 ```
 
@@ -1058,7 +1058,7 @@ For local development:
 
 ```bash
 npm install
-npm run build
+npm run build:ts
 npm link
 r1q -r ./example/request
 ```
