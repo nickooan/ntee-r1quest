@@ -36,7 +36,6 @@ import {
   buildExternalRequestEvent,
   postExternalRequestEvent,
 } from "./src/runtime/external-event/index.ts"
-import { VERSION } from "./src/runtime/version.ts"
 import { ConfigGenerator } from "./src/views/config-generator/index.tsx"
 import { formatError, formatResponse } from "./src/views/response.ts"
 import { TerminalApp } from "./src/views/terminal-app.tsx"
@@ -261,9 +260,9 @@ const CommandApp = ({
   })
 }
 
-// Resolves the Go TUI binary: the published per-platform build under dist/bin
-// (shipped in the npm package), else a local host build at bin/r1q-tui (dev),
-// else undefined (→ Ink fallback). Only macOS/Linux on amd64/arm64 are shipped.
+// Resolves the Go TUI binary: the per-platform build under dist/bin (produced by
+// `npm run build:tui` and shipped in the npm package), else undefined (→ Ink
+// fallback). Only macOS/Linux on amd64/arm64 are built.
 const resolveGoBinary = (packageRoot: string): string | undefined => {
   const arch = process.arch === "x64" ? "amd64" : process.arch
   const platformBinary = resolve(
@@ -272,15 +271,7 @@ const resolveGoBinary = (packageRoot: string): string | undefined => {
     "bin",
     `r1q-tui-${process.platform}-${arch}`,
   )
-  if (existsSync(platformBinary)) {
-    return platformBinary
-  }
-
-  const devBinary = resolve(packageRoot, "bin", "r1q-tui")
-  if (existsSync(devBinary)) {
-    return devBinary
-  }
-  return undefined
+  return existsSync(platformBinary) ? platformBinary : undefined
 }
 
 // Launches the Go / Bubble Tea front-end for the interactive session, returning
@@ -363,7 +354,9 @@ if (import.meta.main) {
         const launchedGoTui = await launchGoTui(args, config)
 
         if (!launchedGoTui) {
-          render(React.createElement(CommandApp, { args, initialConfig: config }))
+          render(
+            React.createElement(CommandApp, { args, initialConfig: config }),
+          )
         }
       }
     }

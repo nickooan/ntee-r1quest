@@ -64,7 +64,8 @@ const writeApisUsedBy = (path: string): string[] => {
   )
 }
 
-const toRelative = (path: string): string => relative(".", path).split(sep).join("/")
+const toRelative = (path: string): string =>
+  relative(".", path).split(sep).join("/")
 
 describe("runtime is read-only on the request root (plan §3.1)", () => {
   const files = SCAN_ROOTS.flatMap((root) => collectTsFiles(root))

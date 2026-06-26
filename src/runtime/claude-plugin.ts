@@ -42,7 +42,12 @@ const packageRoot = findPackageRoot()
 const manifestPath = (dir: string): string =>
   join(dir, ".claude-plugin", "marketplace.json")
 
-const distMarketplaceDir = join(packageRoot, "dist", "skills", "r1quest-ai-plugin")
+const distMarketplaceDir = join(
+  packageRoot,
+  "dist",
+  "skills",
+  "r1quest-ai-plugin",
+)
 const sourceMarketplaceDir = join(packageRoot, "skills", "r1quest-ai-plugin")
 
 const marketplaceDir = existsSync(manifestPath(distMarketplaceDir))

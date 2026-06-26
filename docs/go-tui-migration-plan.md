@@ -283,7 +283,7 @@ Done — the entry point now defaults to the Go TUI:
 
 - `index.ts` (the npm `bin`) keeps handling one-shot flags (`--version`, `--init`,
   `-p`, `--install-claude-plugin`) in TS. For the **interactive** case it calls
-  `launchGoTui`, which execs `bin/r1q-tui` (passing `-r`, `-ai`, `-env`, the
+  `launchGoTui`, which execs `dist/bin/r1q-tui-<platform>` (passing `-r`, `-ai`, `-env`, the
   resolved `runtime-server.js` path, and `-node process.execPath`).
 - **Fallback to Ink** when the Go binary is absent, fails to spawn, or the user
   opts out via `R1QUEST_INK=1` / `--ink`. So published installs without the binary
@@ -292,14 +292,13 @@ Done — the entry point now defaults to the Go TUI:
 - Verified: default → Go, `R1QUEST_INK=1` → Ink, `--version` → TS one-shot. Full
   TS + Go + cross-language suites green.
 
-Distribution (done): `build:tui:dist` (bin/scripts/build-tui-dist.mjs)
-cross-compiles `dist/bin/r1q-tui-<os>-<arch>` for darwin/linux × arm64/amd64
-(CGO off, `-trimpath -ldflags=-s -w`). `prepack` → `build`
-(`build:ts` + `build:tui:dist`) so `npm pack`/`npm publish` bundle the binaries
-inside `dist/` (already in `files`). `launchGoTui` picks
-`dist/bin/r1q-tui-<platform>` first, then a local `bin/r1q-tui` dev build, then
-the Ink fallback. Verified: 4 binaries built (~4 MB each), launcher selects the
-host one, `npm pack` includes them. Publishing requires Go on the build machine;
+Distribution (done): `build:tui` (bin/scripts/build-tui.mjs) cross-compiles
+`dist/bin/r1q-tui-<os>-<arch>` for darwin/linux × arm64/amd64 (CGO off,
+`-trimpath -ldflags=-s -w`). `prepack` → `build` (`build:ts` + `build:tui`) so
+`npm pack`/`npm publish` bundle the binaries inside `dist/` (already in `files`).
+`launchGoTui` picks `dist/bin/r1q-tui-<platform>`, else the Ink fallback.
+Verified: 4 binaries built (~4 MB each), launcher selects the host one, `npm
+pack` includes them. Publishing requires Go on the build machine;
 unsupported platforms (e.g. Windows) fall back to Ink.
 
 Remaining before dropping the Ink fallback (release-readiness, not blocking):

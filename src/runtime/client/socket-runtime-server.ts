@@ -76,13 +76,15 @@ export class SocketRuntimeServer {
         connection.notify(RpcEvent.SessionStarted, event),
       onSessionStopped: (event) =>
         connection.notify(RpcEvent.SessionStopped, {
-          error: event.error === undefined ? undefined : serializeError(event.error),
+          error:
+            event.error === undefined ? undefined : serializeError(event.error),
         }),
       onSessionError: (error) =>
         connection.notify(RpcEvent.SessionError, serializeError(error)),
       onExternalEvent: (event) =>
         connection.notify(RpcEvent.ExternalEvent, event),
-      onError: (error) => connection.notify(RpcEvent.Error, serializeError(error)),
+      onError: (error) =>
+        connection.notify(RpcEvent.Error, serializeError(error)),
     })
 
     socket.once("close", unsubscribe)
@@ -106,7 +108,9 @@ export class SocketRuntimeServer {
       case RpcMethod.ListApiEndpoints:
         return this.client.listApiEndpoints()
       case RpcMethod.ListTraceCalls:
-        return this.client.listTraceCalls((params as { traceId: string }).traceId)
+        return this.client.listTraceCalls(
+          (params as { traceId: string }).traceId,
+        )
       case RpcMethod.ClearCache:
         await this.client.clearCache()
         return null

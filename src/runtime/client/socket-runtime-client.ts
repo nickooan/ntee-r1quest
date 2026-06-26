@@ -67,9 +67,12 @@ export class SocketRuntimeClient implements RuntimeClient {
   }
 
   listAiSessions(adaptor: AcpAdaptorName): Promise<AiSessionRecord[]> {
-    return this.connection.request<AiSessionRecord[]>(RpcMethod.ListAiSessions, {
-      adaptor,
-    })
+    return this.connection.request<AiSessionRecord[]>(
+      RpcMethod.ListAiSessions,
+      {
+        adaptor,
+      },
+    )
   }
 
   listApiEndpoints(): Promise<ApiCallRecord[]> {

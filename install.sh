@@ -76,7 +76,7 @@ unset npm_config_registry
 # otherwise the CLI falls back to the bundled Ink TUI at runtime.
 if command -v go >/dev/null 2>&1; then
   ok "Building the Go TUI ..."
-  (cd "$DIR" && npm run build:tui:dist)
+  (cd "$DIR" && npm run build:tui)
 fi
 
 # tsc emits a non-executable entry, so the symlinked command (npm link or the

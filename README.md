@@ -1073,12 +1073,12 @@ r1q -r ./example/request
 
 Build scripts:
 
-| Script              | Builds                                                                |
-| ------------------- | --------------------------------------------------------------------- |
-| `npm run build:ts`  | TypeScript runtime + assets → `dist/` (no Go binary).                 |
-| `npm run build:tui` | A host Go binary at `bin/r1q-tui` (fast dev build).                   |
-| `npm run build`     | `build:ts` + cross-compiled `dist/bin/r1q-tui-<os>-<arch>` (publish). |
-| `npm run start:go`  | Build everything and run the Go UI against the example collection.    |
+| Script              | Builds                                                             |
+| ------------------- | ------------------------------------------------------------------ |
+| `npm run build:ts`  | TypeScript runtime + assets → `dist/` (no Go binary).              |
+| `npm run build:tui` | Cross-compiled `dist/bin/r1q-tui-<os>-<arch>` for each platform.   |
+| `npm run build`     | `build:ts` + `build:tui` (the full publishable `dist/`).           |
+| `npm run start:go`  | Build everything and run the Go UI against the example collection. |
 
 Building the Go binaries requires the Go toolchain (1.24+); macOS and Linux on
 `amd64`/`arm64` are shipped. Run the test suites with `npm test` (TypeScript),

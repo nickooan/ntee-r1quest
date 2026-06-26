@@ -37,8 +37,7 @@
   "scripts": {
     "build:ts": "node ./bin/scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node ./bin/scripts/copy-assets.mjs",
     "build:tui": "node ./bin/scripts/build-tui.mjs",
-    "build:tui:dist": "node ./bin/scripts/build-tui-dist.mjs",
-    "build": "npm run build:ts && npm run build:tui:dist",
+    "build": "npm run build:ts && npm run build:tui",
     "prepack": "npm run build",
     "start:go": "npm run build && npm run start",
     "format": "prettier . --write",
