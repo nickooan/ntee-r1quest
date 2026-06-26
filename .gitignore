@@ -8,6 +8,11 @@ dist
 *.tgz
 r1q
 .r1qconfig.json
+
+# Go TUI build output + runtime sockets
+/bin/r1q-tui
+/r1q-tui
+*.sock
 .r1qconfig.yaml
 .r1qconfig.yml
 !test/**/.r1qconfig.json

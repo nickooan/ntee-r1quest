@@ -24,8 +24,9 @@ npx ntee-r1quest -r ./example/request
   Code, Codex, or Cursor right inside the app. The agent can write and edit
   requests, trigger them, and have the results reflected live in the Result pane,
   so you build and debug API flows together.
-- 🖥️ **Modal terminal UI** — run, view, edit, search, and browse history without
-  leaving the keyboard.
+- 🖥️ **Modal terminal UI (Go / Bubble Tea)** — run, view, edit, search, and
+  browse history without leaving the keyboard. The Go front-end drives a
+  TypeScript runtime that owns the parser, cache, and AI adapters.
 - 🔁 **Reusable data + environment macros**, now with defaults: `@i(key or …)`,
   `@env(KEY or …)`, plus file uploads via `@f(…)`.
 - ⚡ **One-shot execution** (`-p`) for scripts and CI, with env injection
@@ -109,8 +110,9 @@ curl -fsSL https://codeberg.org/nickoan/ntee-r1quest/raw/branch/main/install.sh 
 Re-run the same command any time to **update** to the latest source (it pulls and
 rebuilds in place — no re-link needed). Pin a specific version with
 `NTEE_REF=v0.13.3`, or clone from a mirror with `NTEE_REPO=<url>`. Requires
-`git`, Node.js 24+, and `npm`; only `ntee-r1quest` is built from source —
-dependencies still come from your configured registry.
+`git`, Node.js 24+, `npm`, and the Go toolchain 1.24+ (Go builds the terminal UI
+binary); only `ntee-r1quest` is built from source — dependencies still come from
+your configured registry.
 
 ## CLI Reference
 
@@ -119,16 +121,16 @@ ntee-r1quest [-r <root>] [-ai <adapter>] [-p <request>] [-ti <id>] [-env <json>]
 ntee-r1quest --init | --version | --install-claude-plugin
 ```
 
-| Flag                      | Argument                | Purpose                                                                                              |
-| ------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------- |
-| `-r`                      | `<root>`                | Request collection root. Falls back to config, then the current directory.                           |
-| `-ai`                     | `codex\|claude\|cursor` | AI adapter for `@ai` mode.                                                                           |
-| `-p`                      | `<request>`             | Run one request and print the response without opening the UI (`.nts` optional).                     |
-| `-ti`                     | `<id>`                  | Tag the run with a trace id so related requests group in history (`@h <id>`). Optional.              |
-| `-env`                    | `'{"K":"V"}'`           | Supply `@env(...)` values as JSON, merged over `process.env` (these win). Optional.                  |
-| `--init`                  | —                       | Open the home-config wizard, then print the paths created.                                           |
-| `--version`               | —                       | Print the installed version and exit.                                                                |
-| `--install-claude-plugin` | —                       | Install the R1Quest plugin into Claude Code via the `claude` CLI. Requires a source install (below). |
+| Flag                      | Argument                | Purpose                                                                                                |
+| ------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| `-r`                      | `<root>`                | Request collection root. Falls back to config, then the current directory.                             |
+| `-ai`                     | `codex\|claude\|cursor` | AI adapter for `@ai` mode.                                                                             |
+| `-p`                      | `<request>`             | Run one request and print the response without opening the UI (`.nts` optional).                       |
+| `-ti`                     | `<id>`                  | Tag the run with a trace id so related requests group in history (`@h <id>`). Optional.                |
+| `-env`                    | `'{"K":"V"}'`           | Supply `@env(...)` values as JSON, merged over `process.env` (these win). Optional.                    |
+| `--init`                  | —                       | Open the home-config wizard, then print the paths created.                                             |
+| `--version`               | —                       | Print the installed version and exit.                                                                  |
+| `--install-claude-plugin` | —                       | Install the bundled R1Quest plugin into Claude Code via the `claude` CLI (works for npm installs too). |
 
 **One-shot examples**
 
@@ -144,163 +146,142 @@ A one-shot run can also notify an open terminal app — see [`sock`](#config).
 
 ## Terminal Modes
 
-The prompt shows the current mode:
+The status line at the bottom shows the current mode and its keys, for example:
 
 ```text
 @query >
-@view >
-@edit >
-@search >
-@history >
+@view   ↑/↓ scroll · e edit · s search · esc back
+@edit   ^S save · esc discard
+@search /uuid/   3/5   ↑/↓ next · esc back
+@history 2/8   ↑/↓ scroll · shift+↑/↓ select · s search · esc back
 @ai >
 ```
 
-Switch modes by typing a mode command and pressing Enter:
+Switch modes by typing a mode command and pressing Enter. Commands that take an
+argument accept it inline (`@v folder/get`, `@h task-42`):
 
-| Command    | Alias | Purpose                                             |
-| ---------- | ----- | --------------------------------------------------- |
-| `@query`   | `@q`  | Run request files and view responses.               |
-| `@view`    | `@v`  | Review request or data files in the Result pane.    |
-| `@edit`    | `@e`  | Edit the currently reviewed file.                   |
-| `@search`  | `@s`  | Search the current Result or reviewed file content. |
-| `@history` | `@h`  | Browse cached request/response history.             |
-| `@ai`      | `@a`  | Open the AI chat overlay.                           |
+| Command    | Alias | Purpose                                                     |
+| ---------- | ----- | ----------------------------------------------------------- |
+| `@query`   | `@q`  | Run request files and view responses (the default mode).    |
+| `@view`    | `@v`  | Open a request or data file in the Result pane (read-only). |
+| `@edit`    | `@e`  | Edit a file in the Result pane.                             |
+| `@search`  | `@s`  | Search the current Result or reviewed file content.         |
+| `@history` | `@h`  | Browse cached request/response history.                     |
+| `@ai`      |       | Open the AI chat.                                           |
+
+`@view` / `@edit` open the highlighted file when given no argument, or the file
+at the given path (`@v folder/get`). In query mode you can also append the
+command to a path — `folder/get @v` or `readme.md @e` — to open that file
+directly.
 
 Action commands run a task instead of switching modes:
 
-| Command        | Alias   | Action                                          |
-| -------------- | ------- | ----------------------------------------------- |
-| `@reload`      |         | Reload config and restart the terminal runtime. |
-| `@clean-cache` | `@cc`   | Clear input history and request history.        |
-| `@report`      | `@copy` | Copy the Result pane content to the clipboard.  |
-| `@exit`        | `@quit` | Exit the app.                                   |
+| Command        | Alias     | Action                                                              |
+| -------------- | --------- | ------------------------------------------------------------------- |
+| `@copy`        | `@report` | Copy the Result pane content to the clipboard.                      |
+| `@reload`      |           | Re-resolve config (root, AI adapter, custom commands) and adopt it. |
+| `@clean-cache` | `@cc`     | Clear input history and request history.                            |
+| `@exit`        | `@quit`   | Exit the app.                                                       |
 
-`@report` (alias `@copy`) copies exactly what the Result pane shows — the
-response, an open file, or a history record — to the system clipboard, excluding
-the loading animation and pane borders. On success it shows a confirmation
-overlay; if there is nothing to copy or no clipboard tool is available, it shows
-a failure overlay instead. Press Enter to dismiss either one. Clipboard support
-is macOS and Linux only (see [Quick Start](#quick-start)).
+`@copy` (alias `@report`) copies exactly what the Result pane shows — the
+response, an open file, or a history record. On success the status line shows a
+green `copied`; if there is nothing to copy or no clipboard tool is available it
+shows `copy failed`. Clipboard support is macOS and Linux only (see
+[Quick Start](#quick-start)).
 
-You can also press Shift+Tab to cycle the three main modes:
+Press **Shift+Tab** to cycle the three main modes:
 
 ```text
-@query -> @view -> @ai -> @query
+@query -> @history -> @ai -> @query
 ```
 
-When the cycle enters `@ai`, the AI overlay opens; when it cycles out, the
-overlay closes and the AI session stays available.
-
-`@search` and `@history` are not part of the Shift+Tab cycle. Enter them
-explicitly (`@s` / `@h`), and press Esc — or type another `@` mode command — to
-leave.
+`@view`, `@edit`, and `@search` are entered explicitly (by command, or via the
+shortcuts in [Key Manual](#key-manual)); press **Esc** to leave them.
 
 ## Key Manual
 
 ### Global
 
-| Key              | Action                                          |
-| ---------------- | ----------------------------------------------- |
-| Shift+Tab        | Quick-switch through query, view, and AI modes. |
-| Enter            | Submit the current mode input or selected item. |
-| `@reload`        | Reload config and restart the terminal runtime. |
-| `@exit`, `@quit` | Exit the app safely.                            |
+| Key       | Action                                                   |
+| --------- | -------------------------------------------------------- |
+| Shift+Tab | Cycle the main modes: `@query` → `@history` → `@ai`.     |
+| Enter     | Submit the current mode's input or act on the selection. |
+| Esc       | Leave the current mode (to query, or up a directory).    |
+| Ctrl+C    | Quit the app.                                            |
 
 ### Query Mode
 
-Use `@query` to run request files.
+Type a request path (without `.nts`). Matches appear in a suggestion popup, and
+the sidebar highlights the matching entry.
 
-| Key                      | Action                                                                                          |
-| ------------------------ | ----------------------------------------------------------------------------------------------- |
-| Type a request path      | Select a request by path without `.nts`.                                                        |
-| Enter                    | Run the typed or highlighted request. Pressing Enter again reruns the same highlighted request. |
-| Shift+Up / Shift+Down    | Move the sidebar highlight.                                                                     |
-| Esc                      | Move to the parent directory selection when possible.                                           |
-| Up / Down                | Scroll the Result pane vertically.                                                              |
-| Left / Right             | Scroll the Result pane horizontally.                                                            |
-| PageUp / PageDown        | Scroll the Result pane by one page.                                                             |
-| Home / End               | Jump to the start or end of Result content.                                                     |
-| Shift+Left / Shift+Right | Move the input cursor.                                                                          |
+| Key                      | Action                                                                                                                                                                |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Type a path              | Filter requests/files; a suggestion popup lists matches.                                                                                                              |
+| Enter                    | Act on the highlighted entry by type: **enter** a directory, **run** a request (`.nts`), or **ask to view** any other file. A path that matches nothing does nothing. |
+| Up / Down                | Navigate the suggestion popup when open; otherwise scroll the Result pane.                                                                                            |
+| Left / Right             | Scroll the Result pane horizontally.                                                                                                                                  |
+| Shift+Up / Shift+Down    | Move the selection on the left (sidebar / popup). The selected value is mirrored into the input bar and the popup.                                                    |
+| Shift+Left / Shift+Right | Move the input cursor.                                                                                                                                                |
+| Esc                      | Go up to the parent directory.                                                                                                                                        |
+
+- Selecting a non-`.nts` file opens a confirm overlay (“not a r1q executable —
+  view it?”): **y / Enter** opens it in view mode; **n / Esc** cancels (input
+  cleared, file stays selected).
+- Opening a binary/native file shows a “not a readable file” overlay; press
+  **Enter** to dismiss (selection preserved).
+- `<path> @v` / `<path> @e` opens that file directly in view / edit mode.
 
 ### View Mode
 
-Use `@view` to open request and data files in the Result pane.
+Read a file in the Result pane.
 
-| Key                      | Action                                                    |
-| ------------------------ | --------------------------------------------------------- |
-| Type a file path         | Select a file or directory by path.                       |
-| Enter                    | Open the selected file, or expand/select a directory.     |
-| Shift+Up / Shift+Down    | Move the sidebar highlight.                               |
-| Esc                      | Move to the parent directory, or close the reviewed file. |
-| Up / Down                | Scroll the reviewed file vertically.                      |
-| Left / Right             | Scroll the reviewed file horizontally.                    |
-| PageUp / PageDown        | Scroll the reviewed file by one page.                     |
-| Shift+Left / Shift+Right | Move the input cursor.                                    |
-| Ctrl+E                   | Enter edit mode for the currently reviewed file.          |
+| Key       | Action                  |
+| --------- | ----------------------- |
+| Up / Down | Scroll the file.        |
+| `e`       | Edit the file.          |
+| `s`       | Search within the file. |
+| Esc       | Return to query mode.   |
 
 ### Edit Mode
 
-Use `@edit` while reviewing a file to edit it directly in the Result pane.
+Edit the open file in place. (The Go front-end is the sole writer of
+`.nts`/`.ntd` files; the runtime only reads them.)
 
-| Key                      | Action                                                              |
-| ------------------------ | ------------------------------------------------------------------- |
-| Type text                | Buffer text at the edit cursor.                                     |
-| Enter                    | Insert buffered text, split a line, or accept an active suggestion. |
-| Esc                      | Open the save confirmation prompt.                                  |
-| Shift + Arrows           | Move the file cursor through the content (works in any state).      |
-| Up / Down / Left / Right | Move the file cursor — **only when no text is buffered**.           |
-| Left / Right             | Move within buffered text — while you have uncommitted input.       |
-| Backspace / Delete       | Delete buffered text, or delete file content before the cursor.     |
-| Ctrl+S                   | Save immediately and return to view mode.                           |
-| Ctrl+A                   | Move the current token into the input bar for inline editing.       |
+| Key          | Action                                                                   |
+| ------------ | ------------------------------------------------------------------------ |
+| Type text    | Insert at the cursor.                                                    |
+| Enter        | Insert a newline.                                                        |
+| Left / Right | Move the cursor.                                                         |
+| Up / Down    | Move the cursor between lines; navigate the completion popup while open. |
+| Tab          | Accept the highlighted completion.                                       |
+| Backspace    | Delete before the cursor.                                                |
+| Ctrl+S       | Save the file (stays in edit mode).                                      |
+| Esc          | Discard unsaved changes and return to view mode.                         |
 
-> **Why Shift?** While you have uncommitted typed text, plain Up/Down are
-> ignored and plain Left/Right move within that text — so an accidentally pressed
-> arrow can't jump the file cursor and abandon what you were typing. Hold Shift
-> to move the file cursor. With nothing buffered, plain arrows navigate normally.
-
-Editor suggestions appear while typing request keywords, macros, definition
-keys, or `ref` paths.
-
-| Key       | Action                                                         |
-| --------- | -------------------------------------------------------------- |
-| Up / Down | Move the highlighted suggestion while the dropdown is visible. |
-| Tab       | Apply the highlighted suggestion.                              |
-| Enter     | Apply the highlighted suggestion.                              |
-
-Examples:
+Completions appear while typing request keywords, macros, definition keys, or
+`ref` paths:
 
 - `hea` suggests `header`.
-- `header cont` suggests headers such as `content-type` and inserts the
-  trailing `, `.
-- `@` suggests macros such as `@i`, `@f`, `@env`, and concrete `@i(key)` values
-  from referenced `.ntd` files.
+- `header cont` suggests headers such as `content-type` (with a trailing `, `).
+- `@` suggests macros such as `@i`, `@f`, `@env`, and `@i(key)` values from
+  referenced `.ntd` files.
 - `@i(` suggests referenced `.ntd` keys.
-- `ref ../d` suggests matching directories and `.ntd` files, such as
-  `../data/` or `../default.ntd`.
+- `ref ../d` suggests matching directories and `.ntd` files.
 
 ### Search Mode
 
-Use `@search` (or `@s`) to search the current response or reviewed file. You can
-pass the query inline to search immediately, for example `@s uuid` or
-`@search order id` — the text after the command name becomes the query.
+Search the current Result or reviewed file. Pass the query inline (`@s uuid`,
+`@search order id`) or type it after entering.
 
-| Key                      | Action                                      |
-| ------------------------ | ------------------------------------------- |
-| Type a search query      | Prepare a search query.                     |
-| Enter                    | Apply the query and highlight matches.      |
-| Esc                      | Return to the mode you entered search from. |
-| Up / Down                | Move between matches.                       |
-| Left / Right             | Scroll horizontally.                        |
-| PageUp / PageDown        | Scroll vertically by one page.              |
-| Home / End               | Jump to the first or last match.            |
-| Shift+Left / Shift+Right | Move the search input cursor.               |
+| Key          | Action                                   |
+| ------------ | ---------------------------------------- |
+| Type a query | Build the query; matches highlight live. |
+| Down / Enter | Jump to the next match.                  |
+| Up           | Jump to the previous match.              |
+| Esc          | Return to the mode you searched from.    |
 
-When a query has no matches, a "Nothing found" overlay appears; press Enter to
-dismiss it.
-
-If you enter `@edit` from search while reviewing a file, editing starts near the
-focused match.
+The status line shows the `current/total` match count. Search launched from
+`@history` keeps the history list on the left.
 
 ### History Mode
 
@@ -309,33 +290,44 @@ cached endpoints; the right pane shows the formatted request/response for the
 selected one, with its duration in the header. See
 [Request History and Cache](#request-history-and-cache) for what gets recorded.
 
-Pass a trace id inline to view only that trace's calls: `@h <traceId>` (bare
-`@h` / `@history` shows all endpoints).
+Pass a trace id inline to view only that trace's calls, numbered in order:
+`@h <traceId>` (bare `@h` / `@history` shows all endpoints).
 
-| Key                   | Action                                                    |
-| --------------------- | --------------------------------------------------------- |
-| Type to filter        | Filter the endpoint list; an overlay shows matches.       |
-| Up / Down             | Move through the filter overlay (while it is open).       |
-| Enter                 | Select the highlighted endpoint.                          |
-| Shift+Up / Shift+Down | Move the endpoint highlight (overlay closed).             |
-| Up / Down             | Scroll the Result pane vertically (overlay closed).       |
-| Left / Right          | Scroll the Result pane horizontally.                      |
-| `@h <traceId>`        | Show only the calls recorded under `<traceId>`, in order. |
+| Key                   | Action                                   |
+| --------------------- | ---------------------------------------- |
+| Shift+Up / Shift+Down | Select an endpoint on the left.          |
+| Up / Down             | Scroll the selected record on the right. |
+| `s`                   | Search the selected record.              |
+| Esc                   | Return to query mode.                    |
 
 ### AI Mode
 
-Use `@ai` to chat with a local terminal AI agent through an ACP adapter.
+Use `@ai` to chat with a local terminal AI agent (Claude Code, Codex, or Cursor)
+through an ACP adapter. The agent can read, write, and run requests, with the
+results reflected in the Result pane.
 
-| Key           | Action                                        |
-| ------------- | --------------------------------------------- |
-| Type a prompt | Compose an AI prompt.                         |
-| Enter         | Send the prompt.                              |
-| Esc           | Hide the AI overlay and return to query mode. |
-| Up / Down     | Scroll AI messages.                           |
-| Left / Right  | Move the AI input cursor.                     |
-| `y` / `n`     | Respond to permission prompts when shown.     |
+On entering `@ai`, if prior sessions exist a **session picker** appears:
 
-The AI session can keep running while you leave and re-enter the overlay.
+| Key   | Action                                  |
+| ----- | --------------------------------------- |
+| ↑ / ↓ | Choose “New session” or a past session. |
+| Enter | Start / resume the selected session.    |
+| Esc   | Cancel back to query mode.              |
+
+In the chat:
+
+| Key                  | Action                                         |
+| -------------------- | ---------------------------------------------- |
+| Type a prompt        | Compose a message.                             |
+| Enter                | Send.                                          |
+| Ctrl+J               | Insert a newline (compose multi-line prompts). |
+| Shift+↑/↓ or Opt+↑/↓ | Move the input cursor between lines.           |
+| Up / Down            | Scroll the transcript (↑ older, ↓ newer).      |
+| `y` / `n`            | Answer a permission request when shown.        |
+| Esc                  | Leave AI mode; the session keeps running.      |
+
+While the agent works, a “_&lt;Agent&gt;_ is thinking…” indicator shows — the
+name follows your `-ai` adapter (e.g. “Codex is thinking…”).
 
 #### Custom AI commands
 
@@ -369,9 +361,11 @@ have typed so far. Custom commands work only in AI mode.
 inputs and successful calls persist across sessions. Writes are best-effort and
 never block the app; `@`-mode commands are never cached.
 
-**Input suggestions.** As you type a path in `@query` or `@view`, an overlay
-above the command line offers prefix matches — current-directory files and
-folders in **yellow**, and previously run inputs from the cache in **green**.
+**Input suggestions.** As you type a request path in `@query`, a popup above the
+command line offers prefix matches — current-directory files and folders in
+**yellow**, and previously run inputs from the cache in **green**. Pick one with
+the popup (Up/Down) or the sidebar (Shift+Up/Down); the selection is mirrored
+into the input bar.
 
 **Request history.** Every successful request is recorded by endpoint
 (`/path [method]`, or `Operation [type]` for GraphQL). Browse it in
@@ -385,7 +379,7 @@ Mode, `@h <id>` lists just that trace's calls **in the order they ran** — hand
 for reviewing a multi-step flow.
 
 **Clearing.** Run `@clean-cache` (or `@cc`) to wipe both input history and
-request history.
+request history (the cache lives under `~/.ntee-r1quest/cache/`).
 
 ## AI Adapter
 
@@ -888,7 +882,7 @@ Run the bundled examples from this repository:
 
 ```bash
 npm install
-npm run build
+npm run build:ts
 npm run start
 ```
 
@@ -1054,20 +1048,44 @@ The package name is `ntee-r1quest`, and the CLI command is `r1q`:
 r1q -r ./example/request
 ```
 
-For local development:
-
-```bash
-npm install
-npm run build
-npm link
-r1q -r ./example/request
-```
-
 Choose an AI adapter with:
 
 ```bash
 r1q -r ./example/request -ai claude
 ```
+
+### How it runs
+
+The terminal UI is a **Go / Bubble Tea** binary; the **TypeScript runtime**
+(parser, cache, AI/ACP adapters) runs as a separate process and the two speak
+JSON-RPC over a per-run Unix-domain socket. The `r1q` entry point handles
+one-shot flags (`--version`, `--init`, `-p`, `--install-claude-plugin`) in
+TypeScript, then launches the Go binary for the interactive session. The Go
+binary is the only interactive UI; on a platform it isn't built for, use one-shot
+mode (`-p`) — there is no longer a fallback UI.
+
+### Building from source
+
+```bash
+npm install
+npm run build           # TypeScript runtime + cross-compiled Go binaries → dist/
+npm link
+r1q -r ./example/request
+```
+
+Build scripts:
+
+| Script              | Builds                                                             |
+| ------------------- | ------------------------------------------------------------------ |
+| `npm run build:ts`  | TypeScript runtime + assets → `dist/` (no Go binary).              |
+| `npm run build:tui` | Cross-compiled `dist/bin/r1q-tui-<os>-<arch>` for each platform.   |
+| `npm run build`     | `build:ts` + `build:tui` (the full publishable `dist/`).           |
+| `npm run start:go`  | Build everything and run the Go UI against the example collection. |
+
+Building the Go binaries requires the Go toolchain (1.24+); macOS and Linux on
+`amd64`/`arm64` are shipped. Run the test suites with `npm test` (TypeScript),
+`npm run test:tui` (Go), and `npm run test:tui-int` (cross-language socket
+integration).
 
 ## R1Quest AI Plugin
 
@@ -1109,8 +1127,16 @@ skills/r1quest-ai-plugin/             # marketplace root
       graphql-schema-r1quest-generator/
 ```
 
-From this repository root, add the local marketplace and install the plugin
-inside Claude Code:
+The plugin marketplace is bundled with the package (under `dist/`), so the
+simplest install is:
+
+```bash
+r1q --install-claude-plugin
+```
+
+This registers the bundled marketplace and installs the plugin into Claude Code
+via the `claude` CLI (Claude Code must be installed). Equivalently, add the
+marketplace and install it by hand from a source checkout:
 
 ```bash
 /plugin marketplace add ./skills/r1quest-ai-plugin

@@ -18,6 +18,8 @@ REF="${NTEE_REF:-main}"
 # A subdirectory of the app's home dir, kept separate from its config/cache.
 DIR="${NTEE_DIR:-$HOME/.ntee-r1quest/source}"
 MIN_NODE_MAJOR=24
+MIN_GO_MAJOR=1
+MIN_GO_MINOR=24
 
 red() { printf '\033[31m%s\033[0m\n' "$1" >&2; }
 ok() { printf '\033[32m%s\033[0m\n' "$1"; }
@@ -37,9 +39,27 @@ for cmd in git node npm; do
   }
 done
 
+# Go builds the terminal UI binary (the default front-end), so it is required.
+command -v go >/dev/null 2>&1 || {
+  red "Go ${MIN_GO_MAJOR}.${MIN_GO_MINOR}+ is required to build the terminal UI but 'go' was not found in PATH."
+  red "Install it from https://go.dev/dl, then re-run this installer."
+  exit 1
+}
+
 node_major="$(node -p 'process.versions.node.split(".")[0]')"
 if [ "$node_major" -lt "$MIN_NODE_MAJOR" ]; then
   red "Node.js ${MIN_NODE_MAJOR}+ is required (found $(node -v)). Install it from https://nodejs.org or via nvm."
+  exit 1
+fi
+
+# go version → "go version go1.24.2 darwin/arm64"; extract "1.24.2".
+go_version="$(go version | awk '{print $3}' | sed 's/^go//')"
+go_major="${go_version%%.*}"
+go_rest="${go_version#*.}"
+go_minor="${go_rest%%.*}"
+if [ "$go_major" -lt "$MIN_GO_MAJOR" ] ||
+  { [ "$go_major" -eq "$MIN_GO_MAJOR" ] && [ "$go_minor" -lt "$MIN_GO_MINOR" ]; }; then
+  red "Go ${MIN_GO_MAJOR}.${MIN_GO_MINOR}+ is required (found $(go version)). Install it from https://go.dev/dl."
   exit 1
 fi
 
@@ -66,11 +86,15 @@ export npm_config_registry="https://registry.npmjs.org/"
 # npm ci pulls dependencies from the official registry set above (only
 # ntee-r1quest itself is built from source here), then build emits dist/.
 ok "Installing dependencies and building (registry: $npm_config_registry) ..."
-(cd "$DIR" && npm ci && npm run build)
+(cd "$DIR" && npm ci && npm run build:ts)
 
 # Done fetching from the registry — drop the override so the rest of the script
 # (and anything sourcing it) uses the normal npm config again.
 unset npm_config_registry
+
+# Build the Go / Bubble Tea TUI binaries (Go is verified above).
+ok "Building the Go TUI ..."
+(cd "$DIR" && npm run build:tui)
 
 # tsc emits a non-executable entry, so the symlinked command (npm link or the
 # ~/.local/bin fallback) needs the exec bit set after each build.

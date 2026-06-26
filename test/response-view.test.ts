@@ -1,14 +1,23 @@
 import { describe, expect, test } from "@jest/globals"
-import { AxiosError } from "axios"
-import type { AxiosResponse, InternalAxiosRequestConfig } from "axios"
 import {
   formatError,
   formatResponse,
   formatResponseBody,
   formatResponseHeaders,
   formatPending,
-} from "../src/views/response.tsx"
-import { sectionRule } from "../src/views/terminal/section-format.ts"
+} from "../src/views/response.ts"
+import { sectionRule } from "../src/views/section-format.ts"
+import type { ExecuteResult } from "../src/runtime/client/types.ts"
+
+const makeResult = (overrides: Partial<ExecuteResult> = {}): ExecuteResult => ({
+  request: { method: "get", url: "https://ntee.io/x" },
+  status: 200,
+  statusText: "OK",
+  headers: {},
+  body: undefined,
+  durationMs: 0,
+  ...overrides,
+})
 
 describe("response view", () => {
   test("formats response headers as key value lines", () => {
@@ -69,34 +78,24 @@ Unable to connect.`,
     )
   })
 
-  test("formats axios error output with response details only", () => {
-    const config = {
-      headers: {},
-      method: "get",
-      url: "https://ntee.io/missing-resource?debug=true",
-    } as InternalAxiosRequestConfig
-    const response: AxiosResponse = {
-      config,
+  test("formats a non-2xx response with request and response details", () => {
+    // Non-2xx is converted to an ExecuteResult upstream and rendered like any
+    // other response (it no longer flows through formatError).
+    const response = makeResult({
+      request: {
+        method: "get",
+        url: "https://ntee.io/missing-resource?debug=true",
+      },
       status: 404,
       statusText: "Not Found",
       headers: {
         "content-type": "application/json",
         "x-request-id": "error-123",
       },
-      data: {
-        message: "Not found",
-      },
-      request: {},
-    }
-    const error = new AxiosError(
-      "Request failed",
-      undefined,
-      config,
-      {},
-      response,
-    )
+      body: { message: "Not found" },
+    })
 
-    expect(formatError(error)).toBe(`/missing-resource [GET]
+    expect(formatResponse(response)).toBe(`/missing-resource [GET]
 404 Not Found
 
 ${sectionRule("Request", 60)}
@@ -117,27 +116,20 @@ Body
   })
 
   test("formats a full response with status headers and body", () => {
-    const response: AxiosResponse = {
-      config: {
-        headers: {},
-        method: "get",
-        url: "https://ntee.io/xxx/xx/xxx",
-      } as InternalAxiosRequestConfig,
-      status: 200,
-      statusText: "OK",
+    const response = makeResult({
+      request: { method: "get", url: "https://ntee.io/xxx/xx/xxx" },
       headers: {
         "content-type": "application/json",
         "x-request-id": "abc-123",
       },
-      data: {
+      body: {
         content: [
           {
             name: "abc",
           },
         ],
       },
-      request: {},
-    }
+    })
 
     expect(formatResponse(response)).toBe(`/xxx/xx/xxx [GET]
 200 OK
@@ -164,18 +156,11 @@ Body
   })
 
   test("adds the trace id below the status line when present", () => {
-    const response: AxiosResponse = {
-      config: {
-        headers: {},
-        method: "get",
-        url: "https://ntee.io/x",
-      } as InternalAxiosRequestConfig,
-      status: 200,
-      statusText: "OK",
+    const response = makeResult({
+      request: { method: "get", url: "https://ntee.io/x" },
       headers: { "content-type": "application/json" },
-      data: { ok: true },
-      request: {},
-    }
+      body: { ok: true },
+    })
 
     // No trace id: the status section is just the status line.
     expect(formatResponse(response)).not.toContain("Trace:")
@@ -190,21 +175,14 @@ ${sectionRule("Request", 60)}`)
   })
 
   test("formats a full text response with headers and multiline body", () => {
-    const response: AxiosResponse = {
-      config: {
-        headers: {},
-        method: "post",
-        url: "/text-response?line=2",
-      } as InternalAxiosRequestConfig,
-      status: 200,
-      statusText: "OK",
+    const response = makeResult({
+      request: { method: "post", url: "/text-response?line=2" },
       headers: {
         "content-type": "text/plain",
         "x-request-id": "text-123",
       },
-      data: "line 1\nline 2",
-      request: {},
-    }
+      body: "line 1\nline 2",
+    })
 
     expect(formatResponse(response)).toBe(`/text-response [POST]
 200 OK

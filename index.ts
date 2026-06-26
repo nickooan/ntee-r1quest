@@ -1,23 +1,24 @@
 #!/usr/bin/env node
-import type { AxiosResponse } from "axios"
+import { isAxiosError } from "axios"
+import { spawn } from "node:child_process"
 import { existsSync } from "node:fs"
-import React, { useMemo, useRef, useState } from "react"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+import React from "react"
 import { render } from "ink"
 import {
-  execute,
   executePathArgument,
   parseArguments,
   resolveImmediateCommandOutput,
   resolveRuntimeConfig,
 } from "./src/runtime/cli-command.ts"
-import { resolveAdaptorName } from "./src/runtime/acp/index.ts"
+import { toExecuteResult } from "./src/runtime/client/index.ts"
 import { runStartupBeforeActions } from "./src/runtime/startup.ts"
 import {
   formatInstallClaudePluginResult,
   installClaudePlugin,
 } from "./src/runtime/claude-plugin.ts"
 import {
-  clearRuntimeConfigCache,
   getHomeConfigPath,
   initializeHomeConfig,
   type InitializeHomeConfigResult,
@@ -27,10 +28,8 @@ import {
   buildExternalRequestEvent,
   postExternalRequestEvent,
 } from "./src/runtime/external-event/index.ts"
-import { VERSION } from "./src/runtime/version.ts"
 import { ConfigGenerator } from "./src/views/config-generator/index.tsx"
-import { formatError, formatResponse } from "./src/views/response.tsx"
-import { TerminalApp } from "./src/views/terminal-app.tsx"
+import { formatError, formatResponse } from "./src/views/response.ts"
 
 export { VERSION } from "./src/runtime/version.ts"
 
@@ -38,8 +37,9 @@ const runPathArgument = async (
   args: string[],
   config: RuntimeConfig,
 ): Promise<boolean> => {
+  const requestStartTime = Date.now()
+
   try {
-    const requestStartTime = Date.now()
     const response = await executePathArgument(args)
 
     if (!response) {
@@ -47,7 +47,10 @@ const runPathArgument = async (
     }
 
     const traceId = config.parsedArgs.traceId
-    const responseContent = formatResponse(response, traceId)
+    const responseContent = formatResponse(
+      toExecuteResult(response, Date.now() - requestStartTime),
+      traceId,
+    )
 
     process.stdout.write(responseContent)
 
@@ -72,7 +75,19 @@ const runPathArgument = async (
 
     return true
   } catch (error) {
-    process.stderr.write(`${formatError(error, config.parsedArgs.traceId)}\n`)
+    const traceId = config.parsedArgs.traceId
+    // A non-2xx response surfaces as a thrown AxiosError carrying `.response`;
+    // render it the same as a success (to stderr, exit 1). Only true failures
+    // with no response fall through to the error block.
+    const content =
+      isAxiosError(error) && error.response
+        ? formatResponse(
+            toExecuteResult(error.response, Date.now() - requestStartTime),
+            traceId,
+          )
+        : formatError(error, traceId)
+
+    process.stderr.write(`${content}\n`)
     process.exitCode = 1
 
     return true
@@ -146,93 +161,73 @@ const runInitArgument = async (args: string[]): Promise<boolean> => {
   return true
 }
 
-const CommandApp = ({
-  args,
-  initialConfig,
-}: {
-  args: string[]
-  initialConfig: RuntimeConfig
-}) => {
-  const [config, setConfig] = useState(initialConfig)
-  const [reloadId, setReloadId] = useState(0)
-  const root = config.root
-  const aiAdaptor = useMemo(
-    () => (config.ai ? resolveAdaptorName(config.ai) : undefined),
-    [config.ai],
+// Resolves the Go TUI binary: the per-platform build under dist/bin (produced by
+// `npm run build:tui` and shipped in the npm package). Only macOS/Linux on
+// amd64/arm64 are built; other platforms have no interactive UI.
+const resolveGoBinary = (packageRoot: string): string | undefined => {
+  const arch = process.arch === "x64" ? "amd64" : process.arch
+  const platformBinary = resolve(
+    packageRoot,
+    "dist",
+    "bin",
+    `r1q-tui-${process.platform}-${arch}`,
   )
-  const externalEventSocket = config.sock
-  const [response, setResponse] = useState<AxiosResponse | undefined>()
-  const [error, setError] = useState<unknown>()
-  const [isPending, setIsPending] = useState(false)
-  const [requestDurationMs, setRequestDurationMs] = useState<
-    number | undefined
-  >()
-  const commandRunIdRef = useRef(0)
+  return existsSync(platformBinary) ? platformBinary : undefined
+}
 
-  const runCommand = async (command: string) => {
-    const commandRunId = commandRunIdRef.current + 1
-    const requestStartTime = Date.now()
+// Launches the Go / Bubble Tea front-end for the interactive session and resolves
+// when it exits. The Go binary is the only interactive UI; if it is missing for
+// this platform (or fails to spawn) we print an error and exit non-zero. One-shot
+// flags (--init, -p, --version, --install-claude-plugin) are handled earlier and
+// never reach here.
+const launchGoTui = (args: string[], config: RuntimeConfig): Promise<void> => {
+  // dist/index.js → dist/ → package root (the repo root in dev).
+  const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
+  const binary = resolveGoBinary(packageRoot)
+  const runtimeScript = resolve(packageRoot, "dist", "src", "runtime-server.js")
 
-    commandRunIdRef.current = commandRunId
-    setIsPending(true)
-    setResponse(undefined)
-    setError(undefined)
-    setRequestDurationMs(undefined)
+  if (!binary || !existsSync(runtimeScript)) {
+    process.stderr.write(
+      `The interactive UI requires the r1q-tui binary for ${process.platform}/${process.arch}, ` +
+        "which is not available in this install.\n" +
+        "Use one-shot mode (-p <request>) instead, or build from source on a supported platform.\n",
+    )
+    process.exitCode = 1
+    return Promise.resolve()
+  }
 
-    try {
-      const nextResponse = await execute(
-        command,
-        root,
-        undefined,
-        config.parsedArgs.env,
+  const goArgs = [
+    "-r",
+    config.root,
+    "-runtime",
+    runtimeScript,
+    "-node",
+    process.execPath,
+  ]
+  if (config.ai) {
+    goArgs.push("-ai", config.ai)
+  }
+  if (config.parsedArgs.env) {
+    goArgs.push("-env", config.parsedArgs.env)
+  }
+
+  return new Promise<void>((resolveLaunch) => {
+    let settled = false
+    const settle = (code: number) => {
+      if (settled) return
+      settled = true
+      process.exitCode = code
+      resolveLaunch()
+    }
+
+    const child = spawn(binary, goArgs, { stdio: "inherit" })
+    child.on("error", (error) => {
+      process.stderr.write(
+        `Failed to launch the interactive UI: ${error.message}\n`,
       )
-
-      if (commandRunIdRef.current === commandRunId) {
-        setResponse(nextResponse)
-      }
-    } catch (nextError) {
-      if (commandRunIdRef.current === commandRunId) {
-        setError(nextError)
-      }
-    } finally {
-      if (commandRunIdRef.current === commandRunId) {
-        setRequestDurationMs(Date.now() - requestStartTime)
-        setIsPending(false)
-      }
-    }
-  }
-
-  const reloadRuntime = () => {
-    commandRunIdRef.current += 1
-    setResponse(undefined)
-    setError(undefined)
-    setIsPending(false)
-    setRequestDurationMs(undefined)
-
-    try {
-      // Drop the cached config so a reload re-scans config files (root, ai,
-      // custom-ai-commands, ...) from disk instead of returning the boot snapshot.
-      clearRuntimeConfigCache()
-      setConfig(resolveRuntimeConfig(args))
-      setReloadId((currentValue) => currentValue + 1)
-    } catch (nextError) {
-      setError(nextError)
-    }
-  }
-
-  return React.createElement(TerminalApp, {
-    key: reloadId,
-    response,
-    error,
-    isPending,
-    root,
-    version: VERSION,
-    aiAdaptor,
-    customCommands: config.customCommands,
-    externalEventSocket,
-    requestDurationMs,
-    onCommand: runCommand,
-    onReload: reloadRuntime,
+      settle(1)
+    })
+    child.on("exit", (code) => settle(code ?? 0))
   })
 }
 
@@ -253,7 +248,9 @@ if (import.meta.main) {
         // Before the interactive TUI boots, prune expired AI sessions so the
         // resume picker never lists dead sessions. Best-effort; never blocks.
         await runStartupBeforeActions(config)
-        render(React.createElement(CommandApp, { args, initialConfig: config }))
+
+        // The Go / Bubble Tea binary is the interactive UI.
+        await launchGoTui(args, config)
       }
     }
   }

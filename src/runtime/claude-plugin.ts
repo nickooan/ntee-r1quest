@@ -3,11 +3,6 @@ import { existsSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-// Where to point users who do not have the plugin source (npm-registry installs).
-const REPO_URL = "https://codeberg.org/nickoan/ntee-r1quest"
-const INSTALL_SCRIPT_URL =
-  "https://codeberg.org/nickoan/ntee-r1quest/raw/branch/main/install.sh"
-
 // Names declared in the plugin's manifests (marketplace.json / plugin.json).
 const MARKETPLACE_NAME = "r1quest-ai"
 const PLUGIN_NAME = "r1quest-ai-plugin"
@@ -39,27 +34,33 @@ const findPackageRoot = (): string => {
 
 const packageRoot = findPackageRoot()
 
-// The plugin marketplace ships only with a source/git checkout — the npm
-// tarball's `files` list excludes `skills/` — so the marketplace manifest's
-// presence marks a source install and gives `claude` a local source to add.
-const marketplaceDir = join(packageRoot, "skills", "r1quest-ai-plugin")
-const marketplaceManifest = join(
-  marketplaceDir,
-  ".claude-plugin",
-  "marketplace.json",
-)
+// The plugin marketplace is copied into dist during the build (see
+// bin/scripts/copy-assets.mjs) so it ships in the npm tarball (dist is
+// whitelisted in `files`). Prefer that copy; fall back to the source `skills/`
+// tree for a checkout that hasn't been built yet. The manifest's presence marks
+// a usable install and gives `claude` a local source to add.
+const manifestPath = (dir: string): string =>
+  join(dir, ".claude-plugin", "marketplace.json")
 
-/** True when running from a source/link install that carries the plugin. */
-export const isSourceInstall = (): boolean => existsSync(marketplaceManifest)
+const distMarketplaceDir = join(
+  packageRoot,
+  "dist",
+  "skills",
+  "r1quest-ai-plugin",
+)
+const sourceMarketplaceDir = join(packageRoot, "skills", "r1quest-ai-plugin")
+
+const marketplaceDir = existsSync(manifestPath(distMarketplaceDir))
+  ? distMarketplaceDir
+  : sourceMarketplaceDir
+const marketplaceManifest = manifestPath(marketplaceDir)
+
+/** True when the plugin marketplace is bundled with this install. */
+export const isPluginBundled = (): boolean => existsSync(marketplaceManifest)
 
 export type InstallClaudePluginResult =
   | { ok: true; plugin: string }
-  | {
-      ok: false
-      reason: "not-source"
-      repoUrl: string
-      installScriptUrl: string
-    }
+  | { ok: false; reason: "missing-plugin"; path: string }
   | { ok: false; reason: "no-claude-cli" }
   | { ok: false; reason: "command-failed"; command: string; output: string }
 
@@ -82,18 +83,13 @@ const runClaude = (args: string[]): ClaudeRun => {
 
 /**
  * Installs the R1Quest plugin into Claude Code via its CLI: registers the
- * bundled marketplace, then installs the plugin from it. Only works from a
- * source install (which carries the marketplace); npm-registry installs are
- * pointed at the Codeberg source instead.
+ * bundled marketplace, then installs the plugin from it. The marketplace is
+ * bundled in dist for every install, so this normally always has something to
+ * add; a missing bundle indicates an incomplete/corrupt install.
  */
 export const installClaudePlugin = (): InstallClaudePluginResult => {
-  if (!isSourceInstall()) {
-    return {
-      ok: false,
-      reason: "not-source",
-      repoUrl: REPO_URL,
-      installScriptUrl: INSTALL_SCRIPT_URL,
-    }
+  if (!isPluginBundled()) {
+    return { ok: false, reason: "missing-plugin", path: marketplaceManifest }
   }
 
   // Adding the marketplace is idempotent (exits 0 when already registered).
@@ -155,11 +151,8 @@ export const formatInstallClaudePluginResult = (
   }
 
   return (
-    "The R1Quest Claude plugin ships with the source, not the npm package, so\n" +
-    "this build has nothing to install.\n\n" +
-    "Get it from Codeberg and install from source, then re-run this command:\n" +
-    `  curl -fsSL ${result.installScriptUrl} | sh\n` +
-    "  r1q --install-claude-plugin\n\n" +
-    `Or clone it manually: ${result.repoUrl}\n`
+    "The bundled R1Quest Claude plugin was not found at:\n" +
+    `  ${result.path}\n` +
+    "This install looks incomplete — reinstall ntee-r1quest and try again.\n"
   )
 }

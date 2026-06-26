@@ -1,6 +1,6 @@
 {
   "name": "ntee-r1quest",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "homepage": "https://codeberg.org/nickoan/ntee-r1quest",
   "license": "GPL-3.0-only",
   "keywords": [
@@ -35,7 +35,11 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "node ./bin/scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node ./bin/scripts/copy-grammar-assets.mjs",
+    "build:ts": "node ./bin/scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node ./bin/scripts/copy-assets.mjs",
+    "build:tui": "node ./bin/scripts/build-tui.mjs",
+    "build": "npm run build:ts && npm run build:tui",
+    "prepack": "npm run build",
+    "start:go": "npm run build && npm run start",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "start:codex": "node ./dist/index.js -r ./example -ai codex",
@@ -44,8 +48,10 @@
     "start": "node ./dist/index.js -r ./example",
     "start:p": "node ./dist/index.js -r ./example -p request/example",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --runInBand",
+    "test:tui": "cd tui && go test ./...",
+    "test:tui-int": "npm run build:ts && cd tui && go test -tags integration ./...",
     "typecheck": "tsc -p tsconfig.json",
-    "pack:dry-run": "npm run build && npm pack --dry-run",
+    "pack:dry-run": "npm pack --dry-run",
     "clean": "node ./bin/scripts/clean-dist.mjs",
     "version:bump": "node ./bin/scripts/bump-version.mjs"
   },
