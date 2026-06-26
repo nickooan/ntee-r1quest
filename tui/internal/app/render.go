@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"codeberg.org/nickoan/ntee-r1quest/tui/internal/command"
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/filetree"
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/input"
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/view"
@@ -622,14 +623,18 @@ func formatSessionTime(iso string) string {
 }
 
 func (m Model) renderAI(width, height int) string {
+	// Reserve space for the `/command` popup at the bottom of the modal.
+	popup := m.renderAiCommandSuggestions(width)
+	transcriptHeight := max(1, height-len(popup))
+
 	pendingFrame := -1
 	if m.aiThinking {
 		pendingFrame = m.aiThinkingFrame
 	}
 	agent := agentDisplayName(m.config.AIAdaptor)
-	lines := view.BuildVisibleAiMessageLines(m.aiMessages, height, width, m.aiScrollY, pendingFrame, m.aiOffline, agent)
+	lines := view.BuildVisibleAiMessageLines(m.aiMessages, transcriptHeight, width, m.aiScrollY, pendingFrame, m.aiOffline, agent)
 
-	rows := make([]string, 0, len(lines))
+	rows := make([]string, 0, len(lines)+len(popup))
 	for _, line := range lines {
 		switch line.Role {
 		case "user":
@@ -640,10 +645,50 @@ func (m Model) renderAI(width, height int) string {
 			rows = append(rows, line.Content)
 		}
 	}
-	if len(rows) == 0 {
+	if len(rows) == 0 && len(popup) == 0 {
 		return "Ask the agent something and press Enter."
 	}
+	// Pin the popup to the bottom of the modal (just above the input) by padding
+	// the transcript area to fill the reserved height.
+	if len(popup) > 0 {
+		for len(rows) < transcriptHeight {
+			rows = append(rows, "")
+		}
+		rows = append(rows, popup...)
+	}
 	return strings.Join(rows, "\n")
+}
+
+// renderAiCommandSuggestions renders the `/command` popup (custom AI commands)
+// matching the current AI input.
+func (m Model) renderAiCommandSuggestions(width int) []string {
+	matches := command.MatchCustomCommands(m.config.CustomCommands, m.aiInput)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	const maxVisible = 6
+	selected := input.Clamp(m.aiSuggestIndex, 0, len(matches)-1)
+	start := 0
+	if selected >= maxVisible {
+		start = selected - maxVisible + 1
+	}
+	end := min(start+maxVisible, len(matches))
+
+	lines := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		label := "/" + matches[i].Name
+		if matches[i].Description != "" {
+			label += "  " + matches[i].Description
+		}
+		label = padTo(truncateRunes(" "+label, width), width)
+		if i == selected {
+			lines = append(lines, selectedEntryStyle.Render(label))
+		} else {
+			lines = append(lines, suggestionStyle.Render(label))
+		}
+	}
+	return lines
 }
 
 func truncateRunes(s string, width int) string {

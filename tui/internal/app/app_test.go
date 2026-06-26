@@ -942,6 +942,37 @@ func TestAIModeCapturesAppCommands(t *testing.T) {
 	}
 }
 
+func TestAISlashCommandSuggestionPopup(t *testing.T) {
+	cfg := runtime.ConfigDTO{
+		AIAdaptor: "claude",
+		CustomCommands: []runtime.CustomCommand{
+			{Name: "for-test", Description: "use for testing", Instruction: "do $1"},
+			{Name: "format", Description: "format it", Instruction: "fmt"},
+		},
+	}
+	fake := &fakeClient{}
+	m := New(fake, cfg)
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.mode = modeAI
+	m.aiActive = true
+
+	// Typing `/fo` shows both matching commands in the popup.
+	m = typeRunes(m, "/fo")
+	if !strings.Contains(m.View(), "for-test") || !strings.Contains(m.View(), "format") {
+		t.Fatalf("`/fo` should list matching custom commands:\n%s", m.View())
+	}
+
+	// Down selects the second; Tab accepts it (inserts `/name `), nothing is sent.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyTab})
+	if m.aiInput != "/format " {
+		t.Fatalf("Tab should accept the highlighted command; got %q", m.aiInput)
+	}
+	if len(fake.aiPrompts) != 0 {
+		t.Fatalf("accepting a command must not send a prompt: %v", fake.aiPrompts)
+	}
+}
+
 func TestAIModeStreamingFlow(t *testing.T) {
 	fake := &fakeClient{}
 	m := New(fake, runtime.ConfigDTO{AIAdaptor: "claude"})

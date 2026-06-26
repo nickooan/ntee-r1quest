@@ -145,14 +145,15 @@ type Model struct {
 	searchInput    string
 	searchFocused  int
 
-	aiMessages    []view.ChatMessage
-	aiInput       string
-	aiInputCursor int
-	aiThinking    bool
-	aiOffline     bool
-	aiActive      bool
-	aiScrollY     int
-	aiPermission  *view.Permission
+	aiMessages     []view.ChatMessage
+	aiInput        string
+	aiInputCursor  int
+	aiSuggestIndex int // selected entry in the `/command` suggestion popup
+	aiThinking     bool
+	aiOffline      bool
+	aiActive       bool
+	aiScrollY      int
+	aiPermission   *view.Permission
 
 	// "thinking" indicator state. A turn is pending from prompt-send; the
 	// indicator is on until a reply has streamed, all tool calls finish, and the
@@ -1170,13 +1171,31 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// `/command` suggestion popup (custom AI commands).
+	slashMatches := command.MatchCustomCommands(m.config.CustomCommands, m.aiInput)
+	slashOpen := len(slashMatches) > 0
+	if m.aiSuggestIndex >= len(slashMatches) {
+		m.aiSuggestIndex = 0
+	}
+
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 	case tea.KeyEsc:
 		m.mode = modeQuery // the session keeps running in the runtime
 		return m, nil
+	case tea.KeyTab:
+		// Accept the highlighted `/command` (inserts `/name ` ready for args).
+		if slashOpen {
+			m.acceptSlashCommand(slashMatches)
+		}
+		return m, nil
 	case tea.KeyEnter:
+		// Accept the highlighted `/command` instead of sending.
+		if slashOpen {
+			m.acceptSlashCommand(slashMatches)
+			return m, nil
+		}
 		text := strings.TrimSpace(m.aiInput)
 		if text == "" {
 			return m, nil
@@ -1211,6 +1230,7 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if ok {
 			m.aiInput = next
 			m.aiInputCursor = cursor
+			m.aiSuggestIndex = 0
 		}
 		return m, nil
 	case tea.KeyLeft:
@@ -1220,11 +1240,19 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.aiInputCursor = input.MoveCursor(m.aiInput, m.aiInputCursor, 1)
 		return m, nil
 	case tea.KeyUp:
-		// Scroll up toward older messages (clamped to the top on render).
+		// Navigate the `/command` popup when open, else scroll older messages.
+		if slashOpen {
+			n := len(slashMatches)
+			m.aiSuggestIndex = (m.aiSuggestIndex - 1 + n) % n
+			return m, nil
+		}
 		m.aiScrollY++
 		return m, nil
 	case tea.KeyDown:
-		// Scroll down toward the newest messages.
+		if slashOpen {
+			m.aiSuggestIndex = (m.aiSuggestIndex + 1) % len(slashMatches)
+			return m, nil
+		}
 		if m.aiScrollY > 0 {
 			m.aiScrollY--
 		}
@@ -1235,9 +1263,22 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			text = " "
 		}
 		m.aiInput, m.aiInputCursor = input.InsertAtCursor(m.aiInput, m.aiInputCursor, text)
+		m.aiSuggestIndex = 0
 		return m, nil
 	}
 	return m, nil
+}
+
+// acceptSlashCommand replaces the input with the highlighted custom command,
+// leaving a trailing space so the user can type arguments.
+func (m *Model) acceptSlashCommand(matches []runtime.CustomCommand) {
+	if len(matches) == 0 {
+		return
+	}
+	idx := input.Clamp(m.aiSuggestIndex, 0, len(matches)-1)
+	m.aiInput = "/" + matches[idx].Name + " "
+	m.aiInputCursor = len([]rune(m.aiInput))
+	m.aiSuggestIndex = 0
 }
 
 func (m Model) respondPermission(decision string) (tea.Model, tea.Cmd) {
