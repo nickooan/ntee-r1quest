@@ -8,6 +8,37 @@ import (
 	"time"
 )
 
+func TestNotificationsArriveInOrder(t *testing.T) {
+	clientRW, serverRW := newPair(t)
+
+	const n = 200
+	got := make(chan int, n)
+	NewConn(serverRW, func(_ string, params json.RawMessage) (any, error) {
+		var i int
+		_ = json.Unmarshal(params, &i)
+		got <- i
+		return nil, nil
+	})
+
+	client := NewConn(clientRW, nil)
+	for i := 0; i < n; i++ {
+		if err := client.Notify("seq", i); err != nil {
+			t.Fatalf("notify %d: %v", i, err)
+		}
+	}
+
+	for i := 0; i < n; i++ {
+		select {
+		case v := <-got:
+			if v != i {
+				t.Fatalf("notification out of order: want %d, got %d", i, v)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for notification %d", i)
+		}
+	}
+}
+
 func newPair(t *testing.T) (clientRW, serverRW net.Conn) {
 	t.Helper()
 	clientRW, serverRW = net.Pipe()

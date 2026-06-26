@@ -31,18 +31,26 @@ type Conn struct {
 	pending map[int64]chan *Message
 	closed  bool
 	closeFn sync.Once
+
+	// Notifications are dispatched by a single worker so they run in arrival
+	// order — streaming events (e.g. AI message chunks) must not be reordered.
+	notifications chan *Message
+	done          chan struct{}
 }
 
 // NewConn starts a connection and its read loop. handler may be nil if this peer
 // only makes outbound calls.
 func NewConn(rw io.ReadWriteCloser, handler Handler) *Conn {
 	c := &Conn{
-		rw:      rw,
-		reader:  bufio.NewReader(rw),
-		handler: handler,
-		pending: make(map[int64]chan *Message),
+		rw:            rw,
+		reader:        bufio.NewReader(rw),
+		handler:       handler,
+		pending:       make(map[int64]chan *Message),
+		notifications: make(chan *Message, 256),
+		done:          make(chan struct{}),
 	}
 	go c.readLoop()
+	go c.notificationLoop()
 	return c
 }
 
@@ -126,7 +134,23 @@ func (c *Conn) dispatch(msg *Message) {
 	if msg.ID != nil {
 		go c.handleRequest(msg)
 	} else {
-		go c.handleNotification(msg)
+		// Queue for the ordered worker; drop if the connection is closing.
+		select {
+		case c.notifications <- msg:
+		case <-c.done:
+		}
+	}
+}
+
+// notificationLoop processes notifications one at a time, in arrival order.
+func (c *Conn) notificationLoop() {
+	for {
+		select {
+		case msg := <-c.notifications:
+			c.handleNotification(msg)
+		case <-c.done:
+			return
+		}
 	}
 }
 
@@ -174,6 +198,7 @@ func (c *Conn) invoke(msg *Message) (any, error) {
 
 func (c *Conn) shutdown(reason *Error) {
 	c.closeFn.Do(func() {
+		close(c.done)
 		c.mu.Lock()
 		c.closed = true
 		pending := c.pending
