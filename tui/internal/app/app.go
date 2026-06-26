@@ -40,6 +40,7 @@ type runtimeClient interface {
 	Execute(ctx context.Context, req runtime.ExecuteRequest) (runtime.ExecuteResult, error)
 	RecordInput(command string) error
 	ListApiEndpoints(ctx context.Context) ([]runtime.ApiCallRecord, error)
+	ListTraceCalls(ctx context.Context, traceID string) ([]runtime.ApiCallRecord, error)
 	ListAiSessions(ctx context.Context, adaptor string) ([]runtime.AiSessionRecord, error)
 	AiStart(ctx context.Context, req runtime.AiStartRequest) error
 	AiPrompt(ctx context.Context, text string) error
@@ -112,9 +113,10 @@ type Model struct {
 	editSuggestIndex int
 	editDismissed    bool
 
-	history        []runtime.ApiCallRecord
-	historyIndex   int
-	historyScrollY int
+	history            []runtime.ApiCallRecord
+	historyIndex       int
+	historyScrollY     int
+	historyTraceFilter string // set by `@h <traceId>`; empty = all endpoints
 
 	searchPrevMode mode
 	searchContent  string
@@ -456,7 +458,9 @@ func (m Model) handleAppCommand(command string) (tea.Model, tea.Cmd) {
 	case "@e", "@edit":
 		return m.openFileForMode(arg, true)
 	case "@h", "@history":
-		return m, loadHistoryCmd(m.client)
+		// `@h <traceId>` narrows the list to that trace's calls; bare `@h` shows all.
+		m.historyTraceFilter = arg
+		return m, loadHistoryCmd(m.client, arg)
 	case "@ai":
 		return m.enterAI()
 	case "@copy", "@report":
@@ -544,7 +548,8 @@ func (m *Model) moveQueryToParentDirectory() {
 func (m Model) quickSwitch() (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeQuery:
-		return m, loadHistoryCmd(m.client)
+		m.historyTraceFilter = ""
+		return m, loadHistoryCmd(m.client, "")
 	case modeHistory:
 		return m.enterAI()
 	case modeAI:
@@ -788,11 +793,19 @@ func copyCmd(text string) tea.Cmd {
 	}
 }
 
-func loadHistoryCmd(client runtimeClient) tea.Cmd {
+func loadHistoryCmd(client runtimeClient, traceID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		records, err := client.ListApiEndpoints(ctx)
+		var (
+			records []runtime.ApiCallRecord
+			err     error
+		)
+		if traceID != "" {
+			records, err = client.ListTraceCalls(ctx, traceID)
+		} else {
+			records, err = client.ListApiEndpoints(ctx)
+		}
 		if err != nil {
 			return historyErrMsg{err}
 		}

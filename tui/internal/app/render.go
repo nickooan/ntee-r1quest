@@ -183,7 +183,13 @@ func (m Model) renderHistorySidebar(width, height int) string {
 
 	lines := make([]string, 0, end-start)
 	for i := start; i < end; i++ {
-		label := padTo(truncateRunes(m.history[i].Endpoint, width), width)
+		endpoint := m.history[i].Endpoint
+		// Under a trace filter the same endpoint can repeat, so prefix the 1-based
+		// call order to keep rows distinct and show the sequence.
+		if m.historyTraceFilter != "" {
+			endpoint = fmt.Sprintf("%d. %s", i+1, endpoint)
+		}
+		label := padTo(truncateRunes(endpoint, width), width)
 		if i == m.historyIndex {
 			lines = append(lines, selectedEntryStyle.Render(label))
 		} else {

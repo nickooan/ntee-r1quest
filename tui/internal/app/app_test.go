@@ -15,15 +15,17 @@ import (
 )
 
 type fakeClient struct {
-	result      runtime.ExecuteResult
-	err         error
-	recorded    []string
-	endpoints   []runtime.ApiCallRecord
-	aiSessions  []runtime.AiSessionRecord
-	aiStarted   []string
-	aiResumed   []string
-	aiPrompts   []string
-	aiDecisions []string
+	result         runtime.ExecuteResult
+	err            error
+	recorded       []string
+	endpoints      []runtime.ApiCallRecord
+	traceCalls     []runtime.ApiCallRecord
+	traceRequested string
+	aiSessions     []runtime.AiSessionRecord
+	aiStarted      []string
+	aiResumed      []string
+	aiPrompts      []string
+	aiDecisions    []string
 }
 
 func (f *fakeClient) Execute(_ context.Context, _ runtime.ExecuteRequest) (runtime.ExecuteResult, error) {
@@ -37,6 +39,11 @@ func (f *fakeClient) RecordInput(command string) error {
 
 func (f *fakeClient) ListApiEndpoints(_ context.Context) ([]runtime.ApiCallRecord, error) {
 	return f.endpoints, nil
+}
+
+func (f *fakeClient) ListTraceCalls(_ context.Context, traceID string) ([]runtime.ApiCallRecord, error) {
+	f.traceRequested = traceID
+	return f.traceCalls, nil
 }
 
 func (f *fakeClient) ListAiSessions(_ context.Context, _ string) ([]runtime.AiSessionRecord, error) {
@@ -375,6 +382,37 @@ func TestHistoryCommandLoadsAndRenders(t *testing.T) {
 	}
 	if !strings.Contains(m.View(), "/todos/1") {
 		t.Fatalf("history view should show the endpoint:\n%s", m.View())
+	}
+}
+
+func TestHistoryTraceFilter(t *testing.T) {
+	c1 := runtime.ApiCallRecord{Endpoint: "/a [GET]", Method: "get", TraceID: "trace-9"}
+	c2 := runtime.ApiCallRecord{Endpoint: "/b [GET]", Method: "get", TraceID: "trace-9"}
+	fake := &fakeClient{
+		endpoints:  []runtime.ApiCallRecord{{Endpoint: "/all [GET]"}},
+		traceCalls: []runtime.ApiCallRecord{c1, c2},
+	}
+
+	m := New(fake, runtime.ConfigDTO{})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.command = "@h trace-9"
+
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected a history load command")
+	}
+	m, _ = apply(m, cmd())
+
+	if fake.traceRequested != "trace-9" {
+		t.Fatalf("@h <traceId> should call ListTraceCalls with the id; got %q", fake.traceRequested)
+	}
+	if m.historyTraceFilter != "trace-9" || len(m.history) != 2 {
+		t.Fatalf("history should be the trace's 2 calls; filter=%q n=%d", m.historyTraceFilter, len(m.history))
+	}
+	// The filtered sidebar numbers calls in order.
+	view := m.View()
+	if !strings.Contains(view, "1. /a [GET]") || !strings.Contains(view, "2. /b [GET]") {
+		t.Fatalf("trace view should number calls in order:\n%s", view)
 	}
 }
 
