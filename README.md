@@ -110,8 +110,9 @@ curl -fsSL https://codeberg.org/nickoan/ntee-r1quest/raw/branch/main/install.sh 
 Re-run the same command any time to **update** to the latest source (it pulls and
 rebuilds in place — no re-link needed). Pin a specific version with
 `NTEE_REF=v0.13.3`, or clone from a mirror with `NTEE_REPO=<url>`. Requires
-`git`, Node.js 24+, and `npm`; only `ntee-r1quest` is built from source —
-dependencies still come from your configured registry.
+`git`, Node.js 24+, `npm`, and the Go toolchain 1.24+ (Go builds the terminal UI
+binary); only `ntee-r1quest` is built from source — dependencies still come from
+your configured registry.
 
 ## CLI Reference
 
