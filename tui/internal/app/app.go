@@ -47,6 +47,7 @@ type runtimeClient interface {
 	Reload(ctx context.Context) (runtime.ConfigDTO, error)
 	ClearCache(ctx context.Context) error
 	RecordInput(command string) error
+	SuggestInputs(ctx context.Context, prefix string, limit int) ([]string, error)
 	ListApiEndpoints(ctx context.Context) ([]runtime.ApiCallRecord, error)
 	ListTraceCalls(ctx context.Context, traceID string) ([]runtime.ApiCallRecord, error)
 	ListAiSessions(ctx context.Context, adaptor string) ([]runtime.AiSessionRecord, error)
@@ -67,6 +68,10 @@ type reloadedMsg struct {
 	err    error
 }
 type cacheClearedMsg struct{ err error }
+type cachedInputsMsg struct {
+	prefix string
+	inputs []string
+}
 type aiSessionsLoadedMsg struct {
 	sessions []runtime.AiSessionRecord
 	err      error
@@ -110,6 +115,11 @@ type Model struct {
 	commandPreview string
 
 	inputSuggestIndex int
+
+	// Cached typed-history suggestions for the current command, fetched async
+	// from the runtime. cachedInputsPrefix guards against stale results.
+	cachedInputs       []string
+	cachedInputsPrefix string
 
 	pending        bool
 	response       *runtime.ExecuteResult
@@ -306,8 +316,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.history = nil
 			m.historyIndex = 0
+			m.cachedInputs = nil
+			m.cachedInputsPrefix = ""
 			m.notice = "cache cleared"
 		}
+		return m, nil
+
+	case cachedInputsMsg:
+		m.cachedInputs = msg.inputs
+		m.cachedInputsPrefix = msg.prefix
 		return m, nil
 
 	case aiSessionsLoadedMsg:
@@ -510,7 +527,7 @@ func (m Model) handleQueryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor = cursor
 			m.inputSuggestIndex = 0
 		}
-		return m, nil
+		return m, suggestInputsCmd(m.client, m.command)
 	case tea.KeyRunes, tea.KeySpace:
 		m.adoptPreview()
 		text := string(msg.Runes)
@@ -519,7 +536,7 @@ func (m Model) handleQueryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.command, m.cursor = input.InsertAtCursor(m.command, m.cursor, text)
 		m.inputSuggestIndex = 0
-		return m, nil
+		return m, suggestInputsCmd(m.client, m.command)
 	}
 	return m, nil
 }
@@ -735,7 +752,24 @@ func (m Model) highlightedEntryIndex(entries []filetree.FileTreeEntry) int {
 }
 
 func (m Model) queryInputSuggestions(entries []filetree.FileTreeEntry) []filetree.InputSuggestion {
-	return filetree.BuildInputSuggestions(entries, m.command, filetree.MaxInputSuggestions)
+	// Only merge cached inputs fetched for the current command (avoids stale).
+	var cached []string
+	if m.cachedInputsPrefix == m.command {
+		cached = m.cachedInputs
+	}
+	return filetree.BuildInputSuggestions(entries, m.command, cached, filetree.MaxInputSuggestions)
+}
+
+func suggestInputsCmd(client runtimeClient, prefix string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		inputs, err := client.SuggestInputs(ctx, prefix, filetree.MaxInputSuggestions)
+		if err != nil {
+			return cachedInputsMsg{prefix: prefix, inputs: nil}
+		}
+		return cachedInputsMsg{prefix: prefix, inputs: inputs}
+	}
 }
 
 // moveSidebarSelection moves the highlight only (Shift+Up/Down) — it never

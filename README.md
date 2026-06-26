@@ -362,9 +362,10 @@ inputs and successful calls persist across sessions. Writes are best-effort and
 never block the app; `@`-mode commands are never cached.
 
 **Input suggestions.** As you type a request path in `@query`, a popup above the
-command line offers prefix matches from the current directory — files and
-folders. Pick one with the popup (Up/Down) or the sidebar (Shift+Up/Down); the
-selection is mirrored into the input bar.
+command line offers prefix matches — current-directory files and folders in
+**yellow**, and previously run inputs from the cache in **green**. Pick one with
+the popup (Up/Down) or the sidebar (Shift+Up/Down); the selection is mirrored
+into the input bar.
 
 **Request history.** Every successful request is recorded by endpoint
 (`/path [method]`, or `Operation [type]` for GraphQL). Browse it in

@@ -11,6 +11,7 @@ const (
 	MethodReload              = "reload"
 	MethodExecute             = "execute"
 	MethodRecordInput         = "recordInput"
+	MethodSuggestInputs       = "cache/suggestInputs"
 	MethodListAiSessions      = "cache/listAiSessions"
 	MethodListApiEndpoints    = "cache/listApiEndpoints"
 	MethodListTraceCalls      = "cache/listTraceCalls"

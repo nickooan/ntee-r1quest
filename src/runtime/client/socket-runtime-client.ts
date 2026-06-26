@@ -66,6 +66,13 @@ export class SocketRuntimeClient implements RuntimeClient {
     this.connection.notify(RpcMethod.RecordInput, { command })
   }
 
+  suggestInputs(prefix: string, limit?: number): Promise<string[]> {
+    return this.connection.request<string[]>(RpcMethod.SuggestInputs, {
+      prefix,
+      limit,
+    })
+  }
+
   listAiSessions(adaptor: AcpAdaptorName): Promise<AiSessionRecord[]> {
     return this.connection.request<AiSessionRecord[]>(
       RpcMethod.ListAiSessions,

@@ -9,6 +9,7 @@ export const RpcMethod = {
   Reload: "reload",
   Execute: "execute",
   RecordInput: "recordInput",
+  SuggestInputs: "cache/suggestInputs",
   ListAiSessions: "cache/listAiSessions",
   ListApiEndpoints: "cache/listApiEndpoints",
   ListTraceCalls: "cache/listTraceCalls",

@@ -321,6 +321,8 @@ func (m Model) renderCommandSuggestions(width int) []string {
 		label := padTo(truncateRunes(" "+suggestions[i].Label, width), width)
 		if i == selected {
 			lines = append(lines, selectedEntryStyle.Render(label))
+		} else if suggestions[i].Source == "cache" {
+			lines = append(lines, suggestionCacheStyle.Render(label))
 		} else {
 			lines = append(lines, suggestionFileStyle.Render(label))
 		}
@@ -742,12 +744,13 @@ var (
 	searchMatchStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("7"))
 	searchFocusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("3")).Bold(true)
 
-	aiUserStyle         = lipgloss.NewStyle().Bold(true)
-	suggestionStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("8"))
-	suggestionFileStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	previewStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	noticeStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	aiModalStyle        = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("11"))
+	aiUserStyle          = lipgloss.NewStyle().Bold(true)
+	suggestionStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("8"))
+	suggestionFileStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	suggestionCacheStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	previewStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	noticeStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	aiModalStyle         = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("11"))
 
 	sessionTitleStyle    = lipgloss.NewStyle().Bold(true)
 	sessionHintStyle     = lipgloss.NewStyle().Faint(true)

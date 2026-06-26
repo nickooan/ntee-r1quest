@@ -70,6 +70,10 @@ func (c *Client) RecordInput(command string) error {
 	return c.conn.Notify(MethodRecordInput, map[string]string{"command": command})
 }
 
+func (c *Client) SuggestInputs(ctx context.Context, prefix string, limit int) ([]string, error) {
+	return request[[]string](ctx, c, MethodSuggestInputs, map[string]any{"prefix": prefix, "limit": limit})
+}
+
 func (c *Client) ListAiSessions(ctx context.Context, adaptor string) ([]AiSessionRecord, error) {
 	return request[[]AiSessionRecord](ctx, c, MethodListAiSessions, map[string]string{"adaptor": adaptor})
 }

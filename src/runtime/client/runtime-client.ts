@@ -63,6 +63,7 @@ export interface RuntimeClient {
 
   // Cache. `recordInput` is fire-and-forget (best-effort, no ack).
   recordInput(command: string): void
+  suggestInputs(prefix: string, limit?: number): Promise<string[]>
   listAiSessions(adaptor: AcpAdaptorName): Promise<AiSessionRecord[]>
   listApiEndpoints(): Promise<ApiCallRecord[]>
   listTraceCalls(traceId: string): Promise<ApiCallRecord[]>

@@ -22,6 +22,7 @@ type fakeClient struct {
 	reloadConfig   runtime.ConfigDTO
 	cacheCleared   bool
 	aiStopped      bool
+	cachedInputs   []string
 	recorded       []string
 	endpoints      []runtime.ApiCallRecord
 	traceCalls     []runtime.ApiCallRecord
@@ -50,6 +51,10 @@ func (f *fakeClient) ClearCache(_ context.Context) error {
 func (f *fakeClient) RecordInput(command string) error {
 	f.recorded = append(f.recorded, command)
 	return nil
+}
+
+func (f *fakeClient) SuggestInputs(_ context.Context, _ string, _ int) ([]string, error) {
+	return f.cachedInputs, nil
 }
 
 func (f *fakeClient) ListApiEndpoints(_ context.Context) ([]runtime.ApiCallRecord, error) {
@@ -707,6 +712,32 @@ func TestReloadAndClearCacheCommands(t *testing.T) {
 	m, _ = apply(m, cmd())
 	if !fake.cacheCleared || len(m.history) != 0 || m.notice != "cache cleared" {
 		t.Fatalf("@cc should clear cache + history; cleared=%v n=%d notice=%q", fake.cacheCleared, len(m.history), m.notice)
+	}
+}
+
+func TestQueryMergesCachedInputs(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.nts"), []byte("u\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeClient{cachedInputs: []string{"orders/get-old"}}
+	m := New(fake, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Each keystroke dispatches the cached-input fetch; run the returned command.
+	for _, r := range "or" {
+		var cmd tea.Cmd
+		m, cmd = apply(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		if cmd != nil {
+			m, _ = apply(m, cmd())
+		}
+	}
+
+	if m.cachedInputsPrefix != "or" {
+		t.Fatalf("cached inputs should be fetched for the current command; prefix=%q", m.cachedInputsPrefix)
+	}
+	if !strings.Contains(m.View(), "orders/get-old") {
+		t.Fatalf("a cached input should appear in the suggestion popup:\n%s", m.View())
 	}
 }
 

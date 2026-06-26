@@ -2,13 +2,13 @@ package filetree
 
 import "strings"
 
-// InputSuggestion mirrors input-suggestions.ts InputSuggestion. Cached typed
-// history (TS merges lmdb suggestInputs) is deferred — Source is only
-// "file"/"directory" here, sourced from the current directory's tree entries.
+// InputSuggestion mirrors input-suggestions.ts InputSuggestion. Source is
+// "file"/"directory" for current-directory tree entries, or "cache" for a
+// recorded typed-history input (the latter has no Entry).
 type InputSuggestion struct {
 	Label      string
 	InsertText string
-	Source     string // "file" | "directory"
+	Source     string // "file" | "directory" | "cache"
 	Entry      FileTreeEntry
 }
 
@@ -17,9 +17,10 @@ const MaxInputSuggestions = 8
 
 // BuildInputSuggestions returns current-directory file/dir entries whose
 // commandValue/name match the typed command, exact matches first then prefix
-// matches (prefix-only, like the TS buildInputSuggestions), deduped by
+// matches (prefix-only, like the TS buildInputSuggestions), then cached typed
+// inputs (already prefix-matched + recency-sorted by the runtime). Deduped by
 // InsertText and capped to limit. Empty or @-commands yield nothing.
-func BuildInputSuggestions(entries []FileTreeEntry, command string, limit int) []InputSuggestion {
+func BuildInputSuggestions(entries []FileTreeEntry, command string, cachedInputs []string, limit int) []InputSuggestion {
 	trimmed := strings.TrimSpace(command)
 	if trimmed == "" || strings.HasPrefix(trimmed, "@") {
 		return nil
@@ -63,6 +64,22 @@ func BuildInputSuggestions(entries []FileTreeEntry, command string, limit int) [
 		if len(suggestions) >= limit {
 			break
 		}
+	}
+
+	// Cached typed inputs, excluding anything already offered as a file entry.
+	for _, cached := range cachedInputs {
+		if len(suggestions) >= limit {
+			break
+		}
+		if cached == "" || seen[cached] {
+			continue
+		}
+		seen[cached] = true
+		suggestions = append(suggestions, InputSuggestion{
+			Label:      cached,
+			InsertText: cached,
+			Source:     "cache",
+		})
 	}
 	return suggestions
 }

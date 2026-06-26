@@ -19,6 +19,7 @@ import {
   listApiEndpoints as listApiEndpointsFromCache,
   listTraceCalls as listTraceCallsFromCache,
   recordInput as recordInputToCache,
+  suggestInputs as suggestInputsFromCache,
   refreshAiSession,
   type AiSessionRecord,
   type ApiCallRecord,
@@ -122,6 +123,10 @@ export class InProcessRuntimeClient implements RuntimeClient {
 
   recordInput(command: string): void {
     recordInputToCache(command)
+  }
+
+  async suggestInputs(prefix: string, limit?: number): Promise<string[]> {
+    return suggestInputsFromCache(prefix, limit)
   }
 
   async listAiSessions(adaptor: AcpAdaptorName): Promise<AiSessionRecord[]> {

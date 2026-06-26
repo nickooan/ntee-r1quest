@@ -101,6 +101,10 @@ export class SocketRuntimeServer {
       case RpcMethod.RecordInput:
         this.client.recordInput((params as { command: string }).command)
         return null
+      case RpcMethod.SuggestInputs: {
+        const { prefix, limit } = params as { prefix: string; limit?: number }
+        return this.client.suggestInputs(prefix, limit)
+      }
       case RpcMethod.ListAiSessions:
         return this.client.listAiSessions(
           (params as { adaptor: AcpAdaptorName }).adaptor,

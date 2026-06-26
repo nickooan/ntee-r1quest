@@ -45,7 +45,7 @@ func TestBuildInputSuggestions(t *testing.T) {
 	entries := suggestTree(t)
 
 	// Prefix "or" → orders/ (dir) and orders (request), exact "orders" first.
-	got := BuildInputSuggestions(entries, "or", MaxInputSuggestions)
+	got := BuildInputSuggestions(entries, "or", nil, MaxInputSuggestions)
 	if len(got) < 2 {
 		t.Fatalf("expected >=2 suggestions for 'or', got %+v", got)
 	}
@@ -53,7 +53,7 @@ func TestBuildInputSuggestions(t *testing.T) {
 	// Exact matches are ordered before prefix-only matches. Both "orders/" (dir,
 	// name == "orders") and "orders" (request) are exact, so the first result
 	// must be one of them.
-	exact := BuildInputSuggestions(entries, "orders", MaxInputSuggestions)
+	exact := BuildInputSuggestions(entries, "orders", nil, MaxInputSuggestions)
 	if len(exact) == 0 {
 		t.Fatal("expected suggestions for 'orders'")
 	}
@@ -63,22 +63,22 @@ func TestBuildInputSuggestions(t *testing.T) {
 	}
 
 	// Empty and @-commands yield nothing.
-	if BuildInputSuggestions(entries, "", MaxInputSuggestions) != nil {
+	if BuildInputSuggestions(entries, "", nil, MaxInputSuggestions) != nil {
 		t.Fatal("empty command should yield no suggestions")
 	}
-	if BuildInputSuggestions(entries, "@v", MaxInputSuggestions) != nil {
+	if BuildInputSuggestions(entries, "@v", nil, MaxInputSuggestions) != nil {
 		t.Fatal("@-command should yield no suggestions")
 	}
 
 	// Prefix-only (no substring): "rders" matches nothing.
-	if got := BuildInputSuggestions(entries, "rders", MaxInputSuggestions); len(got) != 0 {
+	if got := BuildInputSuggestions(entries, "rders", nil, MaxInputSuggestions); len(got) != 0 {
 		t.Fatalf("substring match should not be offered, got %+v", got)
 	}
 }
 
 func TestBuildInputSuggestionsSourceAndDedup(t *testing.T) {
 	entries := suggestTree(t)
-	got := BuildInputSuggestions(entries, "orders", MaxInputSuggestions)
+	got := BuildInputSuggestions(entries, "orders", nil, MaxInputSuggestions)
 
 	seen := map[string]bool{}
 	for _, s := range got {
