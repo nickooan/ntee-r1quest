@@ -18,6 +18,10 @@ import (
 type fakeClient struct {
 	result         runtime.ExecuteResult
 	err            error
+	reloaded       bool
+	reloadConfig   runtime.ConfigDTO
+	cacheCleared   bool
+	aiStopped      bool
 	recorded       []string
 	endpoints      []runtime.ApiCallRecord
 	traceCalls     []runtime.ApiCallRecord
@@ -31,6 +35,16 @@ type fakeClient struct {
 
 func (f *fakeClient) Execute(_ context.Context, _ runtime.ExecuteRequest) (runtime.ExecuteResult, error) {
 	return f.result, f.err
+}
+
+func (f *fakeClient) Reload(_ context.Context) (runtime.ConfigDTO, error) {
+	f.reloaded = true
+	return f.reloadConfig, nil
+}
+
+func (f *fakeClient) ClearCache(_ context.Context) error {
+	f.cacheCleared = true
+	return nil
 }
 
 func (f *fakeClient) RecordInput(command string) error {
@@ -67,7 +81,10 @@ func (f *fakeClient) AiRespondPermission(_ context.Context, d runtime.AiPermissi
 	return nil
 }
 
-func (f *fakeClient) AiStop() error { return nil }
+func (f *fakeClient) AiStop() error {
+	f.aiStopped = true
+	return nil
+}
 
 func apply(m Model, msg tea.Msg) (Model, tea.Cmd) {
 	next, cmd := m.Update(msg)
@@ -648,6 +665,51 @@ func TestHistoryShiftSelectsAndScrollSeparated(t *testing.T) {
 	}
 }
 
+func TestReloadAndClearCacheCommands(t *testing.T) {
+	fake := &fakeClient{
+		reloadConfig: runtime.ConfigDTO{Root: "/new/root", Version: "9.9.9"},
+		endpoints:    []runtime.ApiCallRecord{{Endpoint: "/a [GET]"}},
+	}
+	m := New(fake, runtime.ConfigDTO{Root: "/old"})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Dirty front-end state that a reload should reset.
+	res := runtime.ExecuteResult{Status: 200}
+	m.response = &res
+	m.selectedCommand = "stale/path"
+	m.aiActive = true
+	m.aiMessages = []view.ChatMessage{{Role: "user", Content: "hi"}}
+
+	// @reload re-resolves config, adopts the returned DTO, and resets the view.
+	m.command = "@reload"
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected a reload command")
+	}
+	m, stopCmd := apply(m, cmd())
+	if stopCmd != nil {
+		stopCmd() // runs AiStop for the previously-active session
+	}
+	if !fake.reloaded || m.config.Root != "/new/root" || m.notice != "reloaded" {
+		t.Fatalf("@reload should adopt the new config; reloaded=%v root=%q notice=%q", fake.reloaded, m.config.Root, m.notice)
+	}
+	if m.mode != modeQuery || m.response != nil || m.selectedCommand != "" {
+		t.Fatalf("@reload should reset the view; mode=%d response=%v selected=%q", m.mode, m.response, m.selectedCommand)
+	}
+	if m.aiActive || len(m.aiMessages) != 0 || !fake.aiStopped {
+		t.Fatalf("@reload should clear the AI chat and stop the session; active=%v msgs=%d stopped=%v", m.aiActive, len(m.aiMessages), fake.aiStopped)
+	}
+
+	// @cc clears the cache and the loaded history.
+	m.history = fake.endpoints
+	m.command = "@cc"
+	m, cmd = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = apply(m, cmd())
+	if !fake.cacheCleared || len(m.history) != 0 || m.notice != "cache cleared" {
+		t.Fatalf("@cc should clear cache + history; cleared=%v n=%d notice=%q", fake.cacheCleared, len(m.history), m.notice)
+	}
+}
+
 func TestCopyShowsNoticeInQueryMode(t *testing.T) {
 	m := New(&fakeClient{}, runtime.ConfigDTO{})
 	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -848,6 +910,35 @@ func TestTrackToolStatus(t *testing.T) {
 	m.trackToolStatus(json.RawMessage(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed"}`))
 	if m.aiTools["t1"] {
 		t.Fatal("completed tool_call_update should clear it")
+	}
+}
+
+func TestAIModeCapturesAppCommands(t *testing.T) {
+	fake := &fakeClient{}
+	m := New(fake, runtime.ConfigDTO{AIAdaptor: "claude"})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.mode = modeAI
+	m.aiActive = true
+
+	// Typing an @-command in AI mode runs the TUI action, not an AI prompt.
+	m = typeRunes(m, "@query")
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.mode != modeQuery {
+		t.Fatalf("@query in AI mode should switch to query mode, got %d", m.mode)
+	}
+	if len(fake.aiPrompts) != 0 {
+		t.Fatalf("an @-command must not be sent to the agent: %v", fake.aiPrompts)
+	}
+
+	// A normal message is still sent to the agent.
+	m.mode = modeAI
+	m = typeRunes(m, "what is @env?")
+	m, promptCmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if promptCmd != nil {
+		promptCmd()
+	}
+	if len(fake.aiPrompts) != 1 || fake.aiPrompts[0] != "what is @env?" {
+		t.Fatalf("a normal message should reach the agent: %v", fake.aiPrompts)
 	}
 }
 

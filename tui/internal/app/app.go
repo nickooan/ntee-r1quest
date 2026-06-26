@@ -44,6 +44,8 @@ const (
 
 type runtimeClient interface {
 	Execute(ctx context.Context, req runtime.ExecuteRequest) (runtime.ExecuteResult, error)
+	Reload(ctx context.Context) (runtime.ConfigDTO, error)
+	ClearCache(ctx context.Context) error
 	RecordInput(command string) error
 	ListApiEndpoints(ctx context.Context) ([]runtime.ApiCallRecord, error)
 	ListTraceCalls(ctx context.Context, traceID string) ([]runtime.ApiCallRecord, error)
@@ -60,6 +62,11 @@ type executeErrMsg struct{ err error }
 type historyLoadedMsg struct{ records []runtime.ApiCallRecord }
 type historyErrMsg struct{ err error }
 type copiedMsg struct{ err error }
+type reloadedMsg struct {
+	config runtime.ConfigDTO
+	err    error
+}
+type cacheClearedMsg struct{ err error }
 type aiSessionsLoadedMsg struct {
 	sessions []runtime.AiSessionRecord
 	err      error
@@ -240,6 +247,65 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errText = "copy failed: " + msg.err.Error()
 		} else {
 			m.notice = "copied"
+		}
+		return m, nil
+
+	case reloadedMsg:
+		if msg.err != nil {
+			m.errText = "reload failed: " + msg.err.Error()
+			return m, nil
+		}
+		// Adopt the new config and reset the front-end to a clean query view, so
+		// the sidebar (read live from config.Root), suggestions, and result pane
+		// all reflect the reloaded config instead of stale state.
+		m.config = msg.config
+		m.mode = modeQuery
+		m.command = ""
+		m.cursor = 0
+		m.commandPreview = ""
+		m.selectedCommand = ""
+		m.keyboardSelectedCommand = ""
+		m.inputSuggestIndex = 0
+		m.response = nil
+		m.errText = ""
+		m.external = ""
+		m.openFile = nil
+		m.pendingViewFile = ""
+		m.messageOverlay = ""
+		m.scrollX = 0
+		m.scrollY = 0
+		// Reset the AI chat too: a reload may change the adapter, so stop any live
+		// session and clear the transcript/picker for a clean start.
+		wasAiActive := m.aiActive
+		m.aiMessages = nil
+		m.aiInput = ""
+		m.aiInputCursor = 0
+		m.aiThinking = false
+		m.aiOffline = false
+		m.aiActive = false
+		m.aiScrollY = 0
+		m.aiPermission = nil
+		m.aiPending = false
+		m.aiHasStreamed = false
+		m.aiTools = nil
+		m.aiTicking = false
+		m.aiPicking = false
+		m.aiPickerSessions = nil
+		m.aiPickerIndex = 0
+		m.notice = "reloaded"
+		m.refreshResponseScrollLimits()
+		if wasAiActive {
+			return m, aiStopCmd(m.client)
+		}
+		return m, nil
+
+	case cacheClearedMsg:
+		if msg.err != nil {
+			m.errText = "clear cache failed: " + msg.err.Error()
+		} else {
+			m.history = nil
+			m.historyIndex = 0
+			m.notice = "cache cleared"
 		}
 		return m, nil
 
@@ -577,6 +643,36 @@ func (m Model) startExecute(command string) (tea.Model, tea.Cmd) {
 	return m, executeCmd(m.client, command)
 }
 
+// appCommandVerbs is the set of recognized `@`-command verbs (mirrors the switch
+// in handleAppCommand). Used to capture commands typed in AI mode so they run as
+// TUI actions instead of being sent to the agent.
+var appCommandVerbs = map[string]bool{
+	"@q": true, "@query": true,
+	"@v": true, "@view": true,
+	"@e": true, "@edit": true,
+	"@h": true, "@history": true,
+	"@ai":   true,
+	"@copy": true, "@report": true,
+	"@s": true, "@search": true,
+	"@exit": true, "@quit": true,
+	"@reload":      true,
+	"@clean-cache": true, "@cc": true,
+}
+
+// isAppCommand reports whether the input is a recognized `@`-command (verb only,
+// ignoring any argument). Unknown `@…` text is not a command.
+func isAppCommand(command string) bool {
+	trimmed := strings.TrimSpace(command)
+	if !strings.HasPrefix(trimmed, "@") {
+		return false
+	}
+	verb := trimmed
+	if i := strings.IndexByte(trimmed, ' '); i >= 0 {
+		verb = trimmed[:i]
+	}
+	return appCommandVerbs[verb]
+}
+
 func (m Model) handleAppCommand(command string) (tea.Model, tea.Cmd) {
 	m.command = ""
 	m.cursor = 0
@@ -605,6 +701,10 @@ func (m Model) handleAppCommand(command string) (tea.Model, tea.Cmd) {
 		return m.enterAI()
 	case "@copy", "@report":
 		return m, copyCmd(m.currentMainContent())
+	case "@reload":
+		return m, reloadCmd(m.client)
+	case "@clean-cache", "@cc":
+		return m, clearCacheCmd(m.client)
 	case "@s", "@search":
 		return m.enterSearch(modeQuery, m.currentMainContent()), nil
 	case "@exit", "@quit":
@@ -941,6 +1041,30 @@ func copyCmd(text string) tea.Cmd {
 	}
 }
 
+func reloadCmd(client runtimeClient) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		cfg, err := client.Reload(ctx)
+		return reloadedMsg{config: cfg, err: err}
+	}
+}
+
+func aiStopCmd(client runtimeClient) tea.Cmd {
+	return func() tea.Msg {
+		_ = client.AiStop()
+		return nil
+	}
+}
+
+func clearCacheCmd(client runtimeClient) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return cacheClearedMsg{err: client.ClearCache(ctx)}
+	}
+}
+
 func loadHistoryCmd(client runtimeClient, traceID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1056,6 +1180,13 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		text := strings.TrimSpace(m.aiInput)
 		if text == "" {
 			return m, nil
+		}
+		// A recognized `@`-command is a TUI action, not an AI prompt — capture it
+		// (switch mode, reload, etc.) instead of sending it to the agent.
+		if isAppCommand(text) {
+			m.aiInput = ""
+			m.aiInputCursor = 0
+			return m.handleAppCommand(text)
 		}
 		// A `/name args` custom command expands to its configured instruction.
 		prompt := text
