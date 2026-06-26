@@ -125,7 +125,8 @@ func (m Model) renderStatusLine() string {
 		// selected entry; typing returns to the editable typed command.
 		line := promptStyle.Render("@query >") + " "
 		if m.commandPreview != "" {
-			line += previewStyle.Render(m.commandPreview)
+			// Keep a visible cursor on the preview so the user can keep typing.
+			line += previewStyle.Render(m.commandPreview) + cursorStyle.Render(" ")
 		} else {
 			line += renderInputLine(m.command, m.cursor)
 		}

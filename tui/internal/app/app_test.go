@@ -257,6 +257,37 @@ func TestBinaryFileShowsNotReadableOverlay(t *testing.T) {
 	}
 }
 
+func TestTypingAfterPreviewContinuesFromSelection(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "orders"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "orders", "get.nts"), []byte("u\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(&fakeClient{}, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.command = "orders/"
+	m.selectedCommand = "orders/"
+
+	// Navigate the popup → a preview is shown in the input bar.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyShiftDown})
+	preview := m.commandPreview
+	if preview == "" {
+		t.Fatal("expected a navigation preview")
+	}
+
+	// Typing adopts the preview and continues from it (cursor at end).
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")})
+	if m.commandPreview != "" {
+		t.Fatal("typing should clear the preview")
+	}
+	if m.command != preview+"X" {
+		t.Fatalf("typing should continue from the selection; got %q want %q", m.command, preview+"X")
+	}
+}
+
 func TestEditInsertAndSave(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "get.nts")

@@ -349,9 +349,11 @@ func (m Model) handleQueryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyShiftLeft:
+		m.adoptPreview()
 		m.cursor = input.MoveCursor(m.command, m.cursor, -1)
 		return m, nil
 	case tea.KeyShiftRight:
+		m.adoptPreview()
 		m.cursor = input.MoveCursor(m.command, m.cursor, 1)
 		return m, nil
 
@@ -387,25 +389,35 @@ func (m Model) handleQueryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyBackspace:
+		m.adoptPreview()
 		next, cursor, ok := input.RemoveBeforeCursor(m.command, m.cursor)
 		if ok {
 			m.command = next
 			m.cursor = cursor
-			m.commandPreview = ""
 			m.inputSuggestIndex = 0
 		}
 		return m, nil
 	case tea.KeyRunes, tea.KeySpace:
+		m.adoptPreview()
 		text := string(msg.Runes)
 		if msg.Type == tea.KeySpace {
 			text = " "
 		}
 		m.command, m.cursor = input.InsertAtCursor(m.command, m.cursor, text)
-		m.commandPreview = ""
 		m.inputSuggestIndex = 0
 		return m, nil
 	}
 	return m, nil
+}
+
+// adoptPreview promotes a navigation preview into the editable command (cursor at
+// the end) so the user can keep typing from the selected value.
+func (m *Model) adoptPreview() {
+	if m.commandPreview != "" {
+		m.command = m.commandPreview
+		m.cursor = len([]rune(m.commandPreview))
+		m.commandPreview = ""
+	}
 }
 
 // submitQuery acts on the highlighted entry by TYPE: a directory is entered (not
