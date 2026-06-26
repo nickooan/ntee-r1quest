@@ -40,6 +40,17 @@ func TestFormatResponseBody(t *testing.T) {
 	}
 }
 
+func TestFormatResponseShowsDuration(t *testing.T) {
+	res := runtime.ExecuteResult{Status: 404, StatusText: "Not Found", DurationMs: 680}
+	res.Request.Method = "get"
+	res.Request.URL = "https://ntee.io/x"
+
+	got := FormatResponse(res, "", 60)
+	if !strings.Contains(got, "404 Not Found  ·  680 ms") {
+		t.Fatalf("expected duration after status; got:\n%s", got)
+	}
+}
+
 func TestFormatResponse(t *testing.T) {
 	res := runtime.ExecuteResult{
 		Status:     200,

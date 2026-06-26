@@ -615,8 +615,25 @@ func (m Model) submitQuery(
 	var highlighted *filetree.FileTreeEntry
 	if len(suggestions) > 0 {
 		idx := input.Clamp(m.inputSuggestIndex, 0, len(suggestions)-1)
-		entry := suggestions[idx].Entry
-		highlighted = &entry
+		sel := suggestions[idx]
+		if sel.Source == "cache" {
+			// A cached input has no tree Entry — adopt it as the command and
+			// resolve it against the tree (expanding its path) so it highlights
+			// and acts like a typed command.
+			m.command = sel.InsertText
+			m.cursor = len([]rune(sel.InsertText))
+			cacheEntries := filetree.BuildFileTreeEntries(
+				m.config.Root,
+				filetree.BuildExpandedDirectoryPaths(sel.InsertText),
+			)
+			if idx := filetree.ResolveHighlightedEntry(cacheEntries, sel.InsertText); idx >= 0 {
+				entry := cacheEntries[idx]
+				highlighted = &entry
+			}
+		} else {
+			entry := sel.Entry
+			highlighted = &entry
+		}
 	} else if trimmed != "" || m.keyboardSelectedCommand != "" || m.selectedCommand != "" {
 		if idx := m.highlightedEntryIndex(entries); idx >= 0 {
 			entry := entries[idx]

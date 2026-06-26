@@ -741,6 +741,60 @@ func TestQueryMergesCachedInputs(t *testing.T) {
 	}
 }
 
+func TestSelectingCachedInputResolvesAndExecutes(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "orders"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "orders", "get.nts"), []byte("url x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeClient{
+		result:       runtime.ExecuteResult{Status: 200, StatusText: "OK"},
+		cachedInputs: []string{"orders/get"},
+	}
+	m := New(fake, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	for _, r := range "or" {
+		var cmd tea.Cmd
+		m, cmd = apply(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		if cmd != nil {
+			m, _ = apply(m, cmd())
+		}
+	}
+
+	// Locate the green cached suggestion and select it.
+	sugs := m.queryInputSuggestions(m.treeEntries())
+	idx := -1
+	for i, s := range sugs {
+		if s.Source == "cache" && s.InsertText == "orders/get" {
+			idx = i
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("expected a cached suggestion for orders/get; got %+v", sugs)
+	}
+	m.inputSuggestIndex = idx
+
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.pending {
+		t.Fatal("selecting a cached request input should execute it")
+	}
+	if m.selectedCommand != "orders/get" {
+		t.Fatalf("the request should be highlighted on the left; got %q", m.selectedCommand)
+	}
+	if m.command != "" {
+		t.Fatalf("input should clear on execute; got %q", m.command)
+	}
+	if cmd != nil {
+		m, _ = apply(m, cmd())
+	}
+	if len(fake.recorded) == 0 || fake.recorded[len(fake.recorded)-1] != "orders/get" {
+		t.Fatalf("should execute orders/get; recorded=%v", fake.recorded)
+	}
+}
+
 func TestCopyShowsNoticeInQueryMode(t *testing.T) {
 	m := New(&fakeClient{}, runtime.ConfigDTO{})
 	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})

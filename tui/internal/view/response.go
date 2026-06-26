@@ -119,9 +119,15 @@ func FormatResponse(res runtime.ExecuteResult, traceID string, width int) string
 	headers := FormatResponseHeaders(res.Headers)
 	body := FormatResponseBody(res.Body)
 
+	// Show the request duration after the status, like history mode.
+	statusHeader := statusLine
+	if res.DurationMs > 0 {
+		statusHeader = fmt.Sprintf("%s  ·  %d ms", statusLine, res.DurationMs)
+	}
+
 	lines := []string{
 		fmt.Sprintf("%s [%s]", path, method),
-		statusLine,
+		statusHeader,
 	}
 	if traceID != "" {
 		lines = append(lines, "Trace: "+traceID)
