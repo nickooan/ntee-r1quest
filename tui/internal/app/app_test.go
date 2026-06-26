@@ -288,6 +288,50 @@ func TestTypingAfterPreviewContinuesFromSelection(t *testing.T) {
 	}
 }
 
+func TestOpenSuffixViewAndEdit(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "readme.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "get.nts"), []byte("url x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// `<file> @v` opens view mode for a plain file.
+	m := New(&fakeClient{}, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.command = "readme.txt @v"
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.mode != modeView || m.openFile == nil || m.openFile.FileName != "readme.txt" {
+		t.Fatalf("`<file> @v` should open view mode; mode=%d file=%v", m.mode, m.openFile)
+	}
+
+	// `<file> @e` opens edit mode (works for a .nts request file too).
+	m2 := New(&fakeClient{}, runtime.ConfigDTO{Root: root})
+	m2, _ = apply(m2, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m2.command = "get @e"
+	m2, _ = apply(m2, tea.KeyMsg{Type: tea.KeyEnter})
+	if m2.mode != modeEdit || m2.openFile == nil || m2.openFile.FileName != "get.nts" {
+		t.Fatalf("`<file> @e` should open edit mode; mode=%d file=%v", m2.mode, m2.openFile)
+	}
+}
+
+func TestOpenSuffixBinaryShowsOverlay(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "bin.dat"), []byte{0x00, 'x'}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(&fakeClient{}, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.command = "bin.dat @v"
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.mode != modeQuery || m.messageOverlay == "" {
+		t.Fatalf("`<binary> @v` should show the not-readable overlay and stay in query; mode=%d overlay=%q", m.mode, m.messageOverlay)
+	}
+}
+
 func TestEditInsertAndSave(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "get.nts")

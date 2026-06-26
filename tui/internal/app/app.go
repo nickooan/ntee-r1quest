@@ -410,6 +410,31 @@ func (m Model) handleQueryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// parseOpenSuffix recognizes a trailing `<file> @v|@view|@e|@edit` and returns
+// the file path plus whether to open it for editing. ok is false when no such
+// suffix is present.
+func parseOpenSuffix(command string) (path string, forEdit bool, ok bool) {
+	suffixes := []struct {
+		token string
+		edit  bool
+	}{
+		{" @edit", true},
+		{" @view", false},
+		{" @e", true},
+		{" @v", false},
+	}
+	for _, s := range suffixes {
+		if strings.HasSuffix(command, s.token) {
+			path = strings.TrimSpace(strings.TrimSuffix(command, s.token))
+			if path == "" {
+				return "", false, false
+			}
+			return path, s.edit, true
+		}
+	}
+	return "", false, false
+}
+
 // adoptPreview promotes a navigation preview into the editable command (cursor at
 // the end) so the user can keep typing from the selected value.
 func (m *Model) adoptPreview() {
@@ -430,6 +455,14 @@ func (m Model) submitQuery(
 	m.notice = ""
 	m.commandPreview = ""
 	trimmed := strings.TrimSpace(m.command)
+
+	// `<file> @v|@view|@e|@edit` suffix opens that file directly in view/edit mode
+	// (binary files are rejected with the overlay, via openFileForMode).
+	if path, forEdit, ok := parseOpenSuffix(trimmed); ok {
+		m.command = ""
+		m.cursor = 0
+		return m.openFileForMode(path, forEdit)
+	}
 
 	if strings.HasPrefix(trimmed, "@") {
 		return m.handleAppCommand(trimmed)
