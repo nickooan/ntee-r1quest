@@ -1,0 +1,105 @@
+package nteedb
+
+import (
+	"bufio"
+	"encoding/json"
+	"os"
+)
+
+const hintFormatVersion = 1
+
+// hintMeta is the first line of a hint file.
+type hintMeta struct {
+	Version int   `json:"v"`
+	Covers  int64 `json:"covers"` // main.jsonl is indexed up to this byte offset
+}
+
+// hintLine is one index entry in the hint file (sorted by key).
+type hintLine struct {
+	Key string `json:"k"`
+	Off int64  `json:"o"`
+	N   int32  `json:"n"`
+}
+
+// writeHint atomically writes the index (in sorted order) plus the covers
+// watermark to path, via a temp file + rename so a crash never leaves a
+// half-written hint.
+func writeHint(path string, ix *index, covers int64) (err error) {
+	tmp := path + ".tmp"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = f.Close()
+			_ = os.Remove(tmp)
+		}
+	}()
+
+	w := bufio.NewWriter(f)
+	if err = encodeJSONLine(w, hintMeta{Version: hintFormatVersion, Covers: covers}); err != nil {
+		return err
+	}
+	for _, e := range ix.entries { // already sorted by key
+		if err = encodeJSONLine(w, hintLine{Key: e.key, Off: e.off, N: e.n}); err != nil {
+			return err
+		}
+	}
+	if err = w.Flush(); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func encodeJSONLine(w *bufio.Writer, v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(b); err != nil {
+		return err
+	}
+	return w.WriteByte('\n')
+}
+
+// loadHint reads a hint file and returns its entries (sorted by key) and the
+// covers watermark. ok is false if the hint is missing or unparseable, in which
+// case the caller should fall back to a full log scan — the hint is a pure
+// optimization, never the source of truth.
+func loadHint(path string) (entries []idxEntry, covers int64, ok bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, false
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64<<10), 16<<20) // allow long lines
+
+	if !sc.Scan() {
+		return nil, 0, false // no meta line
+	}
+	var meta hintMeta
+	if json.Unmarshal(sc.Bytes(), &meta) != nil || meta.Version != hintFormatVersion {
+		return nil, 0, false
+	}
+
+	for sc.Scan() {
+		var hl hintLine
+		if json.Unmarshal(sc.Bytes(), &hl) != nil {
+			return nil, 0, false
+		}
+		entries = append(entries, idxEntry{key: hl.Key, off: hl.Off, n: hl.N})
+	}
+	if sc.Err() != nil {
+		return nil, 0, false
+	}
+	return entries, meta.Covers, true
+}
