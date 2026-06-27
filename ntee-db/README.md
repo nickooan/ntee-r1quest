@@ -28,9 +28,42 @@ JSONL file is the source of truth, with an in-memory index for fast lookups.
 
 ## Scope
 
-Supports exact lookup and **prefix** search only — no substring/fuzzy search.
-Secondary grouping is done by **namespacing keys** (e.g. `input:`, `api:`) and
-prefix-scanning, which reuses the one index with no extra structure.
+Supports exact lookup and **prefix** search on the primary key — no
+substring/fuzzy search.
+
+## Secondary indexes
+
+Declare named secondary indexes (`string` or `number`) to look records up by
+attributes other than the primary key, including **multi-value** indexes where
+many records share a value (e.g. `traceId → many records`):
+
+```go
+db, _ := nteedb.Open(nteedb.Options{
+    Dir: "/path/to/store",
+    Indexes: []nteedb.IndexDef{
+        {Name: "traceId", Kind: nteedb.KindString},
+        {Name: "status",  Kind: nteedb.KindNumber},
+        // Optional Extract derives the value from the record ("scan itself"):
+        {Name: "kind", Kind: nteedb.KindString,
+         Extract: func(key string, value []byte) (any, bool) { /* parse value */ }},
+    },
+})
+
+db.PutIndexed("call:1", body, nteedb.IndexValues{"traceId": "T1", "status": 200})
+db.Put("r1", jsonBody) // indexes with Extract derive their values automatically
+
+db.ByIndex("traceId", "T1")        // → all primary keys with traceId T1
+db.ByIndexRange("status", 200, 299) // → keys in a numeric range
+db.ByIndexPrefix("traceId", "Get")  // → string-prefix match
+```
+
+Index values are persisted in each record (and in the hint), so indexes are
+rebuilt at boot from the small main-log lines / hint alone — no value or blob
+reads. An in-memory map of each key's current values retracts stale entries on
+overwrite/delete. Compaction preserves all secondary lookups.
+
+Simpler grouping (without declaring an index) can also be done by **namespacing
+keys** (e.g. `input:`, `api:`) and prefix-scanning the primary key.
 
 ## Usage
 

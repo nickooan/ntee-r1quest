@@ -14,17 +14,20 @@ type hintMeta struct {
 	Covers  int64 `json:"covers"` // main.jsonl is indexed up to this byte offset
 }
 
-// hintLine is one index entry in the hint file (sorted by key).
+// hintLine is one index entry in the hint file (sorted by key). IX carries the
+// key's secondary index values so both the primary and secondary indexes can be
+// rebuilt from the hint alone, without scanning the main log.
 type hintLine struct {
-	Key string `json:"k"`
-	Off int64  `json:"o"`
-	N   int32  `json:"n"`
+	Key string         `json:"k"`
+	Off int64          `json:"o"`
+	N   int32          `json:"n"`
+	IX  map[string]any `json:"ix,omitempty"`
 }
 
 // writeHint atomically writes the index (in sorted order) plus the covers
 // watermark to path, via a temp file + rename so a crash never leaves a
-// half-written hint.
-func writeHint(path string, ix *index, covers int64) (err error) {
+// half-written hint. pkSec supplies each key's secondary index values (may be nil).
+func writeHint(path string, ix *index, pkSec map[string]map[string]any, covers int64) (err error) {
 	tmp := path + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {
@@ -42,7 +45,11 @@ func writeHint(path string, ix *index, covers int64) (err error) {
 		return err
 	}
 	for _, e := range ix.entries { // already sorted by key
-		if err = encodeJSONLine(w, hintLine{Key: e.key, Off: e.off, N: e.n}); err != nil {
+		var sv map[string]any
+		if pkSec != nil {
+			sv = pkSec[e.key]
+		}
+		if err = encodeJSONLine(w, hintLine{Key: e.key, Off: e.off, N: e.n, IX: sv}); err != nil {
 			return err
 		}
 	}
@@ -73,7 +80,7 @@ func encodeJSONLine(w *bufio.Writer, v any) error {
 // covers watermark. ok is false if the hint is missing or unparseable, in which
 // case the caller should fall back to a full log scan — the hint is a pure
 // optimization, never the source of truth.
-func loadHint(path string) (entries []idxEntry, covers int64, ok bool) {
+func loadHint(path string) (entries []hintLine, covers int64, ok bool) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, 0, false
@@ -96,7 +103,7 @@ func loadHint(path string) (entries []idxEntry, covers int64, ok bool) {
 		if json.Unmarshal(sc.Bytes(), &hl) != nil {
 			return nil, 0, false
 		}
-		entries = append(entries, idxEntry{key: hl.Key, off: hl.Off, n: hl.N})
+		entries = append(entries, hl)
 	}
 	if sc.Err() != nil {
 		return nil, 0, false

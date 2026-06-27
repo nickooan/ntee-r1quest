@@ -2,6 +2,7 @@ package nteedb
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 )
 
@@ -16,6 +17,7 @@ func TestRecordRoundTrip(t *testing.T) {
 		{"tombstone", record{Key: "Gone", Deleted: true}},
 		{"binary value", record{Key: "Bin", Value: []byte{0x00, 0x01, 0xff, 0x0a, 0x7f}}},
 		{"newline in key", record{Key: "weird\nkey", Value: []byte("v")}},
+		{"with index values", record{Key: "Req", Value: []byte("v"), IX: map[string]any{"traceId": "abc"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -44,6 +46,14 @@ func TestRecordRoundTrip(t *testing.T) {
 			}
 			if got.Blob != nil && *got.Blob != *tc.rec.Blob {
 				t.Errorf("blob: got %+v want %+v", *got.Blob, *tc.rec.Blob)
+			}
+			if len(got.IX) != len(tc.rec.IX) {
+				t.Errorf("ix: got %v want %v", got.IX, tc.rec.IX)
+			}
+			for k, v := range tc.rec.IX {
+				if fmt.Sprint(got.IX[k]) != fmt.Sprint(v) {
+					t.Errorf("ix[%q]: got %v want %v", k, got.IX[k], v)
+				}
 			}
 		})
 	}

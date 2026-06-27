@@ -14,6 +14,7 @@ package nteedb
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -48,6 +49,11 @@ type Options struct {
 	// addition to on Close and after compaction). A value of 0 disables
 	// periodic hint rewrites; the hint is still written on Close.
 	HintEveryN int
+
+	// Indexes declares the secondary indexes to maintain. They are rebuilt at
+	// Open from the index values persisted in each record, so the same set
+	// should be declared on every Open of a store.
+	Indexes []IndexDef
 }
 
 // ErrClosed is returned when operating on a closed DB.
@@ -67,6 +73,11 @@ type DB struct {
 	index  *index
 	writes int // writes since the last hint rewrite
 	closed bool
+
+	// Secondary indexes (declared via Options.Indexes).
+	indexDefs  []IndexDef
+	secIndexes map[string]*secIndex      // name -> index
+	pkSec      map[string]map[string]any // primary key -> its current index values (for retraction)
 }
 
 // Open opens (creating if necessary) the store in opts.Dir.
@@ -82,11 +93,23 @@ func Open(opts Options) (*DB, error) {
 	}
 
 	db := &DB{
-		opts:     opts,
-		mainPath: filepath.Join(opts.Dir, mainFile),
-		hintPath: filepath.Join(opts.Dir, hintFile),
-		blobPath: filepath.Join(opts.Dir, blobFile),
-		index:    newIndex(),
+		opts:       opts,
+		mainPath:   filepath.Join(opts.Dir, mainFile),
+		hintPath:   filepath.Join(opts.Dir, hintFile),
+		blobPath:   filepath.Join(opts.Dir, blobFile),
+		index:      newIndex(),
+		indexDefs:  opts.Indexes,
+		secIndexes: make(map[string]*secIndex, len(opts.Indexes)),
+		pkSec:      make(map[string]map[string]any),
+	}
+	for _, def := range opts.Indexes {
+		if def.Name == "" {
+			return nil, errors.New("nteedb: secondary index name is required")
+		}
+		if _, dup := db.secIndexes[def.Name]; dup {
+			return nil, fmt.Errorf("nteedb: duplicate index name %q", def.Name)
+		}
+		db.secIndexes[def.Name] = newSecIndex(def)
 	}
 
 	// Rebuild the index: load the hint (if any) and replay only the log tail
@@ -124,7 +147,15 @@ func (db *DB) load() error {
 	from := int64(0)
 	if entries, covers, ok := loadHint(db.hintPath); ok {
 		if info, err := os.Stat(db.mainPath); err == nil && covers <= info.Size() {
-			db.index.entries = entries // already sorted as written
+			// Rebuild both the primary index and the secondary indexes from the
+			// hint snapshot (entries are already sorted by key).
+			db.index.entries = db.index.entries[:0]
+			for _, he := range entries {
+				db.index.entries = append(db.index.entries, idxEntry{key: he.Key, off: he.Off, n: he.N})
+				if len(he.IX) > 0 {
+					db.refreshSecLocked(he.Key, he.IX)
+				}
+			}
 			from = covers
 		}
 		// Otherwise the hint is stale/ahead of the log: ignore it and full-scan.
@@ -138,8 +169,10 @@ func (db *DB) replayTail(from int64) error {
 	end, err := scanLog(db.mainPath, from, func(r record, off int64, n int32) error {
 		if r.isTombstone() {
 			db.index.remove(r.Key)
+			db.retractSecLocked(r.Key)
 		} else {
 			db.index.upsert(idxEntry{key: r.Key, off: off, n: n})
+			db.refreshSecLocked(r.Key, r.IX)
 		}
 		return nil
 	})
@@ -167,7 +200,7 @@ func (db *DB) writeHintLocked() error {
 	if err := db.log.flush(); err != nil {
 		return err
 	}
-	if err := writeHint(db.hintPath, db.index, db.log.size); err != nil {
+	if err := writeHint(db.hintPath, db.index, db.pkSec, db.log.size); err != nil {
 		return err
 	}
 	db.writes = 0
@@ -183,38 +216,28 @@ func (db *DB) maybeWriteHintLocked() {
 	}
 }
 
-// Put stores value under key.
+// Put stores value under key. Any secondary indexes with an Extract function
+// derive their value from the record automatically.
 func (db *DB) Put(key string, value []byte) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	if db.closed {
 		return ErrClosed
 	}
-	// Large values go to the blob side file; the main record just references
-	// them. The blob is written (and fsynced when durable mode is on) before the
-	// referencing main record, so a crash can only ever orphan a blob — never
-	// leave a main record pointing at a missing one.
-	rec := record{Key: key, Value: value}
-	if db.useBlobFor(len(value)) {
-		ref, err := db.blobs.append(value)
-		if err != nil {
-			return err
-		}
-		if db.opts.SyncEveryWrite {
-			if err := db.blobs.flush(); err != nil {
-				return err
-			}
-		}
-		rec = record{Key: key, Blob: &ref}
+	return db.writeLocked(key, value, nil)
+}
+
+// PutIndexed stores value under key with explicit secondary index values (e.g.
+// {"traceId": "abc", "status": 200}). Explicit values take precedence over any
+// index Extract function. An unknown index name or a value of the wrong kind is
+// an error and nothing is written.
+func (db *DB) PutIndexed(key string, value []byte, idx IndexValues) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if db.closed {
+		return ErrClosed
 	}
-	off, n, err := db.log.append(rec)
-	if err != nil {
-		return err
-	}
-	db.index.upsert(idxEntry{key: key, off: off, n: n})
-	db.writes++
-	db.maybeWriteHintLocked()
-	return nil
+	return db.writeLocked(key, value, idx)
 }
 
 // Get returns the value stored under key. ok is false if the key is absent.
@@ -273,6 +296,7 @@ func (db *DB) Delete(key string) error {
 		return err
 	}
 	db.index.remove(key)
+	db.retractSecLocked(key)
 	db.writes++
 	db.maybeWriteHintLocked()
 	return nil

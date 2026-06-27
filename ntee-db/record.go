@@ -17,10 +17,11 @@ type blobRef struct {
 // The JSON keys are kept short ("k","v","b","del") because every record is
 // written to disk; omitempty keeps small records compact.
 type record struct {
-	Key     string   `json:"k"`
-	Value   []byte   `json:"v,omitempty"` // inline value; base64 in JSON
-	Blob    *blobRef `json:"b,omitempty"` // set when value is stored as a blob
-	Deleted bool     `json:"del,omitempty"`
+	Key     string         `json:"k"`
+	Value   []byte         `json:"v,omitempty"` // inline value; base64 in JSON
+	Blob    *blobRef       `json:"b,omitempty"` // set when value is stored as a blob
+	Deleted bool           `json:"del,omitempty"`
+	IX      map[string]any `json:"ix,omitempty"` // secondary index values for this key
 }
 
 // isTombstone reports whether the record deletes its key.
