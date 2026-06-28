@@ -34,6 +34,9 @@
   "engines": {
     "node": ">=24"
   },
+  "workspaces": [
+    "ntee-db/ntee-db-js"
+  ],
   "scripts": {
     "build:ts": "node ./bin/scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node ./bin/scripts/copy-assets.mjs",
     "build:tui": "node ./bin/scripts/build-tui.mjs",
@@ -69,6 +72,7 @@
     "@agentclientprotocol/sdk": "^0.22.1",
     "@types/react": "^19.2.14",
     "@zed-industries/codex-acp": "^0.14.0",
+    "@ntee/ntee-db": "*",
     "axios": "^1.16.1",
     "ink": "^7.0.1",
     "lmdb": "^3.5.5",

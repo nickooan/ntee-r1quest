@@ -4,7 +4,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"                 # ntee-db/capi
-OUT_ROOT="../nodejs/prebuilds"
+OUT_ROOT="../ntee-db-js/prebuilds"
 
 goos="$(go env GOOS)"
 goarch="$(go env GOARCH)"
