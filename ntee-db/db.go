@@ -22,7 +22,15 @@ import (
 
 // DefaultBlobThreshold is the value size at or above which a value is stored in
 // the blob side file instead of inline in the main log.
-const DefaultBlobThreshold = 8 << 10 // 8 KiB
+//
+// This is a disk-layout/compaction knob, NOT a memory knob: values are never
+// held in memory regardless (only the index is; values are read on demand). The
+// default is deliberately generous so that typical request/response bodies stay
+// inline, where Compact reclaims their dead versions — blobs.dat is append-only
+// and not yet compacted, so moderate, frequently-overwritten values are better
+// kept inline. Reserve blobs for genuinely large payloads where avoiding a
+// recopy on every compaction matters.
+const DefaultBlobThreshold = 64 << 10 // 64 KiB
 
 const (
 	mainFile = "main.jsonl"

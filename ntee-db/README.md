@@ -84,7 +84,7 @@ db.Compact()
 | Field            | Meaning |
 |------------------|---------|
 | `Dir`            | Store directory (required). |
-| `BlobThreshold`  | Values ≥ this many bytes go to `blobs.dat`. `0` → 8 KiB default; negative disables blobs. |
+| `BlobThreshold`  | Values ≥ this many bytes go to `blobs.dat`. `0` → 64 KiB default; negative disables blobs. This is a layout/compaction knob, not a memory one (values are never resident regardless). Keep it generous: inline values are reclaimed by `Compact`, whereas `blobs.dat` is append-only and not yet compacted — so reserve blobs for genuinely large payloads. |
 | `SyncEveryWrite` | fsync the log on every write (durable but slower). When false, a crash may lose the most recent writes. |
 | `HintEveryN`     | Rewrite the hint after N writes (also on `Close` and after compaction). `0` disables periodic rewrites. |
 

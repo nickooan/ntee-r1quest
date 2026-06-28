@@ -52,6 +52,30 @@ func TestLargeValueGoesToBlob(t *testing.T) {
 	}
 }
 
+func TestModerateValueStaysInlineUnderDefault(t *testing.T) {
+	dir := t.TempDir()
+	db := mustOpen(t, dir) // default BlobThreshold (64 KiB)
+	defer db.Close()
+
+	// A 32 KiB body — typical API response size — should stay inline, so it is
+	// reclaimable by compaction and read in a single syscall.
+	body := bytes.Repeat([]byte("A"), 32<<10)
+	if err := db.Put("api:/orders", body); err != nil {
+		t.Fatal(err)
+	}
+
+	bi, err := os.Stat(filepath.Join(dir, blobFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bi.Size() != 0 {
+		t.Errorf("blobs.dat = %d bytes, want 0 (value should be inline under the default)", bi.Size())
+	}
+	if v, ok, _ := db.Get("api:/orders"); !ok || !bytes.Equal(v, body) {
+		t.Error("inline value mismatch")
+	}
+}
+
 func TestMainLogStaysSmallWithBlobs(t *testing.T) {
 	dir := t.TempDir()
 	db, err := Open(Options{Dir: dir, BlobThreshold: 64})
