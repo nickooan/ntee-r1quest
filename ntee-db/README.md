@@ -65,6 +65,32 @@ overwrite/delete. Compaction preserves all secondary lookups.
 Simpler grouping (without declaring an index) can also be done by **namespacing
 keys** (e.g. `input:`, `api:`) and prefix-scanning the primary key.
 
+### Changing the index set
+
+The declared schema is persisted in `meta.json`. Changing `Options.Indexes`
+between opens is **never rejected** — the new set is adopted:
+
+- A **dropped** index (removed from `Options`) is *soft-dropped*: it stops being
+  maintained and isn't usable, but its existing `ix` data is **preserved** (a
+  tombstone is kept in `meta`, and `Compact()` keeps the data). `db.DroppedIndexes()`
+  lists soft-dropped indexes still lingering in records. `Reindex()` is what
+  purges them completely — from both records and `meta`. Re-adding a dropped
+  index before a `Reindex` recovers its surviving data.
+- An **added** index is **prospective** — it covers records written *after* it
+  was added, but not older ones. `db.ProspectiveIndexes()` lists indexes that
+  don't yet cover historical records.
+- To back-fill an added index over existing records, call **`db.Reindex()`**.
+  This re-runs each index's `Extract` over every record (reading values/blobs;
+  O(table), one-time). Only `Extract`-based indexes can be back-filled —
+  explicit-value indexes have no historical source and stay prospective.
+
+### Dropping the store
+
+```go
+db.Drop()          // close + delete all of this store's files
+nteedb.Destroy(dir) // same, by directory, when no DB is open
+```
+
 ## Usage
 
 ```go

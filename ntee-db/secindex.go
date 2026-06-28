@@ -314,6 +314,31 @@ func (db *DB) retractSecLocked(key string) {
 	delete(db.pkSec, key)
 }
 
+// rebuildSecFromPkSec rebuilds all secondary indexes and db.pkSec from the given
+// per-key index values (used after a rewrite/compaction/reindex). Builds each
+// index's entries then sorts once. Callers must hold db.mu.
+func (db *DB) rebuildSecFromPkSec(pkSec map[string]map[string]any) {
+	for _, si := range db.secIndexes {
+		si.entries = si.entries[:0]
+	}
+	db.pkSec = make(map[string]map[string]any, len(pkSec))
+	for pk, ix := range pkSec {
+		db.pkSec[pk] = ix
+		for name, val := range ix {
+			si := db.secIndexes[name]
+			if si == nil {
+				continue
+			}
+			if e, err := si.makeEntry(val, pk); err == nil {
+				si.entries = append(si.entries, e)
+			}
+		}
+	}
+	for _, si := range db.secIndexes {
+		sort.Slice(si.entries, func(i, j int) bool { return si.less(si.entries[i], si.entries[j]) })
+	}
+}
+
 // ByIndex returns the primary keys whose value in the named index equals val
 // (multi-value), sorted by primary key.
 func (db *DB) ByIndex(name string, val any) ([]string, error) {
@@ -342,6 +367,35 @@ func (db *DB) ByIndexPrefix(name, prefix string) ([]string, error) {
 		return nil, fmt.Errorf("nteedb: unknown index %q", name)
 	}
 	return si.prefix(prefix)
+}
+
+// ProspectiveIndexes returns, sorted, the names of declared indexes that have
+// not been back-filled over records that existed before the index was added (or
+// its kind changed). These indexes cover only records written since; call
+// Reindex to populate them over historical data (Extract-based indexes only).
+func (db *DB) ProspectiveIndexes() []string {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	out := make([]string, 0, len(db.prospective))
+	for name := range db.prospective {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// DroppedIndexes returns, sorted, the names of indexes that were dropped from
+// the declared set but whose values still linger in records (a soft-drop). They
+// remain until a Reindex purges them from records and meta.
+func (db *DB) DroppedIndexes() []string {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	out := make([]string, 0, len(db.dropped))
+	for name := range db.dropped {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ByIndexRange returns the primary keys whose value in the named index is within

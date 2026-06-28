@@ -73,6 +73,7 @@ type DB struct {
 	mainPath string
 	hintPath string
 	blobPath string
+	metaPath string
 
 	mu     sync.RWMutex
 	log    *appendLog // append writer for main.jsonl
@@ -83,9 +84,11 @@ type DB struct {
 	closed bool
 
 	// Secondary indexes (declared via Options.Indexes).
-	indexDefs  []IndexDef
-	secIndexes map[string]*secIndex      // name -> index
-	pkSec      map[string]map[string]any // primary key -> its current index values (for retraction)
+	indexDefs   []IndexDef
+	secIndexes  map[string]*secIndex      // name -> index
+	pkSec       map[string]map[string]any // primary key -> its current index values (for retraction)
+	prospective map[string]bool           // indexes not yet back-filled over pre-existing records
+	dropped     map[string]ValueKind      // soft-dropped indexes still lingering in records
 }
 
 // Open opens (creating if necessary) the store in opts.Dir.
@@ -101,14 +104,17 @@ func Open(opts Options) (*DB, error) {
 	}
 
 	db := &DB{
-		opts:       opts,
-		mainPath:   filepath.Join(opts.Dir, mainFile),
-		hintPath:   filepath.Join(opts.Dir, hintFile),
-		blobPath:   filepath.Join(opts.Dir, blobFile),
-		index:      newIndex(),
-		indexDefs:  opts.Indexes,
-		secIndexes: make(map[string]*secIndex, len(opts.Indexes)),
-		pkSec:      make(map[string]map[string]any),
+		opts:        opts,
+		mainPath:    filepath.Join(opts.Dir, mainFile),
+		hintPath:    filepath.Join(opts.Dir, hintFile),
+		blobPath:    filepath.Join(opts.Dir, blobFile),
+		metaPath:    filepath.Join(opts.Dir, metaFile),
+		index:       newIndex(),
+		indexDefs:   opts.Indexes,
+		secIndexes:  make(map[string]*secIndex, len(opts.Indexes)),
+		pkSec:       make(map[string]map[string]any),
+		prospective: make(map[string]bool),
+		dropped:     make(map[string]ValueKind),
 	}
 	for _, def := range opts.Indexes {
 		if def.Name == "" {
@@ -123,6 +129,13 @@ func Open(opts Options) (*DB, error) {
 	// Rebuild the index: load the hint (if any) and replay only the log tail
 	// past its watermark; otherwise full-scan. Either way, self-heal a torn tail.
 	if err := db.load(); err != nil {
+		return nil, err
+	}
+
+	// Adopt the declared schema (never rejected) and persist it. An index that is
+	// new or kind-changed relative to the prior meta — on a store that already
+	// has records — is "prospective": it covers only future writes until Reindex.
+	if err := db.adoptSchema(); err != nil {
 		return nil, err
 	}
 
@@ -193,6 +206,51 @@ func (db *DB) replayTail(from int64) error {
 		}
 	}
 	return nil
+}
+
+// adoptSchema records the declared index set in meta.json and marks which
+// indexes are prospective (new/kind-changed on a store that already has records,
+// so not yet covering those older records). Schema changes are never rejected.
+func (db *DB) adoptSchema() error {
+	prior, _ := loadMeta(db.metaPath)
+	priorByName := make(map[string]metaIndex, len(prior.Indexes))
+	for _, mi := range prior.Indexes {
+		priorByName[mi.Name] = mi
+	}
+	hadData := db.index.len() > 0
+
+	declared := make(map[string]bool, len(db.indexDefs))
+	out := make([]metaIndex, 0, len(db.indexDefs)+len(prior.Indexes))
+	for _, def := range db.indexDefs {
+		declared[def.Name] = true
+		complete := false
+		if mi, ok := priorByName[def.Name]; ok && mi.Kind == def.Kind.String() && !mi.Dropped {
+			complete = mi.Complete // carry prior completeness forward
+		} else {
+			// New index, changed kind, or re-added after a drop: complete only
+			// if there is no pre-existing data that would need back-filling.
+			complete = !hadData
+		}
+		if !complete {
+			db.prospective[def.Name] = true
+		}
+		out = append(out, metaIndex{Name: def.Name, Kind: def.Kind.String(), Complete: complete})
+	}
+
+	// Soft-drop: any prior index no longer declared is kept as a tombstone so
+	// its lingering data stays observable and is preserved by Compact until a
+	// Reindex purges it.
+	for _, mi := range prior.Indexes {
+		if declared[mi.Name] {
+			continue
+		}
+		if k, ok := parseKind(mi.Kind); ok {
+			db.dropped[mi.Name] = k
+		}
+		mi.Dropped = true
+		out = append(out, mi)
+	}
+	return writeMeta(db.metaPath, out)
 }
 
 // writeHintLocked flushes the log so the watermark reflects durable data, then
