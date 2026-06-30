@@ -11,18 +11,53 @@ func TestSecIndexExactMultiValue(t *testing.T) {
 	e, _ := si.makeEntry("xyz", "r4")
 	si.insert(e)
 
-	got, err := si.exact("abc")
+	got, err := si.exact("abc", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !eqStrs(got, []string{"r1", "r2", "r3"}) {
 		t.Errorf("exact(abc) = %v, want [r1 r2 r3] sorted by pk", got)
 	}
-	if got, _ := si.exact("xyz"); !eqStrs(got, []string{"r4"}) {
+	if got, _ := si.exact("xyz", 0); !eqStrs(got, []string{"r4"}) {
 		t.Errorf("exact(xyz) = %v", got)
 	}
-	if got, _ := si.exact("none"); len(got) != 0 {
+	if got, _ := si.exact("none", 0); len(got) != 0 {
 		t.Errorf("exact(none) = %v, want empty", got)
+	}
+}
+
+func TestSecIndexExactLimitAndDirection(t *testing.T) {
+	si := newSecIndex(IndexDef{Name: "traceId", Kind: KindString})
+	// 6 entries under "T" with ordered pks, plus one other value.
+	for _, pk := range []string{"k1", "k2", "k3", "k4", "k5", "k6"} {
+		e, _ := si.makeEntry("T", pk)
+		si.insert(e)
+	}
+	e, _ := si.makeEntry("other", "z")
+	si.insert(e)
+
+	// limit 0 → all ascending
+	if got, _ := si.exact("T", 0); !eqStrs(got, []string{"k1", "k2", "k3", "k4", "k5", "k6"}) {
+		t.Errorf("limit 0 = %v", got)
+	}
+	// limit 3 → first 3 ascending
+	if got, _ := si.exact("T", 3); !eqStrs(got, []string{"k1", "k2", "k3"}) {
+		t.Errorf("limit 3 = %v, want [k1 k2 k3]", got)
+	}
+	// limit -2 → last 2 descending
+	if got, _ := si.exact("T", -2); !eqStrs(got, []string{"k6", "k5"}) {
+		t.Errorf("limit -2 = %v, want [k6 k5]", got)
+	}
+	// limit beyond count clamps
+	if got, _ := si.exact("T", 100); len(got) != 6 {
+		t.Errorf("limit 100 = %v, want all 6", got)
+	}
+	if got, _ := si.exact("T", -100); !eqStrs(got, []string{"k6", "k5", "k4", "k3", "k2", "k1"}) {
+		t.Errorf("limit -100 = %v, want all 6 desc", got)
+	}
+	// absent value → empty regardless of limit
+	if got, _ := si.exact("nope", -5); len(got) != 0 {
+		t.Errorf("absent value = %v, want empty", got)
 	}
 }
 
@@ -34,7 +69,7 @@ func TestSecIndexRemove(t *testing.T) {
 	}
 	rm, _ := si.makeEntry("v", "b")
 	si.remove(rm)
-	if got, _ := si.exact("v"); !eqStrs(got, []string{"a", "c"}) {
+	if got, _ := si.exact("v", 0); !eqStrs(got, []string{"a", "c"}) {
 		t.Errorf("after remove = %v, want [a c]", got)
 	}
 }

@@ -52,7 +52,7 @@ describe("InProcessRuntimeClient.getConfig", () => {
 
 // A scriptable stand-in for an ACP adapter. run() resolves "ready" with no
 // session id, keeping the test hermetic (the session-recording branch, which
-// hits the lmdb cache, is skipped). Tests drive the agent by invoking the
+// hits the embedded cache, is skipped). Tests drive the agent by invoking the
 // callbacks the client wired into `options`.
 class FakeAdapter implements AcpAdapterInstance {
   currentSessionId: string | undefined = undefined

@@ -20,8 +20,10 @@ const lib = koffi.load(libraryPath());
 const free = lib.func('nteedb_free', 'void', ['void *']);
 
 // A NUL-terminated string that koffi decodes to a JS string and frees with our
-// allocator after each call (no leaks, no manual decode).
-const Str = koffi.disposable('NteeStr', 'str', free);
+// allocator after each call (no leaks, no manual decode). Anonymous (no name) so
+// re-evaluating this module — e.g. across jest suites, which share koffi's
+// process-global type registry — never throws "duplicate type name".
+const Str = koffi.disposable('str', free);
 
 const def = (name, args) => lib.func(name, Str, args);
 
@@ -35,7 +37,7 @@ export const fns = {
   has: def('nteedb_has', ['uint', 'str']),
   delete: def('nteedb_delete', ['uint', 'str']),
   prefixScan: def('nteedb_prefix_scan', ['uint', 'str']),
-  byIndex: def('nteedb_by_index', ['uint', 'str', 'str']),
+  byIndex: def('nteedb_by_index', ['uint', 'str', 'str', 'int']),
   byIndexPrefix: def('nteedb_by_index_prefix', ['uint', 'str', 'str']),
   byIndexRange: def('nteedb_by_index_range', ['uint', 'str', 'str', 'str']),
   compact: def('nteedb_compact', ['uint']),

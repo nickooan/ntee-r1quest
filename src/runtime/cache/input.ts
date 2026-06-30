@@ -1,4 +1,4 @@
-import { openCache } from "./store.ts"
+import { NS, cacheGet, cachePut, openCache } from "./store.ts"
 
 export type InputRecord = {
   count: number
@@ -29,9 +29,9 @@ export const recordInput = (rawInput: string): void => {
   }
 
   try {
-    const existing = cache.input.get(input)
+    const existing = cacheGet<InputRecord>(cache, NS.input + input)
 
-    void cache.input.put(input, {
+    cachePut(cache, NS.input + input, {
       count: (existing?.count ?? 0) + 1,
       lastUsedAt: Date.now(),
     })
@@ -60,18 +60,19 @@ export const suggestInputs = (prefix: string, limit = 6): string[] => {
   try {
     const matches: Array<{ key: string; lastUsedAt: number }> = []
 
-    for (const { key, value } of cache.input.getRange({
-      start: normalizedPrefix,
-    })) {
-      const keyString = String(key)
-
-      if (!keyString.startsWith(normalizedPrefix)) {
-        break
-      }
+    // Prefix scan over the input namespace; keys come back as "input:<text>".
+    for (const namespacedKey of cache.prefixScan(NS.input + normalizedPrefix)) {
+      const text = namespacedKey.slice(NS.input.length)
 
       // Skip an exact match of what the user already typed.
-      if (keyString !== normalizedPrefix) {
-        matches.push({ key: keyString, lastUsedAt: value.lastUsedAt })
+      if (text === normalizedPrefix) {
+        continue
+      }
+
+      const record = cacheGet<InputRecord>(cache, namespacedKey)
+
+      if (record) {
+        matches.push({ key: text, lastUsedAt: record.lastUsedAt })
       }
     }
 

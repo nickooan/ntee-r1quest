@@ -51,8 +51,11 @@ export declare class NteeDB {
 
   /** Sorted keys with the given primary-key prefix. */
   prefixScan(prefix: string): string[];
-  /** Primary keys whose value in `name` equals `val` (multi-value). */
-  byIndex(name: string, val: string | number): string[];
+  /**
+   * Primary keys whose value in `name` equals `val` (multi-value).
+   * @param limit 0 = all (ascending); N>0 = first N ascending; N<0 = last |N| descending.
+   */
+  byIndex(name: string, val: string | number, limit?: number): string[];
   /** Primary keys whose (string) value in `name` starts with `prefix`. */
   byIndexPrefix(name: string, prefix: string): string[];
   /** Primary keys whose value in `name` is within [lo, hi]. */
@@ -73,8 +76,8 @@ export declare class NteeDB {
   /** Close and delete all of the store's files. */
   drop(): void;
 
-  /** Search by index, returning records {key, value} in one call. */
-  searchByIndex(name: string, val: string | number): Record[];
+  /** Search by index, returning records {key, value} in one call. limit as byIndex. */
+  searchByIndex(name: string, val: string | number, limit?: number): Record[];
   /** Search by primary-key prefix, returning records {key, value}. */
   searchByPrefix(prefix: string): Record[];
 }

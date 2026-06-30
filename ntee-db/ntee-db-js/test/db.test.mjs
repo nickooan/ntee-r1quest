@@ -67,6 +67,19 @@ test('secondary indexes: explicit values, multi-value, range, prefix', async () 
   });
 });
 
+test('byIndex limit + direction (first N asc / last N desc)', async () => {
+  await withDB({ indexes: [{ name: 'traceId', kind: 'string' }] }, (db) => {
+    for (let i = 1; i <= 6; i++) db.put(`call:${i}`, '{}', { traceId: 'T' });
+    assert.deepEqual(db.byIndex('traceId', 'T'), ['call:1', 'call:2', 'call:3', 'call:4', 'call:5', 'call:6']);
+    assert.deepEqual(db.byIndex('traceId', 'T', 3), ['call:1', 'call:2', 'call:3']); // first 3 asc
+    assert.deepEqual(db.byIndex('traceId', 'T', -2), ['call:6', 'call:5']); // last 2 desc
+    assert.deepEqual(db.byIndex('traceId', 'T', 100), ['call:1', 'call:2', 'call:3', 'call:4', 'call:5', 'call:6']); // clamps
+    assert.deepEqual(db.byIndex('traceId', 'missing', -5), []);
+    const recent = db.searchByIndex('traceId', 'T', -2);
+    assert.deepEqual(recent.map((r) => r.key), ['call:6', 'call:5']);
+  });
+});
+
 test('jsonPath extractor + searchByIndex returns records', async () => {
   await withDB({ indexes: [{ name: 'kind', kind: 'string', jsonPath: 'kind' }] }, (db) => {
     db.put('r1', JSON.stringify({ kind: 'request', n: 1 }));

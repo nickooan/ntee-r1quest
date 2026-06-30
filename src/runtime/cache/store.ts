@@ -1,55 +1,92 @@
 import { mkdirSync } from "node:fs"
 import { join } from "node:path"
-import { open as openLmdb, type Database, type RootDatabase } from "lmdb"
+import { NteeDB } from "@ntee/ntee-db"
 import { getHomeConfigDirectory } from "../config.ts"
-import type { ApiCallRecord } from "./api.ts"
-import type { InputRecord } from "./input.ts"
-import type { AiSessionRecord } from "./system.ts"
 
-export type CacheHandles = {
-  root: RootDatabase
-  input: Database<InputRecord, string>
-  api: Database<ApiCallRecord, string>
-  // traceId -> the calls made under it, in call order (latest appended last).
-  trace: Database<ApiCallRecord[], string>
-  // Runtime-related cache keyed by a stable string (e.g. "claude-session").
-  // Typed for the AI session arrays it holds today; widen if other key shapes
-  // are added. See ./system.ts for the typed accessors.
-  system: Database<AiSessionRecord[], string>
-}
+// The cache is a single embedded ntee-db store. Each kind of record lives under
+// a key namespace. API calls are stored one-record-per-call keyed by a
+// monotonic time id (NS.api + cacheId), with `endpoint` and `traceId` as
+// secondary indexes — so nothing overwrites, `getApiCall` reads the latest via
+// byIndex(..., -1), and `listTraceCalls` returns the whole trace collection.
+export const NS = {
+  input: "input:",
+  api: "api:",
+  system: "system:",
+} as const
 
-let handles: CacheHandles | null = null
+// Secondary indexes over API-call records.
+export const ENDPOINT_INDEX = "endpoint"
+export const TRACE_INDEX = "traceId"
+
+let store: NteeDB | null = null
+let openFailed = false
 
 const getCacheDirectory = (): string => join(getHomeConfigDirectory(), "cache")
 
 /**
- * Opens (once) and returns the LMDB cache handles, or null when the store can't
- * be opened. The result is memoized so every handler shares one connection.
+ * Opens (once) and returns the embedded cache store, or null when it can't be
+ * opened. Memoized so every handler shares one connection.
  *
  * Cache is best-effort: it must never break the app, so an open failure is
  * swallowed and the caller simply degrades to a no-op.
  */
-export const openCache = (): CacheHandles | null => {
-  if (handles) {
-    return handles
+export const openCache = (): NteeDB | null => {
+  if (store) {
+    return store
+  }
+
+  if (openFailed) {
+    return null
   }
 
   try {
     const directory = getCacheDirectory()
     mkdirSync(directory, { recursive: true })
 
-    const root = openLmdb({ path: join(directory, "store.mdb") })
+    store = NteeDB.open(directory, {
+      hintEveryN: 5,
+      indexes: [
+        { name: ENDPOINT_INDEX, kind: "string" },
+        { name: TRACE_INDEX, kind: "string" },
+      ],
+    })
 
-    handles = {
-      root,
-      input: root.openDB({ name: "inputHistory" }),
-      api: root.openDB({ name: "apiHistory" }),
-      trace: root.openDB({ name: "traceIndex" }),
-      system: root.openDB({ name: "system" }),
-    }
-
-    return handles
+    return store
   } catch {
+    openFailed = true
     return null
   }
+}
+
+/** Reads and JSON-decodes a cache value, or undefined when absent/corrupt. */
+export const cacheGet = <T>(db: NteeDB, key: string): T | undefined => {
+  const buffer = db.get(key)
+
+  if (!buffer) {
+    return undefined
+  }
+
+  try {
+    return JSON.parse(buffer.toString("utf8")) as T
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * JSON-encodes and stores a cache value, optionally with secondary index values
+ * (e.g. { traceId }).
+ */
+export const cachePut = (
+  db: NteeDB,
+  key: string,
+  value: unknown,
+  ix?: Record<string, string | number>,
+): void => {
+  db.put(key, Buffer.from(JSON.stringify(value), "utf8"), ix)
+}
+
+/** Deletes a cache key. */
+export const cacheDelete = (db: NteeDB, key: string): void => {
+  db.delete(key)
 }

@@ -1,4 +1,4 @@
-import { openCache } from "./store.ts"
+import { NS, cacheDelete, cacheGet, cachePut, openCache } from "./store.ts"
 
 // One persisted AI agent session, stored in an array under a "<agent>-session"
 // key in the system store. The array keeps every session for an agent in
@@ -17,7 +17,7 @@ export type AiSessionRecord = {
 // The system store holds runtime-related cache, keyed by a stable string. AI
 // agent sessions live under "<agent>-session" (e.g. "claude-session",
 // "codex-session", "cursor-session"); more keys may be added later.
-const aiSessionKey = (agent: string): string => `${agent}-session`
+const aiSessionKey = (agent: string): string => `${NS.system}${agent}-session`
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
@@ -29,11 +29,11 @@ const isSessionArray = (value: unknown): value is AiSessionRecord[] =>
 
 /**
  * Appends a newly-created AI session for an agent, stamped with the current ISO
- * time (createdAt and updatedAt start equal). The transaction makes the
- * read-then-append atomic against concurrent writers sharing the key.
+ * time (createdAt and updatedAt start equal). The read-then-append is
+ * synchronous, so it is atomic within the single-process event loop.
  *
- * Awaits the LMDB commit so one-shot CLI runs, which exit immediately, still
- * persist the entry instead of losing the async write.
+ * Writes synchronously so one-shot CLI runs, which exit immediately, still
+ * persist the entry.
  */
 export const addAiSession = async (
   agent: string,
@@ -50,10 +50,8 @@ export const addAiSession = async (
     const now = new Date().toISOString()
     const record: AiSessionRecord = { id, createdAt: now, updatedAt: now }
 
-    await cache.system.transaction(() => {
-      const existing = cache.system.get(key) ?? []
-      cache.system.put(key, [...existing, record])
-    })
+    const existing = cacheGet<AiSessionRecord[]>(cache, key) ?? []
+    cachePut(cache, key, [...existing, record])
   } catch {
     // ignore cache write failures
   }
@@ -77,16 +75,13 @@ export const refreshAiSession = async (
 
   try {
     const key = aiSessionKey(agent)
+    const existing = cacheGet<AiSessionRecord[]>(cache, key) ?? []
+    const now = new Date().toISOString()
+    const updated = existing.map((record) =>
+      record.id === id ? { ...record, updatedAt: now } : record,
+    )
 
-    await cache.system.transaction(() => {
-      const existing = cache.system.get(key) ?? []
-      const now = new Date().toISOString()
-      const updated = existing.map((record) =>
-        record.id === id ? { ...record, updatedAt: now } : record,
-      )
-
-      cache.system.put(key, updated)
-    })
+    cachePut(cache, key, updated)
   } catch {
     // ignore cache write failures
   }
@@ -104,7 +99,7 @@ export const listAiSessions = (agent: string): AiSessionRecord[] => {
   }
 
   try {
-    return cache.system.get(aiSessionKey(agent)) ?? []
+    return cacheGet<AiSessionRecord[]>(cache, aiSessionKey(agent)) ?? []
   } catch {
     return []
   }
@@ -139,15 +134,11 @@ export const pruneExpiredAiSessions = async (
 
   try {
     const cutoff = Date.now() - cleanupPeriodDays * MS_PER_DAY
-    // Snapshot keys first so the writes below don't mutate the range mid-scan.
-    const keys: string[] = []
-
-    for (const { key } of cache.system.getRange()) {
-      keys.push(String(key))
-    }
+    // prefixScan returns a snapshot array, so writes below don't disturb it.
+    const keys = cache.prefixScan(NS.system)
 
     for (const key of keys) {
-      const sessions = cache.system.get(key)
+      const sessions = cacheGet<AiSessionRecord[]>(cache, key)
 
       if (!isSessionArray(sessions)) {
         continue
@@ -162,9 +153,9 @@ export const pruneExpiredAiSessions = async (
       }
 
       if (kept.length === 0) {
-        await cache.system.remove(key)
+        cacheDelete(cache, key)
       } else {
-        await cache.system.put(key, kept)
+        cachePut(cache, key, kept)
       }
     }
   } catch {

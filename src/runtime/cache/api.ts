@@ -1,5 +1,28 @@
-import { derivePath, formatEndpointLabel } from "./endpoint.ts"
-import { openCache } from "./store.ts"
+import {
+  ENDPOINT_INDEX,
+  NS,
+  TRACE_INDEX,
+  cacheGet,
+  cachePut,
+  openCache,
+} from "./store.ts"
+import { derivePath, formatEndpointLabel } from "./endpoint-label-helper.ts"
+
+// cacheId is a monotonic unix-ms id: the wall clock when possible, nudged
+// forward by 1 when two calls land in the same millisecond so every record has
+// a unique, strictly-increasing id (= insertion/call order).
+let lastCacheId = 0
+
+const nextCacheId = (): number => {
+  const now = Date.now()
+  lastCacheId = now > lastCacheId ? now : lastCacheId + 1
+  return lastCacheId
+}
+
+// Each API call is its own record keyed by its cacheId (zero-padded so keys
+// sort in time order); `endpoint`/`traceId` are secondary indexes.
+const apiKey = (cacheId: number): string =>
+  `${NS.api}${String(cacheId).padStart(16, "0")}`
 
 export type ApiCallRequest = {
   url?: string
@@ -15,14 +38,17 @@ export type ApiCallResponse = {
 }
 
 export type ApiCallRecord = {
-  // "<path> [<method>]", e.g. "/a/b/c [get]". Also the cache key, so the same
-  // path called with different methods are stored as distinct entries.
+  // "<path> [<method>]", e.g. "/a/b/c [get]". A secondary index, so the same
+  // path called with different methods are distinct groups.
   endpoint: string
   path: string
   method: string
-  // Optional batch/task id (CLI `-ti`). When set, the record is also appended
-  // to the trace index so all calls sharing the id can be listed in order.
+  // Optional batch/task id (CLI `-ti`). A secondary index, so all calls sharing
+  // the id can be listed in order via the trace index.
   traceId?: string
+  // Monotonic unix-ms id assigned when the call was cached; also the record's
+  // primary key. Unique and strictly increasing (= call order).
+  cacheId: number
   at: number
   durationMs: number
   request: ApiCallRequest
@@ -31,16 +57,17 @@ export type ApiCallRecord = {
 
 export type RecordApiCallInput = Omit<
   ApiCallRecord,
-  "endpoint" | "path" | "method"
+  "endpoint" | "path" | "method" | "cacheId"
 >
 
 /**
- * Records a successful API call, keyed by its "<path> [<method>]" endpoint (or
- * "<operation> [<type>]" for GraphQL) so the latest request/response for each
- * endpoint is cached (a repeat call overwrites the previous entry).
+ * Records a successful API call as its own time-keyed record (key = cacheId),
+ * with `endpoint` and `traceId` as secondary indexes. Nothing is overwritten —
+ * an untraced call never clobbers a previous traced call to the same endpoint.
  *
- * Awaits the LMDB commit so one-shot CLI runs, which exit immediately after the
- * request, still persist the entry instead of losing the async write.
+ * Writes synchronously to the append-only log so one-shot CLI runs, which exit
+ * immediately after the request, still persist the entry. (Kept async to
+ * preserve the call signature.)
  */
 export const recordApiCall = async (
   record: RecordApiCallInput,
@@ -60,28 +87,31 @@ export const recordApiCall = async (
       record.request.body,
     )
 
-    const fullRecord: ApiCallRecord = { ...record, endpoint, path, method }
-
-    await cache.api.put(endpoint, fullRecord)
-
-    // When a trace id is supplied, append this call to the end of its index
-    // entry so the trace keeps every call (including endpoint repeats) in call
-    // order. The transaction makes the read-then-append atomic against
-    // concurrent calls sharing the same id.
-    const { traceId } = fullRecord
-
-    if (traceId) {
-      await cache.trace.transaction(() => {
-        const existing = cache.trace.get(traceId) ?? []
-        cache.trace.put(traceId, [...existing, fullRecord])
-      })
+    const cacheId = nextCacheId()
+    const fullRecord: ApiCallRecord = {
+      ...record,
+      endpoint,
+      path,
+      method,
+      cacheId,
     }
+
+    const ix: Record<string, string> = { [ENDPOINT_INDEX]: endpoint }
+    if (fullRecord.traceId) {
+      ix[TRACE_INDEX] = fullRecord.traceId
+    }
+
+    cachePut(cache, apiKey(cacheId), fullRecord, ix)
   } catch {
     // ignore cache write failures
   }
 }
 
-/** Returns all cached endpoints (one per path+method), in label order. */
+/**
+ * Returns the latest cached call per endpoint (one row each), in label order —
+ * the History list. Derived by deduping the per-call records to the most recent
+ * per endpoint.
+ */
 export const listApiEndpoints = (): ApiCallRecord[] => {
   const cache = openCache()
 
@@ -90,19 +120,36 @@ export const listApiEndpoints = (): ApiCallRecord[] => {
   }
 
   try {
-    const records: ApiCallRecord[] = []
+    // Records come back in key (cacheId / call) order, so the last seen per
+    // endpoint is the latest.
+    const latest = new Map<string, ApiCallRecord>()
 
-    for (const { value } of cache.api.getRange()) {
-      records.push(value)
+    for (const { value } of cache.searchByPrefix(NS.api)) {
+      if (!value) {
+        continue
+      }
+
+      try {
+        const record = JSON.parse(value.toString("utf8")) as ApiCallRecord
+        latest.set(record.endpoint, record)
+      } catch {
+        // skip a corrupt record
+      }
     }
 
-    return records
+    return [...latest.values()].sort((left, right) =>
+      left.endpoint < right.endpoint
+        ? -1
+        : left.endpoint > right.endpoint
+          ? 1
+          : 0,
+    )
   } catch {
     return []
   }
 }
 
-/** Returns the cached call for an endpoint label, or undefined. */
+/** Returns the latest cached call for an endpoint label, or undefined. */
 export const getApiCall = (endpoint: string): ApiCallRecord | undefined => {
   const cache = openCache()
 
@@ -111,7 +158,10 @@ export const getApiCall = (endpoint: string): ApiCallRecord | undefined => {
   }
 
   try {
-    return cache.api.get(endpoint)
+    // -1 → the single most-recent record for this endpoint.
+    const [key] = cache.byIndex(ENDPOINT_INDEX, endpoint, -1)
+
+    return key ? cacheGet<ApiCallRecord>(cache, key) : undefined
   } catch {
     return undefined
   }

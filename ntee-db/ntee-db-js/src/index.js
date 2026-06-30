@@ -64,10 +64,13 @@ export class NteeDB {
     return readEnvelope(fns.prefixScan(this.#h, prefix)) ?? [];
   }
 
-  /** Primary keys whose value in `name` equals `val` (multi-value). */
-  byIndex(name, val) {
+  /**
+   * Primary keys whose value in `name` equals `val` (multi-value).
+   * limit: 0 = all (ascending); N>0 = first N ascending; N<0 = last |N| descending.
+   */
+  byIndex(name, val, limit = 0) {
     this.#assertOpen();
-    return readEnvelope(fns.byIndex(this.#h, name, JSON.stringify(val))) ?? [];
+    return readEnvelope(fns.byIndex(this.#h, name, JSON.stringify(val), limit)) ?? [];
   }
 
   /** Primary keys whose (string) value in `name` starts with `prefix`. */
@@ -120,9 +123,12 @@ export class NteeDB {
     readEnvelope(fns.drop(this.#h));
   }
 
-  /** Search by index and return records {key, value: Buffer} in one call. */
-  searchByIndex(name, val) {
-    return this.#withValues(this.byIndex(name, val));
+  /**
+   * Search by index and return records {key, value: Buffer} in one call.
+   * limit: 0 = all; N>0 = first N ascending; N<0 = last |N| descending.
+   */
+  searchByIndex(name, val, limit = 0) {
+    return this.#withValues(this.byIndex(name, val, limit));
   }
 
   /** Search by primary-key prefix and return records {key, value: Buffer}. */

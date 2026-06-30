@@ -143,7 +143,7 @@ func nteedb_prefix_scan(h C.uint, prefix *C.char) *C.char {
 }
 
 //export nteedb_by_index
-func nteedb_by_index(h C.uint, name *C.char, valJSON *C.char) *C.char {
+func nteedb_by_index(h C.uint, name *C.char, valJSON *C.char, limit C.int) *C.char {
 	db := regGet(uint32(h))
 	if db == nil {
 		return reply(nil, errInvalidHandle)
@@ -152,7 +152,7 @@ func nteedb_by_index(h C.uint, name *C.char, valJSON *C.char) *C.char {
 	if err := json.Unmarshal([]byte(C.GoString(valJSON)), &val); err != nil {
 		return reply(nil, err)
 	}
-	keys, err := db.ByIndex(C.GoString(name), val)
+	keys, err := db.ByIndex(C.GoString(name), val, int(limit))
 	if err != nil {
 		return reply(nil, err)
 	}

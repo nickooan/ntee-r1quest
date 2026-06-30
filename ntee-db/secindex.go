@@ -119,9 +119,26 @@ func (si *secIndex) valueEqual(a, b secEntry) bool {
 	return a.s == b.s
 }
 
+// valueGreater reports whether a's value is strictly greater than b's (ignoring
+// the primary key).
+func (si *secIndex) valueGreater(a, b secEntry) bool {
+	if si.kind == KindNumber {
+		return a.f > b.f
+	}
+	return a.s > b.s
+}
+
 func (si *secIndex) lowerBound(e secEntry) int {
 	return sort.Search(len(si.entries), func(i int) bool {
 		return !si.less(si.entries[i], e)
+	})
+}
+
+// upperBoundValue returns the first index whose value is strictly greater than
+// the probe's value — i.e. one past the last entry with that value.
+func (si *secIndex) upperBoundValue(e secEntry) int {
+	return sort.Search(len(si.entries), func(i int) bool {
+		return si.valueGreater(si.entries[i], e)
 	})
 }
 
@@ -142,18 +159,41 @@ func (si *secIndex) remove(e secEntry) {
 	}
 }
 
-// exact returns the primary keys whose index value equals val (multi-value),
-// sorted by primary key.
-func (si *secIndex) exact(val any) ([]string, error) {
+// exact returns the primary keys whose index value equals val (multi-value).
+// limit controls how many and in which direction:
+//   - limit == 0: all matches, ascending by primary key.
+//   - limit > 0:  the first `limit` matches, ascending.
+//   - limit < 0:  the last `|limit|` matches, descending (newest-first when the
+//     primary key encodes order).
+func (si *secIndex) exact(val any, limit int) ([]string, error) {
 	probe, err := si.makeEntry(val, "")
 	if err != nil {
 		return nil, err
 	}
-	var out []string
-	for i := si.lowerBound(probe); i < len(si.entries); i++ {
-		if !si.valueEqual(si.entries[i], probe) {
-			break
+	lo := si.lowerBound(probe)      // first entry with value == val
+	hi := si.upperBoundValue(probe) // one past the last entry with value == val
+	if lo >= hi {
+		return nil, nil
+	}
+
+	if limit < 0 {
+		start := hi + limit // limit is negative
+		if start < lo {
+			start = lo
 		}
+		out := make([]string, 0, hi-start)
+		for i := hi - 1; i >= start; i-- { // descending
+			out = append(out, si.entries[i].pk)
+		}
+		return out, nil
+	}
+
+	end := hi
+	if limit > 0 && lo+limit < hi {
+		end = lo + limit
+	}
+	out := make([]string, 0, end-lo)
+	for i := lo; i < end; i++ { // ascending
 		out = append(out, si.entries[i].pk)
 	}
 	return out, nil
@@ -340,8 +380,9 @@ func (db *DB) rebuildSecFromPkSec(pkSec map[string]map[string]any) {
 }
 
 // ByIndex returns the primary keys whose value in the named index equals val
-// (multi-value), sorted by primary key.
-func (db *DB) ByIndex(name string, val any) ([]string, error) {
+// (multi-value). An optional limit controls count and direction: 0 (or omitted)
+// = all ascending; N>0 = first N ascending; N<0 = last |N| descending.
+func (db *DB) ByIndex(name string, val any, limit ...int) ([]string, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 	if db.closed {
@@ -351,7 +392,11 @@ func (db *DB) ByIndex(name string, val any) ([]string, error) {
 	if si == nil {
 		return nil, fmt.Errorf("nteedb: unknown index %q", name)
 	}
-	return si.exact(val)
+	n := 0
+	if len(limit) > 0 {
+		n = limit[0]
+	}
+	return si.exact(val, n)
 }
 
 // ByIndexPrefix returns the primary keys whose value in the named (string) index
