@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 )
 
 // ValueKind is the type of values held by a secondary index.
@@ -199,6 +198,34 @@ func (si *secIndex) exact(val any, limit int) ([]string, error) {
 	return out, nil
 }
 
+// prefixUpperBound returns the smallest string strictly greater than every
+// string that begins with p — the exclusive end of p's prefix range. It clones
+// p, increments the last byte that isn't 0xFF, and drops everything after it
+// (e.g. "Get" -> "Geu"). ok is false when no such bound exists — p is empty, or
+// every byte is 0xFF — meaning the prefix range has no upper limit and runs to
+// the end of the index.
+func prefixUpperBound(p string) (string, bool) {
+	b := []byte(p)
+	for i := len(b) - 1; i >= 0; i-- {
+		if b[i] != 0xFF {
+			b[i]++
+			return string(b[:i+1]), true
+		}
+	}
+	return "", false
+}
+
+// groupEnd returns the first index in [i, hi) whose value differs from the
+// value at i. Because entries are sorted by value, a single value's rows are
+// contiguous, so its end is found with a binary search over the window instead
+// of a linear walk — an O(log group) boundary jump.
+func (si *secIndex) groupEnd(i, hi int) int {
+	v := si.entries[i].s
+	return i + sort.Search(hi-i, func(k int) bool {
+		return si.entries[i+k].s > v
+	})
+}
+
 // prefix returns the primary keys whose (string) index value starts with p.
 //
 // limit is applied per distinct index value (grouped), not to the flattened
@@ -208,15 +235,22 @@ func (si *secIndex) exact(val any, limit int) ([]string, error) {
 //   - limit > 0:  the first `limit` primary keys of each value, ascending.
 //   - limit < 0:  the last `|limit|` of each value, descending (newest-first
 //     when the primary key encodes order), matching exact's direction.
+//
+// The match window [lo, hi) is located with two binary searches rather than a
+// linear prefix scan: entries are sorted by (value, pk), so every value that
+// starts with p occupies one contiguous run. lo is the first entry >= p; hi is
+// the first entry >= p's upper bound (the first value that no longer starts with
+// p). Combined with the O(log group) boundary jumps below, a query that matches
+// few groups stays cheap even over a huge index — total O(log n + g·log m + out)
+// rather than O(log n + m).
 func (si *secIndex) prefix(p string, limit int) ([]string, error) {
 	if si.kind != KindString {
 		return nil, fmt.Errorf("nteedb: prefix query requires a string index, %q is %s", si.name, si.kind)
 	}
-	// The half-open match window [lo, hi): all entries whose value starts with p.
 	lo := si.lowerBound(secEntry{s: p})
-	hi := lo
-	for hi < len(si.entries) && strings.HasPrefix(si.entries[hi].s, p) {
-		hi++
+	hi := len(si.entries)
+	if succ, ok := prefixUpperBound(p); ok {
+		hi = si.lowerBound(secEntry{s: succ})
 	}
 
 	if limit == 0 {
@@ -229,11 +263,8 @@ func (si *secIndex) prefix(p string, limit int) ([]string, error) {
 
 	var out []string
 	for i := lo; i < hi; {
-		// [i, j) is the run of entries sharing one value.
-		j := i + 1
-		for j < hi && si.entries[j].s == si.entries[i].s {
-			j++
-		}
+		// [i, j) is the contiguous run of entries sharing one value.
+		j := si.groupEnd(i, hi)
 		if limit > 0 {
 			end := i + limit
 			if end > j {

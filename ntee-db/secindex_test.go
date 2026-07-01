@@ -110,6 +110,44 @@ func TestSecIndexStringPrefix(t *testing.T) {
 	}
 }
 
+// TestSecIndexPrefixWindow exercises the binary-search match window edges: an
+// empty prefix (no upper bound — matches everything), and a prefix whose lower
+// bound lands on a larger, non-matching value (must return empty, not that row).
+func TestSecIndexPrefixWindow(t *testing.T) {
+	si := newSecIndex(IndexDef{Name: "name", Kind: KindString})
+	for _, v := range []struct{ val, pk string }{
+		{"Get", "k1"}, {"GetX", "k2"}, {"Gf", "k3"},
+	} {
+		e, _ := si.makeEntry(v.val, v.pk)
+		si.insert(e)
+	}
+
+	// Empty prefix matches every entry (prefixUpperBound reports no bound).
+	if got, _ := si.prefix("", 0); !eqStrs(got, []string{"k1", "k2", "k3"}) {
+		t.Errorf("prefix(\"\") = %v, want all", got)
+	}
+	// "Get" excludes "Gf": lo lands on "Get", hi is the first value >= "Geu",
+	// which is "Gf", so the window is exactly the two "Get*" rows.
+	if got, _ := si.prefix("Get", 0); !eqStrs(got, []string{"k1", "k2"}) {
+		t.Errorf("prefix(Get) = %v, want [k1 k2]", got)
+	}
+	// "Gg" sorts after every entry, so lo == hi == len and the window is empty.
+	if got, _ := si.prefix("Gg", 0); len(got) != 0 {
+		t.Errorf("prefix(Gg) = %v, want empty", got)
+	}
+	// "Gem" matches nothing, yet its lower bound lands on the non-matching row
+	// "Get" (since "Gem" < "Get"). The successor bound "Gen" makes hi land on
+	// "Get" too, so the window is correctly empty — this guards against lo
+	// leaking a larger, non-prefixed row when there is no exact prefix match.
+	if got, _ := si.prefix("Gem", 0); len(got) != 0 {
+		t.Errorf("prefix(Gem) = %v, want empty", got)
+	}
+	// A prefix longer than any value and below all of them → empty.
+	if got, _ := si.prefix("A", -1); len(got) != 0 {
+		t.Errorf("prefix(A) = %v, want empty", got)
+	}
+}
+
 // TestSecIndexPrefixGroupedLimit checks that a prefix spanning multiple distinct
 // values applies the limit per value (grouped), not to the flattened list.
 func TestSecIndexPrefixGroupedLimit(t *testing.T) {
