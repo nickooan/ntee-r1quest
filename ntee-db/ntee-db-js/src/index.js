@@ -73,10 +73,14 @@ export class NteeDB {
     return readEnvelope(fns.byIndex(this.#h, name, JSON.stringify(val), limit)) ?? [];
   }
 
-  /** Primary keys whose (string) value in `name` starts with `prefix`. */
-  byIndexPrefix(name, prefix) {
+  /**
+   * Primary keys whose (string) value in `name` starts with `prefix`.
+   * limit is applied per distinct index value (grouped): 0 = all matches flat;
+   * N>0 = first N of each value ascending; N<0 = last |N| of each value descending.
+   */
+  byIndexPrefix(name, prefix, limit = 0) {
     this.#assertOpen();
-    return readEnvelope(fns.byIndexPrefix(this.#h, name, prefix)) ?? [];
+    return readEnvelope(fns.byIndexPrefix(this.#h, name, prefix, limit)) ?? [];
   }
 
   /** Primary keys whose value in `name` is within [lo, hi]. */
@@ -134,6 +138,15 @@ export class NteeDB {
   /** Search by primary-key prefix and return records {key, value: Buffer}. */
   searchByPrefix(prefix) {
     return this.#withValues(this.prefixScan(prefix));
+  }
+
+  /**
+   * Search by index prefix (string index) and return records {key, value: Buffer}.
+   * limit as byIndexPrefix (grouped per distinct value). Records come back ordered
+   * by (index value, then selected primary key).
+   */
+  searchByIndexPrefix(name, prefix, limit = 0) {
+    return this.#withValues(this.byIndexPrefix(name, prefix, limit));
   }
 
   #withValues(keys) {

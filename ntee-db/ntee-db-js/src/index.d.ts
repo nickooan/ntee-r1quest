@@ -56,8 +56,13 @@ export declare class NteeDB {
    * @param limit 0 = all (ascending); N>0 = first N ascending; N<0 = last |N| descending.
    */
   byIndex(name: string, val: string | number, limit?: number): string[];
-  /** Primary keys whose (string) value in `name` starts with `prefix`. */
-  byIndexPrefix(name: string, prefix: string): string[];
+  /**
+   * Primary keys whose (string) value in `name` starts with `prefix`.
+   * @param limit applied per distinct index value (grouped): 0 (default) = all
+   * matches flat; N>0 = first N of each value ascending; N<0 = last |N| of each
+   * value descending.
+   */
+  byIndexPrefix(name: string, prefix: string, limit?: number): string[];
   /** Primary keys whose value in `name` is within [lo, hi]. */
   byIndexRange(name: string, lo: string | number, hi: string | number): string[];
 
@@ -80,6 +85,11 @@ export declare class NteeDB {
   searchByIndex(name: string, val: string | number, limit?: number): Record[];
   /** Search by primary-key prefix, returning records {key, value}. */
   searchByPrefix(prefix: string): Record[];
+  /**
+   * Search by index prefix (string index), returning records {key, value}
+   * ordered by (index value, then primary key). limit as byIndexPrefix (grouped).
+   */
+  searchByIndexPrefix(name: string, prefix: string, limit?: number): Record[];
 }
 
 export default NteeDB;

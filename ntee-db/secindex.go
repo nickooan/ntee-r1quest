@@ -200,14 +200,58 @@ func (si *secIndex) exact(val any, limit int) ([]string, error) {
 }
 
 // prefix returns the primary keys whose (string) index value starts with p.
-func (si *secIndex) prefix(p string) ([]string, error) {
+//
+// limit is applied per distinct index value (grouped), not to the flattened
+// match list — a prefix can span several values, and the limit selects within
+// each one:
+//   - limit == 0: all matches, flat, in (value, primary key) order.
+//   - limit > 0:  the first `limit` primary keys of each value, ascending.
+//   - limit < 0:  the last `|limit|` of each value, descending (newest-first
+//     when the primary key encodes order), matching exact's direction.
+func (si *secIndex) prefix(p string, limit int) ([]string, error) {
 	if si.kind != KindString {
 		return nil, fmt.Errorf("nteedb: prefix query requires a string index, %q is %s", si.name, si.kind)
 	}
-	probe := secEntry{s: p}
+	// The half-open match window [lo, hi): all entries whose value starts with p.
+	lo := si.lowerBound(secEntry{s: p})
+	hi := lo
+	for hi < len(si.entries) && strings.HasPrefix(si.entries[hi].s, p) {
+		hi++
+	}
+
+	if limit == 0 {
+		out := make([]string, 0, hi-lo)
+		for i := lo; i < hi; i++ {
+			out = append(out, si.entries[i].pk)
+		}
+		return out, nil
+	}
+
 	var out []string
-	for i := si.lowerBound(probe); i < len(si.entries) && strings.HasPrefix(si.entries[i].s, p); i++ {
-		out = append(out, si.entries[i].pk)
+	for i := lo; i < hi; {
+		// [i, j) is the run of entries sharing one value.
+		j := i + 1
+		for j < hi && si.entries[j].s == si.entries[i].s {
+			j++
+		}
+		if limit > 0 {
+			end := i + limit
+			if end > j {
+				end = j
+			}
+			for k := i; k < end; k++ {
+				out = append(out, si.entries[k].pk)
+			}
+		} else { // limit < 0: last |limit| of the group, descending
+			start := j + limit // limit is negative
+			if start < i {
+				start = i
+			}
+			for k := j - 1; k >= start; k-- {
+				out = append(out, si.entries[k].pk)
+			}
+		}
+		i = j
 	}
 	return out, nil
 }
@@ -400,8 +444,10 @@ func (db *DB) ByIndex(name string, val any, limit ...int) ([]string, error) {
 }
 
 // ByIndexPrefix returns the primary keys whose value in the named (string) index
-// starts with prefix.
-func (db *DB) ByIndexPrefix(name, prefix string) ([]string, error) {
+// starts with prefix. An optional limit is applied per distinct index value
+// (grouped): 0 (or omitted) = all matches flat; N>0 = first N of each value
+// ascending; N<0 = last |N| of each value descending.
+func (db *DB) ByIndexPrefix(name, prefix string, limit ...int) ([]string, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 	if db.closed {
@@ -411,7 +457,11 @@ func (db *DB) ByIndexPrefix(name, prefix string) ([]string, error) {
 	if si == nil {
 		return nil, fmt.Errorf("nteedb: unknown index %q", name)
 	}
-	return si.prefix(prefix)
+	n := 0
+	if len(limit) > 0 {
+		n = limit[0]
+	}
+	return si.prefix(prefix, n)
 }
 
 // ProspectiveIndexes returns, sorted, the names of declared indexes that have

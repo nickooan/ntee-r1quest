@@ -160,12 +160,12 @@ func nteedb_by_index(h C.uint, name *C.char, valJSON *C.char, limit C.int) *C.ch
 }
 
 //export nteedb_by_index_prefix
-func nteedb_by_index_prefix(h C.uint, name *C.char, prefix *C.char) *C.char {
+func nteedb_by_index_prefix(h C.uint, name *C.char, prefix *C.char, limit C.int) *C.char {
 	db := regGet(uint32(h))
 	if db == nil {
 		return reply(nil, errInvalidHandle)
 	}
-	keys, err := db.ByIndexPrefix(C.GoString(name), C.GoString(prefix))
+	keys, err := db.ByIndexPrefix(C.GoString(name), C.GoString(prefix), int(limit))
 	if err != nil {
 		return reply(nil, err)
 	}

@@ -67,6 +67,29 @@ test('secondary indexes: explicit values, multi-value, range, prefix', async () 
   });
 });
 
+test('byIndexPrefix grouped +/-N limit + searchByIndexPrefix records', async () => {
+  await withDB({ indexes: [{ name: 'endpoint', kind: 'string' }] }, (db) => {
+    // Two records under GetXXXMutation, one under GetXXXMumu. Sorted by
+    // (value, pk): GetXXXMumu < GetXXXMutation ('m' < 't').
+    db.put('call:1', 'a', { endpoint: 'GetXXXMutation' });
+    db.put('call:2', 'b', { endpoint: 'GetXXXMutation' });
+    db.put('call:3', 'c', { endpoint: 'GetXXXMumu' });
+
+    // limit 0 (default) is unchanged: all matches, flat, in (value, pk) order.
+    assert.deepEqual(db.byIndexPrefix('endpoint', 'GetXXXM'), ['call:3', 'call:1', 'call:2']);
+    // -1: last record of each endpoint (groups ascending by value).
+    assert.deepEqual(db.byIndexPrefix('endpoint', 'GetXXXM', -1), ['call:3', 'call:2']);
+    // +1: first record of each endpoint.
+    assert.deepEqual(db.byIndexPrefix('endpoint', 'GetXXXM', 1), ['call:3', 'call:1']);
+
+    // searchByIndexPrefix returns full records in the same order.
+    const recs = db.searchByIndexPrefix('endpoint', 'GetXXXM', -1);
+    assert.deepEqual(recs.map((r) => r.key), ['call:3', 'call:2']);
+    assert.equal(recs[0].value.toString(), 'c');
+    assert.equal(recs[1].value.toString(), 'b');
+  });
+});
+
 test('byIndex limit + direction (first N asc / last N desc)', async () => {
   await withDB({ indexes: [{ name: 'traceId', kind: 'string' }] }, (db) => {
     for (let i = 1; i <= 6; i++) db.put(`call:${i}`, '{}', { traceId: 'T' });

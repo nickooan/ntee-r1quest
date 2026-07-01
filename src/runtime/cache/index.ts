@@ -7,6 +7,7 @@ export { recordInput, suggestInputs, type InputRecord } from "./input.ts"
 export {
   recordApiCall,
   listApiEndpoints,
+  listApiEndpointsByPrefix,
   getApiCall,
   type ApiCallRequest,
   type ApiCallResponse,

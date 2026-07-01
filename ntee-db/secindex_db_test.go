@@ -95,6 +95,31 @@ func TestSecondaryNumberRangeAndPrefix(t *testing.T) {
 	}
 }
 
+// TestSecondaryPrefixGroupedLimit exercises the grouped +/-N limit end-to-end:
+// a prefix spanning two endpoints returns the latest (or first) record of each.
+func TestSecondaryPrefixGroupedLimit(t *testing.T) {
+	db := openIndexed(t, t.TempDir())
+	defer db.Close()
+
+	// GetXXXMutation has two records; GetXXXMumu one. Primary keys encode order.
+	db.PutIndexed("call:1", []byte("x"), IndexValues{"traceId": "GetXXXMutation"})
+	db.PutIndexed("call:2", []byte("x"), IndexValues{"traceId": "GetXXXMutation"})
+	db.PutIndexed("call:3", []byte("x"), IndexValues{"traceId": "GetXXXMumu"})
+
+	// -1: last record of each endpoint (groups ascending by value).
+	if got, _ := db.ByIndexPrefix("traceId", "GetXXXM", -1); !eqStrs(got, []string{"call:3", "call:2"}) {
+		t.Errorf("prefix GetXXXM limit -1 = %v, want [call:3 call:2]", got)
+	}
+	// 0: full flat collection in (value, pk) order.
+	if got, _ := db.ByIndexPrefix("traceId", "GetXXXM", 0); !eqStrs(got, []string{"call:3", "call:1", "call:2"}) {
+		t.Errorf("prefix GetXXXM limit 0 = %v, want [call:3 call:1 call:2]", got)
+	}
+	// Omitted limit behaves like 0 (all).
+	if got, _ := db.ByIndexPrefix("traceId", "GetXXXM"); !eqStrs(got, []string{"call:3", "call:1", "call:2"}) {
+		t.Errorf("prefix GetXXXM no limit = %v, want [call:3 call:1 call:2]", got)
+	}
+}
+
 func TestSecondaryRebuildAfterReopen(t *testing.T) {
 	dir := t.TempDir()
 	db := openIndexed(t, dir)

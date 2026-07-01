@@ -149,6 +149,44 @@ export const listApiEndpoints = (): ApiCallRecord[] => {
   }
 }
 
+/**
+ * Like {@link listApiEndpoints}, but only endpoints whose label starts with
+ * `prefix` — the latest call per matching endpoint, in label order.
+ *
+ * Uses the `endpoint` secondary index with a grouped `-1` limit, so the store
+ * returns exactly the most-recent record for each matching endpoint (a
+ * binary-search-bounded walk) instead of scanning every `api:` record.
+ */
+export const listApiEndpointsByPrefix = (prefix: string): ApiCallRecord[] => {
+  const cache = openCache()
+
+  if (!cache) {
+    return []
+  }
+
+  try {
+    const records: ApiCallRecord[] = []
+
+    // -1 → the single most-recent record of each endpoint under the prefix,
+    // already grouped and ordered by endpoint label.
+    for (const { value } of cache.searchByIndexPrefix(ENDPOINT_INDEX, prefix, -1)) {
+      if (!value) {
+        continue
+      }
+
+      try {
+        records.push(JSON.parse(value.toString("utf8")) as ApiCallRecord)
+      } catch {
+        // skip a corrupt record
+      }
+    }
+
+    return records
+  } catch {
+    return []
+  }
+}
+
 /** Returns the latest cached call for an endpoint label, or undefined. */
 export const getApiCall = (endpoint: string): ApiCallRecord | undefined => {
   const cache = openCache()

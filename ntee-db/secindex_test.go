@@ -101,12 +101,43 @@ func TestSecIndexStringPrefix(t *testing.T) {
 		e, _ := si.makeEntry(v.val, v.pk)
 		si.insert(e)
 	}
-	got, err := si.prefix("Get")
+	got, err := si.prefix("Get", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !eqStrs(got, []string{"k1", "k2"}) {
 		t.Errorf("prefix(Get) = %v, want [k1 k2]", got)
+	}
+}
+
+// TestSecIndexPrefixGroupedLimit checks that a prefix spanning multiple distinct
+// values applies the limit per value (grouped), not to the flattened list.
+func TestSecIndexPrefixGroupedLimit(t *testing.T) {
+	si := newSecIndex(IndexDef{Name: "endpoint", Kind: KindString})
+	// Two records under GetXXXMutation, one under GetXXXMumu. Sorted by
+	// (value, pk): GetXXXMumu < GetXXXMutation ('m' < 't').
+	for _, v := range []struct{ val, pk string }{
+		{"GetXXXMutation", "1"}, {"GetXXXMutation", "2"}, {"GetXXXMumu", "3"}, {"SetX", "4"},
+	} {
+		e, _ := si.makeEntry(v.val, v.pk)
+		si.insert(e)
+	}
+
+	// limit 0: all matches, flat, in (value, pk) order.
+	if got, _ := si.prefix("GetXXXM", 0); !eqStrs(got, []string{"3", "1", "2"}) {
+		t.Errorf("prefix(GetXXXM, 0) = %v, want [3 1 2]", got)
+	}
+	// limit -1: last of each value, groups ascending by value.
+	if got, _ := si.prefix("GetXXXM", -1); !eqStrs(got, []string{"3", "2"}) {
+		t.Errorf("prefix(GetXXXM, -1) = %v, want [3 2]", got)
+	}
+	// limit +1: first of each value.
+	if got, _ := si.prefix("GetXXXM", 1); !eqStrs(got, []string{"3", "1"}) {
+		t.Errorf("prefix(GetXXXM, 1) = %v, want [3 1]", got)
+	}
+	// limit -2: last 2 of each value descending; GetXXXMumu has only 1.
+	if got, _ := si.prefix("GetXXXM", -2); !eqStrs(got, []string{"3", "2", "1"}) {
+		t.Errorf("prefix(GetXXXM, -2) = %v, want [3 2 1]", got)
 	}
 }
 
@@ -119,10 +150,10 @@ func TestSecIndexTypeMismatch(t *testing.T) {
 	if _, err := str.makeEntry(42, "k"); err == nil {
 		t.Error("expected error for number into string index")
 	}
-	if _, err := str.prefix("x"); err != nil {
+	if _, err := str.prefix("x", 0); err != nil {
 		t.Errorf("prefix on string index should be fine: %v", err)
 	}
-	if _, err := si.prefix("x"); err == nil {
+	if _, err := si.prefix("x", 0); err == nil {
 		t.Error("prefix on number index should error")
 	}
 }
