@@ -83,13 +83,13 @@ func (db *DB) rewriteLocked(transform func(record) (record, error)) error {
 	}
 
 	// Swap: close old main handles, atomically replace the file, reopen.
-	_ = db.log.close()
+	_ = db.main.close()
 	_ = db.rf.Close()
 	if err := os.Rename(newMain, db.mainPath); err != nil {
 		return err
 	}
 
-	lg, err := openLog(db.mainPath, db.opts.SyncEveryWrite)
+	lg, err := openMainLog(db.mainPath, db.opts.SyncEveryWrite)
 	if err != nil {
 		return err
 	}
@@ -98,9 +98,9 @@ func (db *DB) rewriteLocked(transform func(record) (record, error)) error {
 		_ = lg.close()
 		return err
 	}
-	db.log = lg
+	db.main = lg
 	db.rf = rf
-	db.index = newIdx
+	db.pk = newIdx
 	db.rebuildSecFromPkSec(newPkSec)
 	db.writes = 0
 
@@ -110,17 +110,17 @@ func (db *DB) rewriteLocked(transform func(record) (record, error)) error {
 // buildRewrite writes a new main log at path containing only the current live
 // records (in sorted key order), applying transform to each. It returns the new
 // primary index and the final ix values per key (for rebuilding secondary state).
-func (db *DB) buildRewrite(path string, transform func(record) (record, error)) (*index, map[string]map[string]any, error) {
+func (db *DB) buildRewrite(path string, transform func(record) (record, error)) (*pkIndex, map[string]map[string]any, error) {
 	mf, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return nil, nil, err
 	}
 	w := bufio.NewWriter(mf)
 
-	newIdx := newIndex()
+	newIdx := newPkIndex()
 	newPkSec := make(map[string]map[string]any)
 	var off int64
-	for _, e := range db.index.entries { // already sorted by key
+	for _, e := range db.pk.entries { // already sorted by key
 		rec, err := db.readRecord(e)
 		if err != nil {
 			_ = mf.Close()
@@ -142,7 +142,7 @@ func (db *DB) buildRewrite(path string, transform func(record) (record, error)) 
 			return nil, nil, err
 		}
 		n := int32(len(line))
-		newIdx.entries = append(newIdx.entries, idxEntry{key: e.key, off: off, n: n})
+		newIdx.entries = append(newIdx.entries, pkEntry{key: e.key, off: off, n: n})
 		if len(rec.IX) > 0 {
 			newPkSec[e.key] = rec.IX
 		}

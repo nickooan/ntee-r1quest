@@ -41,8 +41,8 @@ func TestHintStaleThenTailReplay(t *testing.T) {
 	db.Put("b", []byte("2"))
 	db.Put("a", []byte("11")) // overwrite after checkpoint
 	// Close writes a fresh full hint, so to keep the hint stale we bypass it:
-	db.log.flush()
-	db.log.close()
+	db.main.flush()
+	db.main.close()
 	db.rf.Close()
 	db.closed = true
 
@@ -87,9 +87,9 @@ func TestHintAheadOfLogIgnored(t *testing.T) {
 	db.Close()
 
 	// Forge a hint whose covers watermark is past the end of the log.
-	ix := newIndex()
-	ix.upsert(idxEntry{key: "ghost", off: 0, n: 5})
-	if err := writeHint(filepath.Join(dir, hintFile), ix, nil, 1<<30); err != nil {
+	ix := newPkIndex()
+	ix.upsert(pkEntry{key: "ghost", off: 0, n: 5})
+	if err := writeIndexHint(filepath.Join(dir, hintFile), ix, nil, 1<<30); err != nil {
 		t.Fatal(err)
 	}
 
@@ -112,7 +112,7 @@ func TestPeriodicHintEveryN(t *testing.T) {
 	db.Put("a", []byte("1")) // write 1
 	db.Put("b", []byte("2")) // write 2 → hint flushed here
 	hintPath := filepath.Join(dir, hintFile)
-	entries, covers, ok := loadHint(hintPath)
+	entries, covers, ok := loadIndexHint(hintPath)
 	if !ok {
 		t.Fatal("expected a hint after HintEveryN writes")
 	}

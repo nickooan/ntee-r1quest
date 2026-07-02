@@ -6,28 +6,30 @@ import (
 	"os"
 )
 
-const hintFormatVersion = 1
+const indexHintFormatVersion = 1
 
-// hintMeta is the first line of a hint file.
-type hintMeta struct {
+// indexHintMeta is the first line of an index-hint file — the boot-time
+// snapshot of the in-memory indexes (main.jsonl.hint), a pure fast-boot
+// optimization and never the source of truth.
+type indexHintMeta struct {
 	Version int   `json:"v"`
 	Covers  int64 `json:"covers"` // main.jsonl is indexed up to this byte offset
 }
 
-// hintLine is one index entry in the hint file (sorted by key). IX carries the
-// key's secondary index values so both the primary and secondary indexes can be
-// rebuilt from the hint alone, without scanning the main log.
-type hintLine struct {
+// indexHintLine is one index entry in the index-hint file (sorted by key). IX
+// carries the key's secondary index values so both the primary and secondary
+// indexes can be rebuilt from the hint alone, without scanning the main log.
+type indexHintLine struct {
 	Key string         `json:"k"`
 	Off int64          `json:"o"`
 	N   int32          `json:"n"`
 	IX  map[string]any `json:"ix,omitempty"`
 }
 
-// writeHint atomically writes the index (in sorted order) plus the covers
+// writeIndexHint atomically writes the index (in sorted order) plus the covers
 // watermark to path, via a temp file + rename so a crash never leaves a
 // half-written hint. pkSec supplies each key's secondary index values (may be nil).
-func writeHint(path string, ix *index, pkSec map[string]map[string]any, covers int64) (err error) {
+func writeIndexHint(path string, ix *pkIndex, pkSec map[string]map[string]any, covers int64) (err error) {
 	tmp := path + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {
@@ -41,7 +43,7 @@ func writeHint(path string, ix *index, pkSec map[string]map[string]any, covers i
 	}()
 
 	w := bufio.NewWriter(f)
-	if err = encodeJSONLine(w, hintMeta{Version: hintFormatVersion, Covers: covers}); err != nil {
+	if err = encodeJSONLine(w, indexHintMeta{Version: indexHintFormatVersion, Covers: covers}); err != nil {
 		return err
 	}
 	for _, e := range ix.entries { // already sorted by key
@@ -49,7 +51,7 @@ func writeHint(path string, ix *index, pkSec map[string]map[string]any, covers i
 		if pkSec != nil {
 			sv = pkSec[e.key]
 		}
-		if err = encodeJSONLine(w, hintLine{Key: e.key, Off: e.off, N: e.n, IX: sv}); err != nil {
+		if err = encodeJSONLine(w, indexHintLine{Key: e.key, Off: e.off, N: e.n, IX: sv}); err != nil {
 			return err
 		}
 	}
@@ -76,11 +78,11 @@ func encodeJSONLine(w *bufio.Writer, v any) error {
 	return w.WriteByte('\n')
 }
 
-// loadHint reads a hint file and returns its entries (sorted by key) and the
-// covers watermark. ok is false if the hint is missing or unparseable, in which
-// case the caller should fall back to a full log scan — the hint is a pure
-// optimization, never the source of truth.
-func loadHint(path string) (entries []hintLine, covers int64, ok bool) {
+// loadIndexHint reads an index-hint file and returns its entries (sorted by
+// key) and the covers watermark. ok is false if the hint is missing or
+// unparseable, in which case the caller should fall back to a full log scan —
+// the hint is a pure optimization, never the source of truth.
+func loadIndexHint(path string) (entries []indexHintLine, covers int64, ok bool) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, 0, false
@@ -93,13 +95,13 @@ func loadHint(path string) (entries []hintLine, covers int64, ok bool) {
 	if !sc.Scan() {
 		return nil, 0, false // no meta line
 	}
-	var meta hintMeta
-	if json.Unmarshal(sc.Bytes(), &meta) != nil || meta.Version != hintFormatVersion {
+	var meta indexHintMeta
+	if json.Unmarshal(sc.Bytes(), &meta) != nil || meta.Version != indexHintFormatVersion {
 		return nil, 0, false
 	}
 
 	for sc.Scan() {
-		var hl hintLine
+		var hl indexHintLine
 		if json.Unmarshal(sc.Bytes(), &hl) != nil {
 			return nil, 0, false
 		}

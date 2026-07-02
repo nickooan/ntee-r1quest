@@ -18,7 +18,7 @@ func (db *DB) RemoveByPkLess(cutoff string) (int, error) {
 	if db.closed {
 		return 0, ErrClosed
 	}
-	return db.removeIndexRangeLocked(0, db.index.lowerBound(cutoff))
+	return db.removePkRangeLocked(0, db.pk.lowerBound(cutoff))
 }
 
 // RemoveByPkGreater deletes every key strictly greater than cutoff (the cutoff
@@ -29,13 +29,13 @@ func (db *DB) RemoveByPkGreater(cutoff string) (int, error) {
 	if db.closed {
 		return 0, ErrClosed
 	}
-	return db.removeIndexRangeLocked(db.index.upperBound(cutoff), db.index.len())
+	return db.removePkRangeLocked(db.pk.upperBound(cutoff), db.pk.len())
 }
 
-// removeIndexRangeLocked removes the primary-index entries in the half-open span
+// removePkRangeLocked removes the primary-index entries in the half-open span
 // [i, j), retracting their secondary entries and appending a tombstone per key.
 // Callers must hold db.mu.
-func (db *DB) removeIndexRangeLocked(i, j int) (int, error) {
+func (db *DB) removePkRangeLocked(i, j int) (int, error) {
 	if i >= j {
 		return 0, nil
 	}
@@ -44,7 +44,7 @@ func (db *DB) removeIndexRangeLocked(i, j int) (int, error) {
 	// rewritten below, so we must not alias it.
 	keys := make([]string, 0, j-i)
 	for k := i; k < j; k++ {
-		keys = append(keys, db.index.entries[k].key)
+		keys = append(keys, db.pk.entries[k].key)
 	}
 
 	// Append all tombstones first, before any in-memory change. A mid-loop
@@ -52,7 +52,7 @@ func (db *DB) removeIndexRangeLocked(i, j int) (int, error) {
 	// (the source of truth) still converges on the next replay — matching
 	// Delete's append-then-mutate ordering.
 	for _, key := range keys {
-		if _, _, err := db.log.append(record{Key: key, Deleted: true}); err != nil {
+		if _, _, err := db.main.append(record{Key: key, Deleted: true}); err != nil {
 			return 0, err
 		}
 	}
@@ -69,7 +69,7 @@ func (db *DB) removeIndexRangeLocked(i, j int) (int, error) {
 	}
 
 	// Remove the contiguous [i, j) span from the primary index in one splice.
-	db.index.entries = append(db.index.entries[:i], db.index.entries[j:]...)
+	db.pk.entries = append(db.pk.entries[:i], db.pk.entries[j:]...)
 
 	// Force a hint rewrite so the trimmed state is the fast-boot snapshot and
 	// covers advances past the tombstones we just appended.

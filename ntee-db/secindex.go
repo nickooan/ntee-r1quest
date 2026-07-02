@@ -355,11 +355,11 @@ func (db *DB) writeLocked(key string, value []byte, explicit IndexValues) error 
 		rec = record{Key: key, Blob: &ref, IX: ix}
 	}
 
-	off, n, err := db.log.append(rec)
+	off, n, err := db.main.append(rec)
 	if err != nil {
 		return err
 	}
-	db.index.upsert(idxEntry{key: key, off: off, n: n})
+	db.pk.upsert(pkEntry{key: key, off: off, n: n})
 	db.refreshSecLocked(key, ix)
 	db.writes++
 	db.maybeWriteHintLocked()

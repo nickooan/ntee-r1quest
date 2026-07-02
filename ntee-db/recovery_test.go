@@ -22,8 +22,8 @@ func TestCrashRecoveryTornTail(t *testing.T) {
 	}
 
 	// Simulate a crash: flush + drop handles WITHOUT writing a hint.
-	db.log.flush()
-	db.log.close()
+	db.main.flush()
+	db.main.close()
 	db.rf.Close()
 	db.blobs.close()
 	db.closed = true

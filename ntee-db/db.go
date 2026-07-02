@@ -76,11 +76,11 @@ type DB struct {
 	metaPath string
 
 	mu     sync.RWMutex
-	log    *appendLog // append writer for main.jsonl
+	main   *mainLog   // append writer for main.jsonl (the main table)
 	rf     *os.File   // read handle for main.jsonl (ReadAt is concurrency-safe)
 	blobs  *blobStore // large-value side file
-	index  *index
-	writes int // writes since the last hint rewrite
+	pk     *pkIndex   // in-memory primary-key index
+	writes int        // writes since the last hint rewrite
 	closed bool
 
 	// Secondary indexes (declared via Options.Indexes).
@@ -109,7 +109,7 @@ func Open(opts Options) (*DB, error) {
 		hintPath:    filepath.Join(opts.Dir, hintFile),
 		blobPath:    filepath.Join(opts.Dir, blobFile),
 		metaPath:    filepath.Join(opts.Dir, metaFile),
-		index:       newIndex(),
+		pk:          newPkIndex(),
 		indexDefs:   opts.Indexes,
 		secIndexes:  make(map[string]*secIndex, len(opts.Indexes)),
 		pkSec:       make(map[string]map[string]any),
@@ -139,7 +139,7 @@ func Open(opts Options) (*DB, error) {
 		return nil, err
 	}
 
-	lg, err := openLog(db.mainPath, opts.SyncEveryWrite)
+	lg, err := openMainLog(db.mainPath, opts.SyncEveryWrite)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +154,7 @@ func Open(opts Options) (*DB, error) {
 		_ = rf.Close()
 		return nil, err
 	}
-	db.log = lg
+	db.main = lg
 	db.rf = rf
 	db.blobs = blobs
 	return db, nil
@@ -166,13 +166,13 @@ func Open(opts Options) (*DB, error) {
 // claims to cover more than the log actually contains.
 func (db *DB) load() error {
 	from := int64(0)
-	if entries, covers, ok := loadHint(db.hintPath); ok {
+	if entries, covers, ok := loadIndexHint(db.hintPath); ok {
 		if info, err := os.Stat(db.mainPath); err == nil && covers <= info.Size() {
 			// Rebuild both the primary index and the secondary indexes from the
 			// hint snapshot (entries are already sorted by key).
-			db.index.entries = db.index.entries[:0]
+			db.pk.entries = db.pk.entries[:0]
 			for _, he := range entries {
-				db.index.entries = append(db.index.entries, idxEntry{key: he.Key, off: he.Off, n: he.N})
+				db.pk.entries = append(db.pk.entries, pkEntry{key: he.Key, off: he.Off, n: he.N})
 				if len(he.IX) > 0 {
 					db.refreshSecLocked(he.Key, he.IX)
 				}
@@ -187,12 +187,12 @@ func (db *DB) load() error {
 // replayTail scans the main log from byte offset `from`, applying each record to
 // the index, then truncates any torn final line left by a crash mid-append.
 func (db *DB) replayTail(from int64) error {
-	end, err := scanLog(db.mainPath, from, func(r record, off int64, n int32) error {
+	end, err := scanMainLog(db.mainPath, from, func(r record, off int64, n int32) error {
 		if r.isTombstone() {
-			db.index.remove(r.Key)
+			db.pk.remove(r.Key)
 			db.retractSecLocked(r.Key)
 		} else {
-			db.index.upsert(idxEntry{key: r.Key, off: off, n: n})
+			db.pk.upsert(pkEntry{key: r.Key, off: off, n: n})
 			db.refreshSecLocked(r.Key, r.IX)
 		}
 		return nil
@@ -217,7 +217,7 @@ func (db *DB) adoptSchema() error {
 	for _, mi := range prior.Indexes {
 		priorByName[mi.Name] = mi
 	}
-	hadData := db.index.len() > 0
+	hadData := db.pk.len() > 0
 
 	declared := make(map[string]bool, len(db.indexDefs))
 	out := make([]metaIndex, 0, len(db.indexDefs)+len(prior.Indexes))
@@ -263,10 +263,10 @@ func (db *DB) writeHintLocked() error {
 			return err
 		}
 	}
-	if err := db.log.flush(); err != nil {
+	if err := db.main.flush(); err != nil {
 		return err
 	}
-	if err := writeHint(db.hintPath, db.index, db.pkSec, db.log.size); err != nil {
+	if err := writeIndexHint(db.hintPath, db.pk, db.pkSec, db.main.size); err != nil {
 		return err
 	}
 	db.writes = 0
@@ -313,7 +313,7 @@ func (db *DB) Get(key string) (value []byte, ok bool, err error) {
 	if db.closed {
 		return nil, false, ErrClosed
 	}
-	e, ok := db.index.get(key)
+	e, ok := db.pk.get(key)
 	if !ok {
 		return nil, false, nil
 	}
@@ -344,7 +344,7 @@ func (db *DB) Has(key string) bool {
 	if db.closed {
 		return false
 	}
-	_, ok := db.index.get(key)
+	_, ok := db.pk.get(key)
 	return ok
 }
 
@@ -355,13 +355,13 @@ func (db *DB) Delete(key string) error {
 	if db.closed {
 		return ErrClosed
 	}
-	if _, ok := db.index.get(key); !ok {
+	if _, ok := db.pk.get(key); !ok {
 		return nil
 	}
-	if _, _, err := db.log.append(record{Key: key, Deleted: true}); err != nil {
+	if _, _, err := db.main.append(record{Key: key, Deleted: true}); err != nil {
 		return err
 	}
-	db.index.remove(key)
+	db.pk.remove(key)
 	db.retractSecLocked(key)
 	db.writes++
 	db.maybeWriteHintLocked()
@@ -376,7 +376,7 @@ func (db *DB) PrefixScan(prefix string) ([]string, error) {
 	if db.closed {
 		return nil, ErrClosed
 	}
-	es := db.index.prefix(prefix)
+	es := db.pk.prefix(prefix)
 	keys := make([]string, len(es))
 	for i, e := range es {
 		keys[i] = e.key
@@ -385,7 +385,7 @@ func (db *DB) PrefixScan(prefix string) ([]string, error) {
 }
 
 // readRecord reads and decodes the record located by e from the main log.
-func (db *DB) readRecord(e idxEntry) (record, error) {
+func (db *DB) readRecord(e pkEntry) (record, error) {
 	buf := make([]byte, e.n)
 	if _, err := db.rf.ReadAt(buf, e.off); err != nil {
 		return record{}, err
@@ -404,12 +404,12 @@ func (db *DB) Close() error {
 	db.closed = true
 
 	var err error
-	if db.log != nil {
+	if db.main != nil {
 		// Write a final hint so the next boot is fast (this also flushes the log).
 		if e := db.writeHintLocked(); e != nil {
 			err = e
 		}
-		if e := db.log.close(); e != nil && err == nil {
+		if e := db.main.close(); e != nil && err == nil {
 			err = e
 		}
 	}

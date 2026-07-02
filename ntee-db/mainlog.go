@@ -7,17 +7,17 @@ import (
 	"os"
 )
 
-// appendLog is the append-only writer for the main JSONL data file. It tracks
-// the file size so each append can report the byte offset of the record it
-// wrote without an extra stat.
-type appendLog struct {
+// mainLog is the append-only writer for main.jsonl — the store's main table and
+// source of truth (not an auxiliary action log). It tracks the file size so each
+// append can report the byte offset of the record it wrote without an extra stat.
+type mainLog struct {
 	f    *os.File
 	size int64
 	sync bool // fsync after every append
 }
 
-// openLog opens (creating if necessary) the main log for appending.
-func openLog(path string, sync bool) (*appendLog, error) {
+// openMainLog opens (creating if necessary) the main log for appending.
+func openMainLog(path string, sync bool) (*mainLog, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
@@ -27,12 +27,12 @@ func openLog(path string, sync bool) (*appendLog, error) {
 		_ = f.Close()
 		return nil, err
 	}
-	return &appendLog{f: f, size: info.Size(), sync: sync}, nil
+	return &mainLog{f: f, size: info.Size(), sync: sync}, nil
 }
 
 // append writes r as one JSONL line and returns the byte offset at which it was
 // written and the total bytes written (including the trailing newline).
-func (l *appendLog) append(r record) (off int64, n int32, err error) {
+func (l *mainLog) append(r record) (off int64, n int32, err error) {
 	data, err := marshalRecord(r)
 	if err != nil {
 		return 0, 0, err
@@ -53,12 +53,12 @@ func (l *appendLog) append(r record) (off int64, n int32, err error) {
 }
 
 // flush fsyncs the underlying file.
-func (l *appendLog) flush() error { return l.f.Sync() }
+func (l *mainLog) flush() error { return l.f.Sync() }
 
 // close closes the underlying file.
-func (l *appendLog) close() error { return l.f.Close() }
+func (l *mainLog) close() error { return l.f.Close() }
 
-// scanLog reads records from the log at path starting at byte offset `from`,
+// scanMainLog reads records from the log at path starting at byte offset `from`,
 // invoking fn for each complete, parseable record with its offset and total
 // byte length (including the trailing newline).
 //
@@ -68,7 +68,7 @@ func (l *appendLog) close() error { return l.f.Close() }
 // and goodEnd points at its start so the caller can truncate the file there.
 //
 // A missing file is not an error: goodEnd == from and fn is never called.
-func scanLog(path string, from int64, fn func(r record, off int64, n int32) error) (goodEnd int64, err error) {
+func scanMainLog(path string, from int64, fn func(r record, off int64, n int32) error) (goodEnd int64, err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {

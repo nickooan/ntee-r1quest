@@ -8,7 +8,7 @@ import (
 
 func TestAppendAndScan(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "main.jsonl")
-	l, err := openLog(path, false)
+	l, err := openMainLog(path, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestAppendAndScan(t *testing.T) {
 
 	// Scan should yield the same records at the same offsets.
 	var got []record
-	end, err := scanLog(path, 0, func(r record, off int64, n int32) error {
+	end, err := scanMainLog(path, 0, func(r record, off int64, n int32) error {
 		if off != locs[len(got)].off || n != locs[len(got)].n {
 			t.Errorf("rec %d: scan loc {%d,%d}, want {%d,%d}", len(got), off, n, locs[len(got)].off, locs[len(got)].n)
 		}
@@ -68,14 +68,14 @@ func TestAppendAndScan(t *testing.T) {
 
 func TestScanFromOffset(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "main.jsonl")
-	l, _ := openLog(path, false)
+	l, _ := openMainLog(path, false)
 	_, n0, _ := l.append(record{Key: "a", Value: []byte("1")})
 	l.append(record{Key: "b", Value: []byte("2")})
 	l.close()
 
 	// Replaying only the tail after the first record should yield just "b".
 	var got []record
-	_, err := scanLog(path, int64(n0), func(r record, off int64, n int32) error {
+	_, err := scanMainLog(path, int64(n0), func(r record, off int64, n int32) error {
 		got = append(got, r)
 		return nil
 	})
@@ -89,7 +89,7 @@ func TestScanFromOffset(t *testing.T) {
 
 func TestScanTornTail(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "main.jsonl")
-	l, _ := openLog(path, false)
+	l, _ := openMainLog(path, false)
 	_, n0, _ := l.append(record{Key: "a", Value: []byte("1")})
 	l.close()
 	goodSize := int64(n0)
@@ -100,7 +100,7 @@ func TestScanTornTail(t *testing.T) {
 	f.Close()
 
 	var got []record
-	end, err := scanLog(path, 0, func(r record, off int64, n int32) error {
+	end, err := scanMainLog(path, 0, func(r record, off int64, n int32) error {
 		got = append(got, r)
 		return nil
 	})
@@ -117,7 +117,7 @@ func TestScanTornTail(t *testing.T) {
 
 func TestScanMissingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "does-not-exist.jsonl")
-	end, err := scanLog(path, 0, func(record, int64, int32) error {
+	end, err := scanMainLog(path, 0, func(record, int64, int32) error {
 		t.Fatal("fn must not be called for a missing file")
 		return nil
 	})
