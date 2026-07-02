@@ -62,4 +62,6 @@ for (const platform of targets) {
   }
 }
 
-process.stdout.write("\nAll Linux prebuilds written to ntee-db/ntee-db-js/prebuilds/\n")
+process.stdout.write(
+  "\nAll Linux prebuilds written to ntee-db/ntee-db-js/prebuilds/\n",
+)

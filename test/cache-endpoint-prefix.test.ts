@@ -13,7 +13,9 @@ import { join } from "node:path"
 // Isolate the cache home so these tests never touch the developer's real cache.
 // os.homedir() must be mocked before the cache module (which resolves the
 // directory at open time) is imported.
-const isolatedHome = mkdtempSync(join(tmpdir(), "r1quest-cache-endpoint-prefix-"))
+const isolatedHome = mkdtempSync(
+  join(tmpdir(), "r1quest-cache-endpoint-prefix-"),
+)
 
 jest.unstable_mockModule("node:os", () => {
   const actual = jest.requireActual<typeof import("node:os")>("node:os")
@@ -25,9 +27,8 @@ jest.unstable_mockModule("node:os", () => {
   }
 })
 
-const { recordApiCall, listApiEndpointsByPrefix, clearCache } = await import(
-  "../src/runtime/cache/index.ts"
-)
+const { recordApiCall, listApiEndpointsByPrefix, clearCache } =
+  await import("../src/runtime/cache/index.ts")
 
 const call = (path: string, at: number) => ({
   at,

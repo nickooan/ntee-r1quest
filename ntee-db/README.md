@@ -18,7 +18,7 @@ capping** (`MaxPerValue`, keep only the newest N records per index value) and
 <dir>/main.jsonl.hint   persisted index snapshot (JSONL): sorted key→{off,len} + a "covers" watermark
 ```
 
-- **No separate WAL.** The data log *is* the write-ahead log: the index is always
+- **No separate WAL.** The data log _is_ the write-ahead log: the index is always
   rebuildable from it and can never drift out of sync with the data.
 - **In-memory index** is a single slice kept sorted by key. It serves both exact
   lookups and prefix scans in O(log n) via binary search. (A hash map is avoided
@@ -124,13 +124,13 @@ existing key never triggers eviction (the group doesn't grow).
 The declared schema is persisted in `meta.json`. Changing `Options.Indexes`
 between opens is **never rejected** — the new set is adopted:
 
-- A **dropped** index (removed from `Options`) is *soft-dropped*: it stops being
+- A **dropped** index (removed from `Options`) is _soft-dropped_: it stops being
   maintained and isn't usable, but its existing `ix` data is **preserved** (a
   tombstone is kept in `meta`, and `Compact()` keeps the data). `db.DroppedIndexes()`
   lists soft-dropped indexes still lingering in records. `Reindex()` is what
   purges them completely — from both records and `meta`. Re-adding a dropped
   index before a `Reindex` recovers its surviving data.
-- An **added** index is **prospective** — it covers records written *after* it
+- An **added** index is **prospective** — it covers records written _after_ it
   was added, but not older ones. `db.ProspectiveIndexes()` lists indexes that
   don't yet cover historical records.
 - To back-fill an added index over existing records, call **`db.Reindex()`**.
@@ -168,12 +168,12 @@ db.Compact()
 
 ### Options
 
-| Field            | Meaning |
-|------------------|---------|
-| `Dir`            | Store directory (required). |
+| Field            | Meaning                                                                                                                                                                                                                                                                                                                                                     |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Dir`            | Store directory (required).                                                                                                                                                                                                                                                                                                                                 |
 | `BlobThreshold`  | Values ≥ this many bytes go to `blobs.dat`. `0` → 64 KiB default; negative disables blobs. This is a layout/compaction knob, not a memory one (values are never resident regardless). Keep it generous: inline values are reclaimed by `Compact`, whereas `blobs.dat` is append-only and not yet compacted — so reserve blobs for genuinely large payloads. |
-| `SyncEveryWrite` | fsync the log on every write (durable but slower). When false, a crash may lose the most recent writes. |
-| `HintEveryN`     | Rewrite the hint after N writes (also on `Close` and after compaction). `0` disables periodic rewrites. |
+| `SyncEveryWrite` | fsync the log on every write (durable but slower). When false, a crash may lose the most recent writes.                                                                                                                                                                                                                                                     |
+| `HintEveryN`     | Rewrite the hint after N writes (also on `Close` and after compaction). `0` disables periodic rewrites.                                                                                                                                                                                                                                                     |
 
 ## Testing
 

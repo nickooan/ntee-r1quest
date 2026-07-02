@@ -169,7 +169,11 @@ export const listApiEndpointsByPrefix = (prefix: string): ApiCallRecord[] => {
 
     // -1 → the single most-recent record of each endpoint under the prefix,
     // already grouped and ordered by endpoint label.
-    for (const { value } of cache.searchByIndexPrefix(ENDPOINT_INDEX, prefix, -1)) {
+    for (const { value } of cache.searchByIndexPrefix(
+      ENDPOINT_INDEX,
+      prefix,
+      -1,
+    )) {
       if (!value) {
         continue
       }

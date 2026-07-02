@@ -9,50 +9,50 @@ platform).
 ## Usage
 
 ```js
-import { NteeDB } from '@ntee/ntee-db';
+import { NteeDB } from "@ntee/ntee-db"
 
-const db = NteeDB.open('/path/to/store', {
-  blobThreshold: 64 * 1024,     // values >= this go to the blob side file
+const db = NteeDB.open("/path/to/store", {
+  blobThreshold: 64 * 1024, // values >= this go to the blob side file
   indexes: [
-    { name: 'traceId', kind: 'string' },                    // explicit values
-    { name: 'kind', kind: 'string', jsonPath: 'kind' },     // auto-derived from JSON
+    { name: "traceId", kind: "string" }, // explicit values
+    { name: "kind", kind: "string", jsonPath: "kind" }, // auto-derived from JSON
   ],
-});
+})
 
 // write (value is a Buffer or string; 3rd arg = explicit index values)
-db.put('call:1', JSON.stringify({ kind: 'request' }), { traceId: 'T1' });
+db.put("call:1", JSON.stringify({ kind: "request" }), { traceId: "T1" })
 
 // read content back
-const buf = db.get('call:1');           // Buffer | null
+const buf = db.get("call:1") // Buffer | null
 
 // search → keys, then get; or searchByIndex → records in one call
-db.byIndex('traceId', 'T1');            // ['call:1', ...]
-db.searchByIndex('kind', 'request');    // [{ key, value: Buffer }, ...]
-db.prefixScan('call:');                 // sorted keys
-db.byIndexRange('status', 200, 299);    // numeric range
+db.byIndex("traceId", "T1") // ['call:1', ...]
+db.searchByIndex("kind", "request") // [{ key, value: Buffer }, ...]
+db.prefixScan("call:") // sorted keys
+db.byIndexRange("status", 200, 299) // numeric range
 
 // maintenance (off the event loop)
-await db.compact();                     // reclaim dead records
-await db.reindex();                     // back-fill jsonPath indexes over history; purge dropped
+await db.compact() // reclaim dead records
+await db.reindex() // back-fill jsonPath indexes over history; purge dropped
 
-db.close();                             // or db.drop() to delete the store
+db.close() // or db.drop() to delete the store
 ```
 
 ## API
 
-| Method | Returns | Notes |
-|---|---|---|
-| `NteeDB.open(dir, opts?)` | `NteeDB` | creates if missing |
-| `NteeDB.destroy(dir)` | `void` | delete a store's files (no open handle) |
-| `put(key, value, ix?)` | `void` | `value`: Buffer\|string; `ix`: `{name: string\|number}` |
-| `get(key)` | `Buffer \| null` | |
-| `has(key)` / `delete(key)` | `boolean` / `void` | |
-| `prefixScan(prefix)` | `string[]` | sorted keys |
-| `byIndex / byIndexPrefix / byIndexRange` | `string[]` | primary keys |
-| `searchByIndex / searchByPrefix` | `{key, value}[]` | keys + content |
-| `droppedIndexes / prospectiveIndexes` | `string[]` | schema state |
-| `compact()` / `reindex()` | `Promise<void>` | run off the event loop |
-| `close()` / `drop()` | `void` | |
+| Method                                   | Returns            | Notes                                                   |
+| ---------------------------------------- | ------------------ | ------------------------------------------------------- |
+| `NteeDB.open(dir, opts?)`                | `NteeDB`           | creates if missing                                      |
+| `NteeDB.destroy(dir)`                    | `void`             | delete a store's files (no open handle)                 |
+| `put(key, value, ix?)`                   | `void`             | `value`: Buffer\|string; `ix`: `{name: string\|number}` |
+| `get(key)`                               | `Buffer \| null`   |                                                         |
+| `has(key)` / `delete(key)`               | `boolean` / `void` |                                                         |
+| `prefixScan(prefix)`                     | `string[]`         | sorted keys                                             |
+| `byIndex / byIndexPrefix / byIndexRange` | `string[]`         | primary keys                                            |
+| `searchByIndex / searchByPrefix`         | `{key, value}[]`   | keys + content                                          |
+| `droppedIndexes / prospectiveIndexes`    | `string[]`         | schema state                                            |
+| `compact()` / `reindex()`                | `Promise<void>`    | run off the event loop                                  |
+| `close()` / `drop()`                     | `void`             |                                                         |
 
 ## Notes / limitations
 
