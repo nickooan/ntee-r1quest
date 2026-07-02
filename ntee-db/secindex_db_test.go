@@ -2,6 +2,7 @@ package nteedb
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 )
 
@@ -206,6 +207,117 @@ func TestRemoveByPkRangeDurableAfterReopen(t *testing.T) {
 	}
 	if got := mustBy(t, db2, "traceId", "T3"); !eqStrs(got, []string{"call:3"}) {
 		t.Errorf("after reopen traceId T3 = %v, want [call:3]", got)
+	}
+}
+
+// openCapped opens a store whose traceId index caps records per value.
+func openCapped(t *testing.T, dir string, cap int) *DB {
+	t.Helper()
+	db, err := Open(Options{
+		Dir: dir,
+		Indexes: []IndexDef{
+			{Name: "traceId", Kind: KindString, MaxPerValue: cap},
+			{Name: "status", Kind: KindNumber},
+		},
+	})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	return db
+}
+
+func TestMaxPerValueEvictsOldest(t *testing.T) {
+	db := openCapped(t, t.TempDir(), 2)
+	defer db.Close()
+
+	db.PutIndexed("call:1", []byte("a"), IndexValues{"traceId": "T", "status": 200})
+	db.PutIndexed("call:2", []byte("b"), IndexValues{"traceId": "T", "status": 201})
+	// Third record for the same value: the lowest pk (call:1) is evicted.
+	db.PutIndexed("call:3", []byte("c"), IndexValues{"traceId": "T", "status": 202})
+
+	if db.Has("call:1") {
+		t.Error("call:1 should be fully deleted after exceeding the cap")
+	}
+	if got := mustBy(t, db, "traceId", "T"); !eqStrs(got, []string{"call:2", "call:3"}) {
+		t.Errorf("traceId T = %v, want [call:2 call:3]", got)
+	}
+	// Cross-index cascade: the evicted record's status entry is gone too.
+	if got := mustBy(t, db, "status", 200); len(got) != 0 {
+		t.Errorf("status 200 = %v, want empty (evicted record cascades)", got)
+	}
+	if got := mustBy(t, db, "status", 201); !eqStrs(got, []string{"call:2"}) {
+		t.Errorf("status 201 = %v, want [call:2]", got)
+	}
+
+	// A fourth record rolls the window again.
+	db.PutIndexed("call:4", []byte("d"), IndexValues{"traceId": "T", "status": 203})
+	if got := mustBy(t, db, "traceId", "T"); !eqStrs(got, []string{"call:3", "call:4"}) {
+		t.Errorf("traceId T = %v, want [call:3 call:4]", got)
+	}
+}
+
+func TestMaxPerValueScopedPerValueAndOverwrite(t *testing.T) {
+	db := openCapped(t, t.TempDir(), 2)
+	defer db.Close()
+
+	// Distinct values each get their own budget — no cross-value eviction.
+	db.PutIndexed("a:1", []byte("x"), IndexValues{"traceId": "A"})
+	db.PutIndexed("a:2", []byte("x"), IndexValues{"traceId": "A"})
+	db.PutIndexed("b:1", []byte("x"), IndexValues{"traceId": "B"})
+	if got := mustBy(t, db, "traceId", "A"); !eqStrs(got, []string{"a:1", "a:2"}) {
+		t.Errorf("traceId A = %v", got)
+	}
+
+	// Overwriting an existing pk keeps the group at size 2 — nothing evicted.
+	db.PutIndexed("a:2", []byte("y"), IndexValues{"traceId": "A"})
+	if got := mustBy(t, db, "traceId", "A"); !eqStrs(got, []string{"a:1", "a:2"}) {
+		t.Errorf("after overwrite traceId A = %v, want [a:1 a:2]", got)
+	}
+	if !db.Has("a:1") {
+		t.Error("overwrite must not evict a:1")
+	}
+}
+
+func TestMaxPerValueUnlimitedByDefault(t *testing.T) {
+	db := openIndexed(t, t.TempDir()) // no MaxPerValue set anywhere
+	defer db.Close()
+	for i := 1; i <= 6; i++ {
+		db.PutIndexed(fmt.Sprintf("call:%d", i), []byte("x"), IndexValues{"traceId": "T"})
+	}
+	if got := mustBy(t, db, "traceId", "T"); len(got) != 6 {
+		t.Errorf("unlimited index kept %d records, want 6", len(got))
+	}
+}
+
+func TestMaxPerValueDurableAndSelfHealing(t *testing.T) {
+	dir := t.TempDir()
+	db := openCapped(t, dir, 3)
+	db.PutIndexed("call:1", []byte("x"), IndexValues{"traceId": "T"})
+	db.PutIndexed("call:2", []byte("x"), IndexValues{"traceId": "T"})
+	db.PutIndexed("call:3", []byte("x"), IndexValues{"traceId": "T"})
+	db.PutIndexed("call:4", []byte("x"), IndexValues{"traceId": "T"}) // evicts call:1
+	db.Close()
+
+	// Reopen with the SAME cap: the eviction survived (tombstone + hint).
+	db2 := openCapped(t, dir, 3)
+	if db2.Has("call:1") {
+		t.Error("eviction of call:1 must survive reopen")
+	}
+	if got := mustBy(t, db2, "traceId", "T"); !eqStrs(got, []string{"call:2", "call:3", "call:4"}) {
+		t.Errorf("after reopen traceId T = %v", got)
+	}
+	db2.Close()
+
+	// Reopen with a LOWER cap: the group is over the cap at boot (no sweep),
+	// and the next write to that value drains the whole excess.
+	db3 := openCapped(t, dir, 1)
+	defer db3.Close()
+	if got := mustBy(t, db3, "traceId", "T"); len(got) != 3 {
+		t.Fatalf("boot state = %v, want the 3 pre-existing records (no boot sweep)", got)
+	}
+	db3.PutIndexed("call:5", []byte("x"), IndexValues{"traceId": "T"})
+	if got := mustBy(t, db3, "traceId", "T"); !eqStrs(got, []string{"call:5"}) {
+		t.Errorf("after cap-lowered write traceId T = %v, want [call:5]", got)
 	}
 }
 

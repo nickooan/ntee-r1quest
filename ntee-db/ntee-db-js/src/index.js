@@ -14,7 +14,7 @@ export class NteeDB {
 
   /**
    * Open (creating if needed) a store at `dir`.
-   * opts: { blobThreshold?, syncEveryWrite?, hintEveryN?, indexes?: [{name, kind:'string'|'number', jsonPath?}] }
+   * opts: { blobThreshold?, syncEveryWrite?, hintEveryN?, indexes?: [{name, kind:'string'|'number', jsonPath?, maxPerValue?}] }
    */
   static open(dir, opts = {}) {
     const handle = readEnvelope(fns.open(dir, JSON.stringify({ ...opts, dir })));

@@ -30,10 +30,21 @@ type IndexValues = map[string]any
 // itself" mode); when nil, the value must be supplied via PutIndexed. The
 // derived/supplied value is persisted in the record so the index can be rebuilt
 // at boot without re-reading values.
+//
+// MaxPerValue, when > 0, caps how many records may share one value in this
+// index. A write that pushes a value's group over the cap evicts the oldest
+// record(s) — lowest primary key within the group — as a full, durable delete
+// (tombstone; the record leaves the primary index and every secondary index).
+// "Oldest" therefore relies on the caller designing time-ordered keys (see the
+// README's key-design section). 0 or negative = unlimited. Enforced on the
+// write path only: not during boot replay or Reindex back-fill, but a group
+// left over the cap (e.g. after lowering it) is drained by the next write to
+// that value.
 type IndexDef struct {
-	Name    string
-	Kind    ValueKind
-	Extract func(key string, value []byte) (any, bool)
+	Name        string
+	Kind        ValueKind
+	Extract     func(key string, value []byte) (any, bool)
+	MaxPerValue int
 }
 
 // secEntry is one (value, primary-key) pair in a secondary index. For a string
@@ -51,11 +62,12 @@ type secEntry struct {
 type secIndex struct {
 	name    string
 	kind    ValueKind
+	max     int // cap on records per distinct value; <= 0 = unlimited
 	entries []secEntry
 }
 
 func newSecIndex(def IndexDef) *secIndex {
-	return &secIndex{name: def.Name, kind: def.Kind}
+	return &secIndex{name: def.Name, kind: def.Kind, max: def.MaxPerValue}
 }
 
 // makeEntry converts a value (string, or any numeric/json.Number) into a typed
@@ -361,8 +373,53 @@ func (db *DB) writeLocked(key string, value []byte, explicit IndexValues) error 
 	}
 	db.pk.upsert(pkEntry{key: key, off: off, n: n})
 	db.refreshSecLocked(key, ix)
+	if err := db.enforceMaxPerValueLocked(ix); err != nil {
+		return err
+	}
 	db.writes++
 	db.maybeWriteHintLocked()
+	return nil
+}
+
+// enforceMaxPerValueLocked applies each capped index's MaxPerValue to the value
+// groups this write just touched: while a group holds more than max records,
+// the lowest-pk (oldest, when keys encode time) records are evicted as full,
+// durable deletes — tombstone first, then primary-index removal and retraction
+// from every secondary index, exactly like Delete. Callers must hold db.mu.
+//
+// An overwrite of an existing key never grows a group (its old entry is
+// retracted before the new one is inserted), so it cannot trigger eviction.
+func (db *DB) enforceMaxPerValueLocked(ix map[string]any) error {
+	for name, val := range ix {
+		si := db.secIndexes[name]
+		if si == nil || si.max <= 0 {
+			continue
+		}
+		probe, err := si.makeEntry(val, "")
+		if err != nil {
+			continue // value already validated on write; be lenient here
+		}
+		lo := si.lowerBound(probe)
+		hi := si.upperBoundValue(probe)
+		excess := (hi - lo) - si.max
+		if excess <= 0 {
+			continue
+		}
+		// Snapshot the victim pks (the group's lowest) before retraction below
+		// mutates the entries slice we are reading.
+		victims := make([]string, 0, excess)
+		for i := lo; i < lo+excess; i++ {
+			victims = append(victims, si.entries[i].pk)
+		}
+		for _, pk := range victims {
+			if _, _, err := db.main.append(record{Key: pk, Deleted: true}); err != nil {
+				return err
+			}
+			db.pk.remove(pk)
+			db.retractSecLocked(pk)
+			db.writes++
+		}
+	}
 	return nil
 }
 

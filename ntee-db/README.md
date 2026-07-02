@@ -31,6 +31,24 @@ JSONL file is the source of truth, with an in-memory index for fast lookups.
 Supports exact lookup and **prefix** search on the primary key — no
 substring/fuzzy search.
 
+## Key design & ordering
+
+Primary keys are plain strings ordered **lexically**, and several features
+derive their time semantics from that order — the store itself never tracks
+insertion time. Design keys so that lexical order equals arrival order, e.g. a
+namespace plus a **zero-padded, monotonically increasing** suffix
+(`api:0000000000000123`):
+
+- `RemoveByPkLess(cutoff)` / `RemoveByPkGreater(cutoff)` — range-delete every
+  key strictly below/above a cutoff ("drop everything older than…").
+- `ByIndex(name, val, -N)` / `ByIndexPrefix(name, prefix, -N)` — negative limits
+  return the **last** |N| primary keys (newest-first when keys encode time).
+- `MaxPerValue` eviction — the "oldest" record of an over-cap index value is
+  the **lowest primary key** in its group.
+
+With non-time-ordered keys these features still work, but "oldest/newest" means
+"smallest/largest key" — so pick key shapes deliberately.
+
 ## Secondary indexes
 
 Declare named secondary indexes (`string` or `number`) to look records up by
@@ -52,10 +70,17 @@ db, _ := nteedb.Open(nteedb.Options{
 db.PutIndexed("call:1", body, nteedb.IndexValues{"traceId": "T1", "status": 200})
 db.Put("r1", jsonBody) // indexes with Extract derive their values automatically
 
-db.ByIndex("traceId", "T1")        // → all primary keys with traceId T1
+db.ByIndex("traceId", "T1")         // → all primary keys with traceId T1
+db.ByIndex("traceId", "T1", -1)     // → just the last (newest) key; +N = first N
 db.ByIndexRange("status", 200, 299) // → keys in a numeric range
 db.ByIndexPrefix("traceId", "Get")  // → string-prefix match
+db.ByIndexPrefix("traceId", "Get", -1) // → the newest key of EACH matching value
 ```
+
+`ByIndex` takes an optional limit: `0` (or omitted) = all matches ascending,
+`N>0` = first N, `N<0` = last |N| descending. `ByIndexPrefix`'s limit is
+**grouped per distinct value** — `-1` returns the newest record of every value
+matching the prefix (e.g. the latest call per endpoint).
 
 Index values are persisted in each record (and in the hint), so indexes are
 rebuilt at boot from the small main-log lines / hint alone — no value or blob
@@ -64,6 +89,29 @@ overwrite/delete. Compaction preserves all secondary lookups.
 
 Simpler grouping (without declaring an index) can also be done by **namespacing
 keys** (e.g. `input:`, `api:`) and prefix-scanning the primary key.
+
+### Capping records per value (`MaxPerValue`)
+
+An index can cap how many records share one value. When a write pushes a
+value's group over the cap, the **oldest** record(s) — lowest primary key in the
+group (see "Key design & ordering") — are evicted automatically:
+
+```go
+Indexes: []nteedb.IndexDef{
+    // Keep at most the 5 newest records per endpoint value:
+    {Name: "endpoint", Kind: nteedb.KindString, MaxPerValue: 5},
+},
+```
+
+Eviction is a **full, durable delete**, identical to `Delete(pk)`: a tombstone
+is appended to the log, and the record leaves the primary index and **every**
+secondary index (a record evicted via its `endpoint` cap also disappears from
+its `traceId` index, for example). `0` or omitted = unlimited.
+
+Enforcement happens on the write path only. Boot replay and `Reindex` don't
+evict — but if a group exceeds its cap (e.g. after lowering the cap between
+opens), the next write to that value drains the whole excess. Overwriting an
+existing key never triggers eviction (the group doesn't grow).
 
 ### Changing the index set
 
@@ -102,6 +150,13 @@ db.Put("input:GetOrders", []byte("..."))
 v, ok, err := db.Get("input:GetOrders")
 keys, err := db.PrefixScan("input:Get") // sorted keys with that prefix
 db.Delete("input:GetOrders")
+
+// Range delete by primary key (strict bounds; the cutoff key itself is kept).
+// With time-ordered keys this is "drop everything older/newer than X".
+// Tombstone-based and crash-safe; run Compact() to reclaim the disk space.
+n, err := db.RemoveByPkLess("api:0000000000000123")   // delete every key < cutoff
+n, err = db.RemoveByPkGreater("api:0000000000000456") // delete every key > cutoff
+
 db.Compact()
 ```
 

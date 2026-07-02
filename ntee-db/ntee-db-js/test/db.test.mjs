@@ -113,6 +113,24 @@ test('removeByPkLess / removeByPkGreater (range delete, count, secondary sweep)'
   });
 });
 
+test('maxPerValue caps records per index value (oldest evicted)', async () => {
+  await withDB({ indexes: [{ name: 'traceId', kind: 'string', maxPerValue: 2 }] }, (db) => {
+    db.put('call:1', 'a', { traceId: 'T' });
+    db.put('call:2', 'b', { traceId: 'T' });
+    // Third record with the same value: lowest pk (call:1) is fully deleted.
+    db.put('call:3', 'c', { traceId: 'T' });
+
+    assert.equal(db.get('call:1'), null);
+    assert.equal(db.has('call:1'), false);
+    assert.deepEqual(db.byIndex('traceId', 'T'), ['call:2', 'call:3']);
+
+    // A different value has its own budget.
+    db.put('other:1', 'x', { traceId: 'U' });
+    assert.deepEqual(db.byIndex('traceId', 'U'), ['other:1']);
+    assert.deepEqual(db.byIndex('traceId', 'T'), ['call:2', 'call:3']);
+  });
+});
+
 test('byIndex limit + direction (first N asc / last N desc)', async () => {
   await withDB({ indexes: [{ name: 'traceId', kind: 'string' }] }, (db) => {
     for (let i = 1; i <= 6; i++) db.put(`call:${i}`, '{}', { traceId: 'T' });

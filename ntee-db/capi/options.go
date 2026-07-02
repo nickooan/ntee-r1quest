@@ -19,9 +19,10 @@ type jsonOptions struct {
 }
 
 type jsonIndex struct {
-	Name     string `json:"name"`
-	Kind     string `json:"kind"`     // "string" | "number"
-	JSONPath string `json:"jsonPath"` // optional dotted path into a JSON value
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`        // "string" | "number"
+	JSONPath    string `json:"jsonPath"`    // optional dotted path into a JSON value
+	MaxPerValue int    `json:"maxPerValue"` // cap on records per distinct value; 0 = unlimited
 }
 
 // parseOptions builds nteedb.Options from the dir + an options JSON string.
@@ -45,7 +46,7 @@ func parseOptions(dir, optsJSON string) (nteedb.Options, error) {
 		if ji.Kind == "number" {
 			kind = nteedb.KindNumber
 		}
-		def := nteedb.IndexDef{Name: ji.Name, Kind: kind}
+		def := nteedb.IndexDef{Name: ji.Name, Kind: kind, MaxPerValue: ji.MaxPerValue}
 		if ji.JSONPath != "" {
 			def.Extract = jsonPathExtractor(ji.JSONPath, kind)
 		}

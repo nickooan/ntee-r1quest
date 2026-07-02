@@ -11,6 +11,14 @@ export interface IndexDef {
    * reindex() can back-fill it over historical records.
    */
   jsonPath?: string;
+  /**
+   * Cap on records sharing one value in this index. A write that pushes a
+   * value's group over the cap evicts the oldest record(s) — lowest primary
+   * key in the group — as a full, durable delete (the record leaves the store
+   * and every index; design time-ordered keys so lowest pk = oldest).
+   * 0 or omitted = unlimited.
+   */
+  maxPerValue?: number;
 }
 
 export interface OpenOptions {
