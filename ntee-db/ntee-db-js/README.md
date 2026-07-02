@@ -15,11 +15,17 @@ Microbenchmark vs `lmdb` (lmdb-js) from Node, on a cache-shaped workload:
 
 | Operation                    | @ntee/ntee-db | lmdb                       | Faster            |
 | ---------------------------- | ------------- | -------------------------- | ----------------- |
-| `get`                        | 5.2 µs/op     | 0.7 µs/op                  | lmdb ~7×          |
-| exists check                 | 1.2 µs/op     | 0.5 µs/op                  | lmdb ~2×          |
-| put (non-durable path)       | 4.1 µs/op     | 0.9 µs/op (async, batched) | lmdb ~4×          |
-| **put (synchronous commit)** | **4.1 µs/op** | 2,717 µs/op (`putSync`)    | **ntee-db ~650×** |
-| prefix scan, all 20k keys    | **2.4 ms**    | 5.9 ms (range scan)        | **ntee-db ~2×**   |
+| `get`                        | 5.3 µs/op     | 0.7 µs/op                  | lmdb ~7×          |
+| exists check                 | 1.1 µs/op     | 0.5 µs/op                  | lmdb ~2×          |
+| put (non-durable path)       | 4.1 µs/op     | 1.0 µs/op (async, batched) | lmdb ~4×          |
+| **put (synchronous commit)** | **4.1 µs/op** | 2,827 µs/op (`putSync`)    | **ntee-db ~690×** |
+| put (sync, `hintEveryN: 5`)  | 15.4 µs/op    | —                          |                   |
+| prefix scan, all 20k keys    | **2.7 ms**    | 5.8 ms (range scan)        | **ntee-db ~2×**   |
+
+The `hintEveryN: 5` row is the app's boot-optimization config: periodic hint
+rewrites run in a **background goroutine**, so a put only pays a cheap
+in-memory snapshot (~11 µs at this uncapped 20k size — before hints went
+async, this same row measured **~1.3 ms/op**, a ~85× improvement).
 
 Note: `prefixScan` above is the **primary-key** prefix scan — it needs no index
 declaration (the PK index always exists), and lmdb's counterpart is likewise a
@@ -34,12 +40,19 @@ code this store replaces):
 
 | Operation                                   | @ntee/ntee-db         | lmdb                          | Faster            |
 | ------------------------------------------- | --------------------- | ----------------------------- | ----------------- |
-| put carrying 2 index values (sync)          | 16.8 µs/op            | 1.2 µs/op (async, no indexes) | lmdb\*            |
-| latest call of one endpoint (`byIndex`, -1) | 2.5 µs/op             | —                             |                   |
-| **latest call of every endpoint (500/20k)** | **0.1 ms** (one call) | 18.4 ms (scan + dedup)        | **ntee-db ~180×** |
+| put carrying 2 index values (sync)          | 16.8 µs/op            | 1.1 µs/op (async, no indexes) | lmdb\*            |
+| put, full app config\*\*                    | 67 µs/op              | —                             |                   |
+| latest call of one endpoint (`byIndex`, -1) | 2.4 µs/op             | —                             |                   |
+| **latest call of every endpoint (500/20k)** | **0.1 ms** (one call) | 19.4 ms (scan + dedup)        | **ntee-db ~190×** |
 
 \* not equivalent work: lmdb's put maintains no indexes — the index cost lands
-on every query instead (the 18.4 ms row).
+on every query instead (the 19.4 ms row).
+
+\*\* the app's exact open options: 2 indexes + `maxPerValue: 5` on `endpoint` +
+`hintEveryN: 5`. The extra cost over the plain indexed put is real retention
+work: this run performs ~17.5k automatic evictions (each a durable tombstone
+delete) to hold every endpoint at its 5 newest records — the price of the store
+never growing. Still synchronous and imperceptible at human pace.
 
 How to read this honestly:
 
@@ -47,10 +60,10 @@ How to read this honestly:
   zero-copy reads; an ntee-db `get` pays an FFI crossing + a `pread` +
   JSON/base64 marshaling. Both are microseconds — for tens of ops per user
   interaction the difference is imperceptible.
-- **Synchronous writes: ntee-db wins (~650×).** The append-only log makes a
+- **Synchronous writes: ntee-db wins (~690×).** The append-only log makes a
   caller-synchronous write a single ~4 µs append, so a CLI that exits right
   after a request still persists its record. lmdb's equivalent (`putSync`)
-  commits a copy-on-write transaction per call (~2.7 ms); its fast write path
+  commits a copy-on-write transaction per call (~2.8 ms); its fast write path
   is async/batched — similar durability to ntee-db's default, but not
   synchronous to the caller.
 - **Scans: ntee-db wins (~2×; ~180× once indexes matter).** Keys live in a
@@ -226,6 +239,14 @@ time("ntee-db has", () => {
 }
 ndb.close()
 
+// --- the app's boot-optimization config: periodic hints (async, background) ---
+rmSync("./ntee-hints", { recursive: true, force: true })
+const nh = NteeDB.open("./ntee-hints", { hintEveryN: 5 })
+time("ntee-db put (sync, hintEveryN=5)", () => {
+  for (let i = 0; i < N; i++) nh.put(key(i), value)
+})
+nh.close()
+
 // --- lmdb ---
 rmSync("./lmdb-store", { recursive: true, force: true })
 const ldb = lmdbOpen({ path: "./lmdb-store" })
@@ -311,6 +332,23 @@ const ndb = NteeDB.open("./ntee-ix", {
   )
 }
 ndb.close()
+
+// --- the app's FULL open config: 2 indexes + maxPerValue:5 + hintEveryN:5 ---
+rmSync("./ntee-full", { recursive: true, force: true })
+const nf = NteeDB.open("./ntee-full", {
+  hintEveryN: 5,
+  indexes: [
+    { name: "endpoint", kind: "string", maxPerValue: 5 },
+    { name: "traceId", kind: "string" },
+  ],
+})
+{
+  const t0 = performance.now()
+  for (let i = 0; i < N; i++)
+    nf.put(key(i), value(i), { endpoint: endpoint(i), traceId: traceId(i) })
+  report("ntee-db put (FULL app config)", performance.now() - t0, N)
+}
+nf.close()
 
 // --- lmdb: same records; "latest per endpoint" = scan + parse + dedup in JS ---
 rmSync("./lmdb-ix", { recursive: true, force: true })
