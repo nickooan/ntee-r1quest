@@ -125,6 +125,9 @@ export type InitializeHomeConfigResult = {
 export type HomeConfigInput = {
   root: string | null
   ai?: "codex" | "claude" | "cursor"
+  // Unix socket an open terminal app listens on for one-shot request events
+  // (highlight + history hand-off). `--init` defaults it under the OS temp dir.
+  sock?: string
 }
 
 export const initializeHomeConfig = (

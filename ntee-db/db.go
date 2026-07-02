@@ -77,6 +77,7 @@ type DB struct {
 	metaPath string
 
 	mu     sync.RWMutex
+	lock   *os.File   // exclusive flock handle enforcing a single writer process
 	main   *mainLog   // append writer for main.jsonl (the main table)
 	rf     *os.File   // read handle for main.jsonl (ReadAt is concurrency-safe)
 	blobs  *blobStore // large-value side file
@@ -114,8 +115,23 @@ func Open(opts Options) (*DB, error) {
 		return nil, err
 	}
 
+	// Enforce a single writer process before touching any store file. The lock
+	// is released on every failed-Open path below, on Close, and automatically
+	// by the kernel if the process dies.
+	lock, err := acquireLock(opts.Dir)
+	if err != nil {
+		return nil, err
+	}
+	opened := false
+	defer func() {
+		if !opened {
+			_ = lock.Close()
+		}
+	}()
+
 	db := &DB{
 		opts:        opts,
+		lock:        lock,
 		mainPath:    filepath.Join(opts.Dir, mainFile),
 		hintPath:    filepath.Join(opts.Dir, hintFile),
 		blobPath:    filepath.Join(opts.Dir, blobFile),
@@ -168,6 +184,7 @@ func Open(opts Options) (*DB, error) {
 	db.main = lg
 	db.rf = rf
 	db.blobs = blobs
+	opened = true
 	return db, nil
 }
 
@@ -508,6 +525,12 @@ func (db *DB) Close() error {
 	}
 	if db.blobs != nil {
 		if e := db.blobs.close(); e != nil && err == nil {
+			err = e
+		}
+	}
+	// Release the single-writer lock last, once the store's files are closed.
+	if db.lock != nil {
+		if e := db.lock.Close(); e != nil && err == nil {
 			err = e
 		}
 	}

@@ -18,6 +18,21 @@ async function withDB(opts, fn) {
   }
 }
 
+test("single-writer lock: second open of the same store throws", async () => {
+  await withDB({}, (db, dir) => {
+    // The store is held by `db` — a second opener must fail fast.
+    assert.throws(() => NteeDB.open(dir, {}), /locked/)
+    // The first handle is unaffected.
+    db.put("k", "v")
+    assert.equal(db.get("k").toString(), "v")
+    // After releasing, the store opens again.
+    db.close()
+    const db2 = NteeDB.open(dir, {})
+    assert.equal(db2.get("k").toString(), "v")
+    db2.close()
+  })
+})
+
 test("put/get/has/delete round-trip", async () => {
   await withDB({}, (db) => {
     db.put("alpha", Buffer.from("one"))

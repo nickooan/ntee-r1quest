@@ -43,10 +43,12 @@ func TestHintStaleThenTailReplay(t *testing.T) {
 	}
 	db.Put("b", []byte("2"))
 	db.Put("a", []byte("11")) // overwrite after checkpoint
-	// Close writes a fresh full hint, so to keep the hint stale we bypass it:
+	// Close writes a fresh full hint, so to keep the hint stale we bypass it.
+	// Releasing the lock mirrors what the kernel does on process death.
 	db.main.flush()
 	db.main.close()
 	db.rf.Close()
+	db.lock.Close()
 	db.closed = true
 
 	// Reopen: hint covers only {a}@old; boot must replay the tail to pick up

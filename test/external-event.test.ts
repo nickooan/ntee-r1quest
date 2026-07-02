@@ -94,4 +94,45 @@ describe("external event runtime", () => {
       )
     }).toThrow("External event traceId must be a string.")
   })
+
+  test("round-trips the full call record payload", () => {
+    const call = {
+      at: 1000,
+      durationMs: 25,
+      traceId: "T1",
+      request: {
+        url: "https://h/api/users",
+        method: "get",
+        headers: { accept: "application/json" },
+      },
+      response: { status: 200, headers: {}, data: { id: 1 } },
+    }
+
+    const event = buildExternalRequestEvent("nested/get", 42, "ok", "T1", call)
+
+    expect(parseExternalRequestEvent(JSON.stringify(event)).call).toEqual(call)
+  })
+
+  test("parses events without a call payload (older senders)", () => {
+    const event = buildExternalRequestEvent("nested/get", 42, "ok")
+
+    expect(event.call).toBeUndefined()
+    expect(
+      parseExternalRequestEvent(JSON.stringify(event)).call,
+    ).toBeUndefined()
+  })
+
+  test("rejects a malformed call payload", () => {
+    expect(() => {
+      parseExternalRequestEvent(
+        JSON.stringify({
+          ntsPath: "nested",
+          ntsFile: "get.nts",
+          time: 42,
+          responseContent: "ok",
+          call: { at: 1, durationMs: 2, request: {}, response: {} },
+        }),
+      )
+    }).toThrow("External event call.response.status must be a number.")
+  })
 })

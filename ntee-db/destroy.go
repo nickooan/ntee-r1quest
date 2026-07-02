@@ -15,6 +15,7 @@ var storeFiles = []string{
 	hintFile + ".tmp",
 	metaFile,
 	metaFile + ".tmp",
+	lockFile,
 }
 
 // Destroy deletes all of a store's files in dir. The store must not be open. The

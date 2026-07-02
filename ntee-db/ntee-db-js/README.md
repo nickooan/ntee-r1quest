@@ -107,12 +107,13 @@ structurally immune to its own weaknesses at this scale._
   construction and the hint keeps boots fast; a local single-user cache has no
   growth path to "millions of records". Conversely, lmdb's superpowers (huge
   datasets, ACID transactions) were dead weight for this workload.
-- **The one honest gap: multi-process.** "Local app" is not strictly "single
-  process" — a TUI session plus a one-shot run can briefly overlap on the same
-  store, which lmdb handled natively and ntee-db does not guard yet. The cache
-  is best-effort and clearable, so the blast radius is small (lost cache
-  updates, not app breakage), and a single-writer lock file — second opener
-  fails, cache degrades to a no-op for that process — is the planned fix.
+- **Multi-process is guarded by a single-writer lock.** "Local app" is not
+  strictly "single process" — a TUI session plus a one-shot run can briefly
+  overlap on the same store. `open` takes an exclusive kernel lock (`flock`) on
+  the store; a second opener fails fast and the app degrades that process to a
+  cache-less run. The lock is kernel-owned and tied to the process, so it
+  releases automatically on any exit — Ctrl+C, crash, `kill -9` — with no
+  stale-lock state possible.
 
 ## Usage
 

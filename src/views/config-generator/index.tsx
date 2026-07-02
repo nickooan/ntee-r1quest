@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react"
 import { Box, Text, useApp, useInput } from "ink"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { HomeConfigInput } from "../../runtime/config.ts"
 
 export type ConfigGeneratorProps = {
@@ -14,6 +16,11 @@ const aiOptions = [
   { label: "Cursor", value: "cursor" },
 ] as const
 
+// Default Unix socket for one-shot ↔ open-app events, under the OS temp dir.
+// With a socket configured, a `-p` run can hand its call record to an open
+// terminal app (which holds the history store's single-writer lock).
+export const defaultSockPath = (): string => join(tmpdir(), "ntee-r1quest.sock")
+
 export const buildHomeConfigInput = (
   root: string,
   selectedAiIndex: number,
@@ -23,6 +30,7 @@ export const buildHomeConfigInput = (
   return {
     root: root.trim() || null,
     ...(selectedAi?.value ? { ai: selectedAi.value } : {}),
+    sock: defaultSockPath(),
   }
 }
 
