@@ -1,5 +1,5 @@
 import { describe, expect, test } from "@jest/globals"
-import { formatEndpointLabel } from "../src/runtime/cache/endpoint.ts"
+import { formatEndpointLabel } from "../src/runtime/cache/endpoint-label-helper.ts"
 
 describe("formatEndpointLabel", () => {
   test("uses path + method for plain REST requests", () => {

@@ -9,12 +9,12 @@ export const clearCache = async (): Promise<void> => {
   }
 
   try {
-    await Promise.all([
-      cache.input.clearAsync(),
-      cache.api.clearAsync(),
-      cache.trace.clearAsync(),
-      cache.system.clearAsync(),
-    ])
+    // Delete every key across all namespaces, then reclaim the dead records.
+    for (const key of cache.prefixScan("")) {
+      cache.delete(key)
+    }
+
+    await cache.compact()
   } catch {
     // ignore cache clear failures
   }

@@ -1,5 +1,7 @@
-// Pure helpers for deriving the history cache key / label from a request.
-// Kept free of the LMDB import so they can be unit-tested directly.
+// Pure helpers for deriving the endpoint label/key from a request (e.g.
+// "/orders [get]" or "CreatePost [mutation]"). This is NOT a store — it just
+// builds the string used as the api: cache key. Kept free of the store/native
+// import so the label logic stays unit-testable without loading the native DB.
 
 export const derivePath = (url: string | undefined): string => {
   if (!url) {

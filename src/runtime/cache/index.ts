@@ -1,12 +1,13 @@
-// Barrel for the best-effort LMDB cache. Each handler lives in its own module
-// and shares the single connection opened by `openCache` (./store.ts).
+// Barrel for the best-effort embedded cache (ntee-db). Each handler lives in
+// its own module and shares the single store opened by `openCache` (./store.ts).
 
-export { formatEndpointLabel } from "./endpoint.ts"
-export { openCache, type CacheHandles } from "./store.ts"
+export { formatEndpointLabel } from "./endpoint-label-helper.ts"
+export { openCache } from "./store.ts"
 export { recordInput, suggestInputs, type InputRecord } from "./input.ts"
 export {
   recordApiCall,
   listApiEndpoints,
+  listApiEndpointsByPrefix,
   getApiCall,
   type ApiCallRequest,
   type ApiCallResponse,

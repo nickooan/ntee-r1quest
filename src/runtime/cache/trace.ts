@@ -1,9 +1,13 @@
 import type { ApiCallRecord } from "./api.ts"
-import { openCache } from "./store.ts"
+import { TRACE_INDEX, openCache } from "./store.ts"
 
 /**
  * Returns every call recorded under a trace id, in call order (the order they
  * were made). Empty when the id is unknown.
+ *
+ * Each traced call is its own record carrying a `traceId` secondary index, so
+ * this is a multi-value index lookup: the index returns all matching call
+ * records (repeats included), in their key order — which is call order.
  */
 export const listTraceCalls = (traceId: string): ApiCallRecord[] => {
   const cache = openCache()
@@ -13,7 +17,21 @@ export const listTraceCalls = (traceId: string): ApiCallRecord[] => {
   }
 
   try {
-    return cache.trace.get(traceId) ?? []
+    const records: ApiCallRecord[] = []
+
+    for (const { value } of cache.searchByIndex(TRACE_INDEX, traceId)) {
+      if (!value) {
+        continue
+      }
+
+      try {
+        records.push(JSON.parse(value.toString("utf8")) as ApiCallRecord)
+      } catch {
+        // skip a corrupt record
+      }
+    }
+
+    return records
   } catch {
     return []
   }
