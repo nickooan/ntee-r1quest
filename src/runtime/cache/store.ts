@@ -46,7 +46,7 @@ export const openCache = (): NteeDB | null => {
     store = NteeDB.open(directory, {
       hintEveryN: 5,
       indexes: [
-        { name: ENDPOINT_INDEX, kind: "string" },
+        { name: ENDPOINT_INDEX, kind: "string", maxPerValue: 5 },
         { name: TRACE_INDEX, kind: "string" },
       ],
     })
