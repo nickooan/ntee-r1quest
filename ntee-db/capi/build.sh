@@ -20,5 +20,7 @@ dir="$OUT_ROOT/${goos}-${goarch}"
 mkdir -p "$dir"
 
 echo "Building libnteedb.$ext for ${goos}-${goarch} ..."
-CGO_ENABLED=1 go build -buildmode=c-shared -o "$dir/libnteedb.$ext" .
+# -s -w strips the symbol table and DWARF debug info (~30-40% smaller); the
+# library is only ever called through its C ABI, so they are dead weight.
+CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -buildmode=c-shared -o "$dir/libnteedb.$ext" .
 echo "→ $dir/libnteedb.$ext"

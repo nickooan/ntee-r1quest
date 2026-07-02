@@ -37,10 +37,15 @@
   "workspaces": [
     "ntee-db/ntee-db-js"
   ],
+  "bundleDependencies": [
+    "@ntee/ntee-db"
+  ],
   "scripts": {
     "build:ts": "node ./bin/scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node ./bin/scripts/copy-assets.mjs",
     "build:tui": "node ./bin/scripts/build-tui.mjs",
-    "build": "npm run build:ts && npm run build:tui",
+    "build:db": "bash ntee-db/capi/build.sh && npm run build:db-linux",
+    "build:db-linux": "node ./bin/scripts/build-db-linux.mjs",
+    "build": "npm run build:ts && npm run build:tui && npm run build:db",
     "prepack": "npm run build",
     "start:go": "npm run build && npm run start",
     "format": "prettier . --write",
