@@ -1,8 +1,14 @@
 # ntee-db (`nteedb`)
 
 A small, pure-Go (stdlib-only, no external dependencies) embedded key-value
-store for local CLI/TUI apps. Log-structured (Bitcask-style): an append-only
-JSONL file is the source of truth, with an in-memory index for fast lookups.
+store for local CLI/TUI apps. **Log-structured**: an append-only JSONL file is
+the source of truth, with in-memory indexes for fast lookups.
+
+Beyond plain get/put, it supports **secondary indexes** (string/number, multi-
+value) with exact, **prefix**, and range queries — exact and prefix take a `±N`
+limit (first/last N; grouped per value for prefix) — plus **automatic per-value
+capping** (`MaxPerValue`, keep only the newest N records per index value) and
+**range delete by primary key** for time-based pruning.
 
 ## Design
 

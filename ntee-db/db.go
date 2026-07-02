@@ -1,6 +1,6 @@
 // Package nteedb is a pure-Go, dependency-free embedded key-value store.
 //
-// It is log-structured (Bitcask-style): an append-only JSONL "main table" is
+// It is log-structured: an append-only JSONL "main table" is
 // the source of truth, and an in-memory index maps each key to the byte offset
 // of its latest record in that file. The data log doubles as the write-ahead
 // log, so there is no separate WAL — the index is always rebuildable from the
