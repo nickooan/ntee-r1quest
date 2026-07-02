@@ -40,6 +40,8 @@ export const fns = {
   byIndex: def('nteedb_by_index', ['uint', 'str', 'str', 'int']),
   byIndexPrefix: def('nteedb_by_index_prefix', ['uint', 'str', 'str', 'int']),
   byIndexRange: def('nteedb_by_index_range', ['uint', 'str', 'str', 'str']),
+  removeByPkLess: def('nteedb_remove_by_pk_less', ['uint', 'str']),
+  removeByPkGreater: def('nteedb_remove_by_pk_greater', ['uint', 'str']),
   compact: def('nteedb_compact', ['uint']),
   reindex: def('nteedb_reindex', ['uint']),
   droppedIndexes: def('nteedb_dropped_indexes', ['uint']),

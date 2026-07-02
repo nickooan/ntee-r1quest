@@ -120,6 +120,95 @@ func TestSecondaryPrefixGroupedLimit(t *testing.T) {
 	}
 }
 
+func TestRemoveByPkRangeDelete(t *testing.T) {
+	db := openIndexed(t, t.TempDir())
+	defer db.Close()
+
+	// Five time-ordered keys, each with a distinct traceId secondary value.
+	for _, c := range []struct{ key, trace string }{
+		{"call:1", "T1"}, {"call:2", "T2"}, {"call:3", "T3"},
+		{"call:4", "T4"}, {"call:5", "T5"},
+	} {
+		db.PutIndexed(c.key, []byte("v"), IndexValues{"traceId": c.trace})
+	}
+
+	// RemoveByPkLess is strict: "call:3" itself survives; call:1/2 go.
+	n, err := db.RemoveByPkLess("call:3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("RemoveByPkLess count = %d, want 2", n)
+	}
+	if db.Has("call:1") || db.Has("call:2") {
+		t.Error("call:1/call:2 should be gone from the primary index")
+	}
+	if !db.Has("call:3") {
+		t.Error("call:3 (the cutoff) must survive a strict less-than delete")
+	}
+	// Secondary entries for the deleted keys must be swept (no ghosts).
+	if got := mustBy(t, db, "traceId", "T1"); len(got) != 0 {
+		t.Errorf("traceId T1 after delete = %v, want empty", got)
+	}
+	if got := mustBy(t, db, "traceId", "T3"); !eqStrs(got, []string{"call:3"}) {
+		t.Errorf("traceId T3 = %v, want [call:3]", got)
+	}
+
+	// RemoveByPkGreater is strict too: "call:3" survives; call:4/5 go.
+	n, err = db.RemoveByPkGreater("call:3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("RemoveByPkGreater count = %d, want 2", n)
+	}
+	if db.Has("call:4") || db.Has("call:5") {
+		t.Error("call:4/call:5 should be gone")
+	}
+	if !db.Has("call:3") {
+		t.Error("call:3 must survive a strict greater-than delete")
+	}
+	if got := mustBy(t, db, "traceId", "T5"); len(got) != 0 {
+		t.Errorf("traceId T5 after delete = %v, want empty", got)
+	}
+
+	// A no-op range (nothing strictly less than the smallest key) removes nothing.
+	if n, _ := db.RemoveByPkLess("call:3"); n != 0 {
+		t.Errorf("no-op RemoveByPkLess count = %d, want 0", n)
+	}
+}
+
+func TestRemoveByPkRangeDurableAfterReopen(t *testing.T) {
+	dir := t.TempDir()
+	db := openIndexed(t, dir)
+	for _, c := range []struct{ key, trace string }{
+		{"call:1", "T1"}, {"call:2", "T2"}, {"call:3", "T3"},
+	} {
+		db.PutIndexed(c.key, []byte("v"), IndexValues{"traceId": c.trace})
+	}
+	if _, err := db.RemoveByPkLess("call:3"); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	// Reopen: the deletions (tombstones + hint) must survive, primary and
+	// secondary alike.
+	db2 := openIndexed(t, dir)
+	defer db2.Close()
+	if db2.Has("call:1") || db2.Has("call:2") {
+		t.Error("deleted keys resurfaced after reopen")
+	}
+	if !db2.Has("call:3") {
+		t.Error("call:3 should still exist after reopen")
+	}
+	if got := mustBy(t, db2, "traceId", "T1"); len(got) != 0 {
+		t.Errorf("after reopen traceId T1 = %v, want empty", got)
+	}
+	if got := mustBy(t, db2, "traceId", "T3"); !eqStrs(got, []string{"call:3"}) {
+		t.Errorf("after reopen traceId T3 = %v, want [call:3]", got)
+	}
+}
+
 func TestSecondaryRebuildAfterReopen(t *testing.T) {
 	dir := t.TempDir()
 	db := openIndexed(t, dir)

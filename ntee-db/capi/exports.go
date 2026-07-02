@@ -192,6 +192,32 @@ func nteedb_by_index_range(h C.uint, name *C.char, loJSON *C.char, hiJSON *C.cha
 	return reply(emptyIfNil(keys), nil)
 }
 
+//export nteedb_remove_by_pk_less
+func nteedb_remove_by_pk_less(h C.uint, cutoff *C.char) *C.char {
+	db := regGet(uint32(h))
+	if db == nil {
+		return reply(nil, errInvalidHandle)
+	}
+	n, err := db.RemoveByPkLess(C.GoString(cutoff))
+	if err != nil {
+		return reply(nil, err)
+	}
+	return reply(n, nil)
+}
+
+//export nteedb_remove_by_pk_greater
+func nteedb_remove_by_pk_greater(h C.uint, cutoff *C.char) *C.char {
+	db := regGet(uint32(h))
+	if db == nil {
+		return reply(nil, errInvalidHandle)
+	}
+	n, err := db.RemoveByPkGreater(C.GoString(cutoff))
+	if err != nil {
+		return reply(nil, err)
+	}
+	return reply(n, nil)
+}
+
 //export nteedb_compact
 func nteedb_compact(h C.uint) *C.char {
 	db := regGet(uint32(h))

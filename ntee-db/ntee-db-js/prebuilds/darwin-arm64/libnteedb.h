@@ -99,6 +99,8 @@ extern char* nteedb_prefix_scan(unsigned int h, char* prefix);
 extern char* nteedb_by_index(unsigned int h, char* name, char* valJSON, int limit);
 extern char* nteedb_by_index_prefix(unsigned int h, char* name, char* prefix, int limit);
 extern char* nteedb_by_index_range(unsigned int h, char* name, char* loJSON, char* hiJSON);
+extern char* nteedb_remove_by_pk_less(unsigned int h, char* cutoff);
+extern char* nteedb_remove_by_pk_greater(unsigned int h, char* cutoff);
 extern char* nteedb_compact(unsigned int h);
 extern char* nteedb_reindex(unsigned int h);
 extern char* nteedb_dropped_indexes(unsigned int h);

@@ -101,6 +101,26 @@ export class NteeDB {
     return readEnvelope(fns.prospectiveIndexes(this.#h)) ?? [];
   }
 
+  /**
+   * Delete every key strictly less than `cutoff` (the cutoff key itself is
+   * kept). Keys are compared lexically, so the caller's key design decides what
+   * the range means. Async — runs off the event loop; resolves to the number of
+   * keys removed. Does not reclaim disk (call compact() for that).
+   */
+  removeByPkLess(cutoff) {
+    this.#assertOpen();
+    return callAsync(fns.removeByPkLess, this.#h, cutoff);
+  }
+
+  /**
+   * Delete every key strictly greater than `cutoff` (the cutoff key itself is
+   * kept). Async; resolves to the number of keys removed.
+   */
+  removeByPkGreater(cutoff) {
+    this.#assertOpen();
+    return callAsync(fns.removeByPkGreater, this.#h, cutoff);
+  }
+
   /** Reclaim dead records (async — runs off the event loop). */
   compact() {
     this.#assertOpen();

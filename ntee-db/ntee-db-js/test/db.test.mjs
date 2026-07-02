@@ -90,6 +90,29 @@ test('byIndexPrefix grouped +/-N limit + searchByIndexPrefix records', async () 
   });
 });
 
+test('removeByPkLess / removeByPkGreater (range delete, count, secondary sweep)', async () => {
+  await withDB({ indexes: [{ name: 'traceId', kind: 'string' }] }, async (db) => {
+    for (let i = 1; i <= 5; i++) db.put(`call:${i}`, '{}', { traceId: `T${i}` });
+
+    // Strict: call:3 (the cutoff) survives; call:1/2 removed. Resolves to count.
+    assert.equal(await db.removeByPkLess('call:3'), 2);
+    assert.equal(db.get('call:1'), null);
+    assert.equal(db.has('call:3'), true);
+    // Secondary swept — no ghost for a deleted key.
+    assert.deepEqual(db.byIndex('traceId', 'T1'), []);
+    assert.deepEqual(db.byIndex('traceId', 'T3'), ['call:3']);
+
+    // Strict greater: call:4/5 removed, call:3 kept.
+    assert.equal(await db.removeByPkGreater('call:3'), 2);
+    assert.equal(db.has('call:4'), false);
+    assert.equal(db.has('call:3'), true);
+    assert.deepEqual(db.byIndex('traceId', 'T5'), []);
+
+    // No-op range removes nothing.
+    assert.equal(await db.removeByPkLess('call:3'), 0);
+  });
+});
+
 test('byIndex limit + direction (first N asc / last N desc)', async () => {
   await withDB({ indexes: [{ name: 'traceId', kind: 'string' }] }, (db) => {
     for (let i = 1; i <= 6; i++) db.put(`call:${i}`, '{}', { traceId: 'T' });

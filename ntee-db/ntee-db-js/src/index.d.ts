@@ -71,6 +71,18 @@ export declare class NteeDB {
   /** Indexes not yet back-filled over pre-existing records. */
   prospectiveIndexes(): string[];
 
+  /**
+   * Delete every key strictly less than `cutoff` (cutoff kept). Lexical key
+   * comparison; runs off the event loop. Resolves to the number removed. Does
+   * not reclaim disk — call compact() for that.
+   */
+  removeByPkLess(cutoff: string): Promise<number>;
+  /**
+   * Delete every key strictly greater than `cutoff` (cutoff kept). Runs off the
+   * event loop; resolves to the number removed.
+   */
+  removeByPkGreater(cutoff: string): Promise<number>;
+
   /** Reclaim dead records (runs off the event loop). */
   compact(): Promise<void>;
   /** Back-fill Extract-based indexes over history + purge dropped (off the event loop). */

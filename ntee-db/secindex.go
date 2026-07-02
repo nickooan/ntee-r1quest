@@ -158,6 +158,20 @@ func (si *secIndex) remove(e secEntry) {
 	}
 }
 
+// removePKs drops, in a single O(len) pass, every entry whose primary key is in
+// pks — the bulk counterpart to remove, used by a range delete so retracting m
+// keys costs one sweep instead of m binary-search-and-shift removals. Filtering
+// in place preserves the (value, pk) sort order.
+func (si *secIndex) removePKs(pks map[string]struct{}) {
+	out := si.entries[:0]
+	for _, e := range si.entries {
+		if _, gone := pks[e.pk]; !gone {
+			out = append(out, e)
+		}
+	}
+	si.entries = out
+}
+
 // exact returns the primary keys whose index value equals val (multi-value).
 // limit controls how many and in which direction:
 //   - limit == 0: all matches, ascending by primary key.

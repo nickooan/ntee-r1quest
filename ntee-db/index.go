@@ -34,6 +34,14 @@ func (ix *index) lowerBound(key string) int {
 	})
 }
 
+// upperBound returns the smallest i such that entries[i].key > key (or len if
+// none), via binary search.
+func (ix *index) upperBound(key string) int {
+	return sort.Search(len(ix.entries), func(i int) bool {
+		return ix.entries[i].key > key
+	})
+}
+
 // get returns the entry for an exact key.
 func (ix *index) get(key string) (idxEntry, bool) {
 	i := ix.lowerBound(key)
