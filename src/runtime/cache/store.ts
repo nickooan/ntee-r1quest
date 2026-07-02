@@ -58,6 +58,24 @@ export const openCache = (): NteeDB | null => {
   }
 }
 
+/**
+ * Closes the memoized cache store, releasing its single-writer lock so another
+ * process can take ownership. The CLI entry process calls this after its
+ * startup housekeeping, BEFORE launching the interactive TUI — the TUI's
+ * runtime server is a separate process and must be able to acquire the lock,
+ * or every history write in the session becomes a silent no-op. A later
+ * openCache() in this process re-opens (and re-locks) on demand.
+ */
+export const closeCache = (): void => {
+  try {
+    store?.close()
+  } catch {
+    // best-effort: never let cache teardown break the app
+  }
+  store = null
+  openFailed = false
+}
+
 /** Reads and JSON-decodes a cache value, or undefined when absent/corrupt. */
 export const cacheGet = <T>(db: NteeDB, key: string): T | undefined => {
   const buffer = db.get(key)
