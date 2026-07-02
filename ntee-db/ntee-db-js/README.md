@@ -6,6 +6,72 @@ C-shared library and loaded via [koffi](https://koffi.dev) (FFI). No separate
 process; same model as `lmdb`/`better-sqlite3` (prebuilt native binaries per
 platform).
 
+## Performance
+
+Microbenchmark vs `lmdb` (lmdb-js) from Node, on a cache-shaped workload:
+20,000 records, ~120-byte JSON values, time-ordered keys
+(`api:<zero-padded-id>`). Apple M2 Pro, Node 24. The test code is in the
+[appendix at the bottom](#appendix-benchmark-code).
+
+| Operation                    | @ntee/ntee-db | lmdb                       | Faster            |
+| ---------------------------- | ------------- | -------------------------- | ----------------- |
+| `get`                        | 5.2 µs/op     | 0.7 µs/op                  | lmdb ~7×          |
+| exists check                 | 1.2 µs/op     | 0.5 µs/op                  | lmdb ~2×          |
+| put (non-durable path)       | 4.1 µs/op     | 0.9 µs/op (async, batched) | lmdb ~4×          |
+| **put (synchronous commit)** | **4.1 µs/op** | 2,717 µs/op (`putSync`)    | **ntee-db ~650×** |
+| prefix scan, all 20k keys    | **2.4 ms**    | 5.9 ms (range scan)        | **ntee-db ~2×**   |
+
+How to read this honestly:
+
+- **Single-op reads: lmdb wins (~7×).** It is a memory-mapped B+tree in C with
+  zero-copy reads; an ntee-db `get` pays an FFI crossing + a `pread` +
+  JSON/base64 marshaling. Both are microseconds — for tens of ops per user
+  interaction the difference is imperceptible.
+- **Synchronous writes: ntee-db wins (~650×).** The append-only log makes a
+  caller-synchronous write a single ~4 µs append, so a CLI that exits right
+  after a request still persists its record. lmdb's equivalent (`putSync`)
+  commits a copy-on-write transaction per call (~2.7 ms); its fast write path
+  is async/batched — similar durability to ntee-db's default, but not
+  synchronous to the caller.
+- **Scans: ntee-db wins (~2×)** — keys live in a RAM-resident sorted index, and
+  index queries like `byIndexPrefix(name, prefix, -1)` ("newest record per
+  matching value") are one bounded native call instead of a JS-side scan.
+- **Where lmdb fundamentally wins:** very large datasets (ntee-db keeps all
+  keys in RAM and pays an O(n) boot scan — ~100 ms at 100k keys), multi-process
+  access, and full ACID transactions.
+
+### Why r1quest uses ntee-db
+
+r1quest is a local app on the user's own device, and that shapes the decision
+more than any single benchmark row. At this scale **both engines are "fast
+enough"** — the accurate summary is not "ntee-db is faster", it's: _ntee-db is
+faster exactly where this app is sensitive, decent everywhere else, and
+structurally immune to its own weaknesses at this scale._
+
+- **Sync writes are the hot requirement.** One-shot CLI runs exit immediately
+  after the request, so "the record is on disk before the process exits" must
+  be the _default_ write path. With ntee-db it is (a ~4 µs append). With lmdb
+  it was a tradeoff to manage: the fast async path risks losing the final write
+  at exit, and the safe path pays a per-call transaction commit.
+- **Reads only need to be decent — and they are.** 5 µs/get means rendering a
+  50-endpoint history costs ~0.3 ms; the ~7× read gap would only show up at
+  thousands of reads per frame, which a human-paced TUI never does.
+- **The features fit is the bigger argument than the numbers.** Secondary
+  indexes (`endpoint`, `traceId`), grouped newest-per-value queries,
+  `maxPerValue` retention, and range delete by time-ordered key are all used by
+  the app — with lmdb, every one of them was (or would be) hand-rolled JS.
+- **ntee-db's weaknesses are structurally avoided.** All-keys-in-RAM and the
+  O(n) boot scan never bite because `maxPerValue` caps the store by
+  construction and the hint keeps boots fast; a local single-user cache has no
+  growth path to "millions of records". Conversely, lmdb's superpowers (huge
+  datasets, ACID transactions) were dead weight for this workload.
+- **The one honest gap: multi-process.** "Local app" is not strictly "single
+  process" — a TUI session plus a one-shot run can briefly overlap on the same
+  store, which lmdb handled natively and ntee-db does not guard yet. The cache
+  is best-effort and clearable, so the blast radius is small (lost cache
+  updates, not app breakage), and a single-writer lock file — second opener
+  fails, cache degrades to a no-op for that process — is the planned fix.
+
 ## Usage
 
 ```js
@@ -73,4 +139,92 @@ npm test
 ```
 
 Cross-OS binaries are produced by building **on each OS** (CI matrix); there is
-no cross-compile step (the Go + cgo source is identical per platform).
+no cross-compile step (the Go + cgo source is identical per platform). Linux
+binaries can also be built from macOS with Docker via the repo's
+`npm run build:db-linux` (platform-pinned containers; on Apple Silicon,
+linux/amd64 runs under emulation).
+
+## Appendix: benchmark code
+
+The numbers in [Performance](#performance) come from this script, run in a
+scratch project with `npm install lmdb koffi` and this package's `src/` +
+`prebuilds/` copied alongside it (`{ "type": "module" }` in its package.json).
+Neither store fsyncs per write on its fast path, so durability is comparable;
+`lmdb putSync` is included as the only caller-synchronous commit lmdb offers.
+
+```js
+import { open as lmdbOpen } from "lmdb"
+import { NteeDB } from "./src/index.js"
+import { rmSync } from "node:fs"
+
+const N = 20_000
+const value = JSON.stringify({
+  endpoint: "/api/users [get]",
+  status: 200,
+  durationMs: 42,
+  headers: { "content-type": "application/json" },
+  data: { id: 123, name: "some user", tags: ["a", "b"] },
+})
+const key = (i) => `api:${String(i).padStart(16, "0")}`
+
+const time = (label, fn) => {
+  const t0 = performance.now()
+  fn()
+  const ms = performance.now() - t0
+  console.log(
+    `${label}: ${ms.toFixed(0)} ms total, ${((ms * 1000) / N).toFixed(1)} µs/op`,
+  )
+}
+
+// --- ntee-db ---
+rmSync("./ntee-store", { recursive: true, force: true })
+const ndb = NteeDB.open("./ntee-store", {})
+time("ntee-db put (sync)", () => {
+  for (let i = 0; i < N; i++) ndb.put(key(i), value)
+})
+time("ntee-db get", () => {
+  for (let i = 0; i < N; i++) ndb.get(key(i))
+})
+time("ntee-db has", () => {
+  for (let i = 0; i < N; i++) ndb.has(key(i))
+})
+{
+  const t0 = performance.now()
+  const keys = ndb.prefixScan("api:")
+  console.log(
+    `ntee-db prefixScan all (${keys.length}): ${(performance.now() - t0).toFixed(1)} ms`,
+  )
+}
+ndb.close()
+
+// --- lmdb ---
+rmSync("./lmdb-store", { recursive: true, force: true })
+const ldb = lmdbOpen({ path: "./lmdb-store" })
+time("lmdb putSync", () => {
+  for (let i = 0; i < N; i++) ldb.putSync(key(i), value)
+})
+{
+  const t0 = performance.now()
+  let last
+  for (let i = 0; i < N; i++) last = ldb.put(key(i), value)
+  await last // batched async transactions — lmdb-js's fast path
+  const ms = performance.now() - t0
+  console.log(
+    `lmdb put (async batched): ${ms.toFixed(0)} ms total, ${((ms * 1000) / N).toFixed(1)} µs/op`,
+  )
+}
+time("lmdb get", () => {
+  for (let i = 0; i < N; i++) ldb.get(key(i))
+})
+time("lmdb doesExist", () => {
+  for (let i = 0; i < N; i++) ldb.doesExist(key(i))
+})
+{
+  const t0 = performance.now()
+  const keys = [...ldb.getKeys({ start: "api:", end: "api;" })]
+  console.log(
+    `lmdb range scan all (${keys.length}): ${(performance.now() - t0).toFixed(1)} ms`,
+  )
+}
+await ldb.close()
+```
