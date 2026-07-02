@@ -21,6 +21,26 @@ Microbenchmark vs `lmdb` (lmdb-js) from Node, on a cache-shaped workload:
 | **put (synchronous commit)** | **4.1 µs/op** | 2,717 µs/op (`putSync`)    | **ntee-db ~650×** |
 | prefix scan, all 20k keys    | **2.4 ms**    | 5.9 ms (range scan)        | **ntee-db ~2×**   |
 
+Note: `prefixScan` above is the **primary-key** prefix scan — it needs no index
+declaration (the PK index always exists), and lmdb's counterpart is likewise a
+PK range scan, so that row is like-for-like.
+
+**Indexed workload** — the app's real shape: every write carries two secondary
+index values (`endpoint`, `traceId`); 20k records across 500 distinct
+endpoints. lmdb has no built-in secondary indexes, so its "latest per endpoint"
+counterpart is what the pre-ntee-db app code did — full scan + parse + dedup in
+JS (a hand-rolled dupsort index is possible, but that's exactly the app-side
+code this store replaces):
+
+| Operation                                   | @ntee/ntee-db         | lmdb                          | Faster            |
+| ------------------------------------------- | --------------------- | ----------------------------- | ----------------- |
+| put carrying 2 index values (sync)          | 16.8 µs/op            | 1.2 µs/op (async, no indexes) | lmdb\*            |
+| latest call of one endpoint (`byIndex`, -1) | 2.5 µs/op             | —                             |                   |
+| **latest call of every endpoint (500/20k)** | **0.1 ms** (one call) | 18.4 ms (scan + dedup)        | **ntee-db ~180×** |
+
+\* not equivalent work: lmdb's put maintains no indexes — the index cost lands
+on every query instead (the 18.4 ms row).
+
 How to read this honestly:
 
 - **Single-op reads: lmdb wins (~7×).** It is a memory-mapped B+tree in C with
@@ -33,9 +53,14 @@ How to read this honestly:
   commits a copy-on-write transaction per call (~2.7 ms); its fast write path
   is async/batched — similar durability to ntee-db's default, but not
   synchronous to the caller.
-- **Scans: ntee-db wins (~2×)** — keys live in a RAM-resident sorted index, and
-  index queries like `byIndexPrefix(name, prefix, -1)` ("newest record per
-  matching value") are one bounded native call instead of a JS-side scan.
+- **Scans: ntee-db wins (~2×; ~180× once indexes matter).** Keys live in a
+  RAM-resident sorted index, and grouped queries like
+  `byIndexPrefix(name, prefix, -1)` ("newest record per matching value") are
+  one bounded native call — 0.1 ms for 500 endpoints, vs 18.4 ms for the
+  scan+dedup-in-JS equivalent lmdb requires.
+- **Index maintenance costs writes ~4×** (16.8 µs vs 4.1 µs plain) — the write
+  pays once so every query stays bounded. Still synchronous and still
+  negligible at human pace.
 - **Where lmdb fundamentally wins:** very large datasets (ntee-db keeps all
   keys in RAM and pays an O(n) boot scan — ~100 ms at 100k keys), multi-process
   access, and full ACID transactions.
@@ -50,16 +75,20 @@ structurally immune to its own weaknesses at this scale._
 
 - **Sync writes are the hot requirement.** One-shot CLI runs exit immediately
   after the request, so "the record is on disk before the process exits" must
-  be the _default_ write path. With ntee-db it is (a ~4 µs append). With lmdb
-  it was a tradeoff to manage: the fast async path risks losing the final write
-  at exit, and the safe path pays a per-call transaction commit.
+  be the _default_ write path. With ntee-db it is: ~17 µs for the app's real
+  write (a record carrying both index values) — still ~160× cheaper than lmdb's
+  per-call commit, _before_ lmdb pays anything for index upkeep. With lmdb it
+  was a tradeoff to manage: the fast async path risks losing the final write at
+  exit, and the safe path pays a per-call transaction commit.
 - **Reads only need to be decent — and they are.** 5 µs/get means rendering a
   50-endpoint history costs ~0.3 ms; the ~7× read gap would only show up at
   thousands of reads per frame, which a human-paced TUI never does.
-- **The features fit is the bigger argument than the numbers.** Secondary
-  indexes (`endpoint`, `traceId`), grouped newest-per-value queries,
-  `maxPerValue` retention, and range delete by time-ordered key are all used by
-  the app — with lmdb, every one of them was (or would be) hand-rolled JS.
+- **The features fit is the bigger argument than the numbers — and it is now a
+  measured claim.** Secondary indexes (`endpoint`, `traceId`), grouped
+  newest-per-value queries, `maxPerValue` retention, and range delete by
+  time-ordered key are all used by the app — with lmdb, every one of them was
+  (or would be) hand-rolled JS, and the History-list pattern measured 0.1 ms
+  via the index vs 18.4 ms as a scan (~180×).
 - **ntee-db's weaknesses are structurally avoided.** All-keys-in-RAM and the
   O(n) boot scan never bite because `maxPerValue` caps the store by
   construction and the hint keeps boots fast; a local single-user cache has no
@@ -224,6 +253,84 @@ time("lmdb doesExist", () => {
   const keys = [...ldb.getKeys({ start: "api:", end: "api;" })]
   console.log(
     `lmdb range scan all (${keys.length}): ${(performance.now() - t0).toFixed(1)} ms`,
+  )
+}
+await ldb.close()
+```
+
+The **indexed workload** table comes from this second script (same scratch
+project):
+
+```js
+import { open as lmdbOpen } from "lmdb"
+import { NteeDB } from "./src/index.js"
+import { rmSync } from "node:fs"
+
+const N = 20_000
+const ENDPOINTS = 500
+const endpoint = (i) => `/api/e${String(i % ENDPOINTS).padStart(3, "0")} [get]`
+const traceId = (i) => `T${i % 1000}`
+const key = (i) => `api:${String(i).padStart(16, "0")}`
+const value = (i) =>
+  JSON.stringify({
+    endpoint: endpoint(i),
+    status: 200,
+    durationMs: 42,
+    data: { id: i, name: "some user" },
+  })
+
+const report = (label, ms, ops) =>
+  console.log(
+    `${label}: ${ms.toFixed(1)} ms total, ${((ms * 1000) / ops).toFixed(1)} µs/op`,
+  )
+
+// --- ntee-db, with the app's two secondary indexes declared ---
+rmSync("./ntee-ix", { recursive: true, force: true })
+const ndb = NteeDB.open("./ntee-ix", {
+  indexes: [
+    { name: "endpoint", kind: "string" },
+    { name: "traceId", kind: "string" },
+  ],
+})
+{
+  const t0 = performance.now()
+  for (let i = 0; i < N; i++)
+    ndb.put(key(i), value(i), { endpoint: endpoint(i), traceId: traceId(i) })
+  report("ntee-db put (sync, 2 indexes)", performance.now() - t0, N)
+}
+{
+  const t0 = performance.now()
+  for (let i = 0; i < ENDPOINTS; i++) ndb.byIndex("endpoint", endpoint(i), -1)
+  report("ntee-db byIndex exact latest", performance.now() - t0, ENDPOINTS)
+}
+{
+  const t0 = performance.now()
+  const keys = ndb.byIndexPrefix("endpoint", "/api/", -1)
+  console.log(
+    `ntee-db byIndexPrefix('/api/', -1) → latest of all ${keys.length} endpoints: ${(performance.now() - t0).toFixed(1)} ms`,
+  )
+}
+ndb.close()
+
+// --- lmdb: same records; "latest per endpoint" = scan + parse + dedup in JS ---
+rmSync("./lmdb-ix", { recursive: true, force: true })
+const ldb = lmdbOpen({ path: "./lmdb-ix" })
+{
+  const t0 = performance.now()
+  let last
+  for (let i = 0; i < N; i++) last = ldb.put(key(i), value(i))
+  await last
+  report("lmdb put (async batched, no ix)", performance.now() - t0, N)
+}
+{
+  const t0 = performance.now()
+  const latest = new Map()
+  for (const { value: v } of ldb.getRange({ start: "api:", end: "api;" })) {
+    const rec = JSON.parse(v)
+    latest.set(rec.endpoint, rec)
+  }
+  console.log(
+    `lmdb scan+dedup → latest of all ${latest.size} endpoints: ${(performance.now() - t0).toFixed(1)} ms`,
   )
 }
 await ldb.close()
