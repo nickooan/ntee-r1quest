@@ -91,7 +91,10 @@ test("putMany batches records (order, indexes, validation, caps)", async () => {
         { key: "batch:bin", value: binary },
         { key: "batch:bom", value: bom },
       ])
-      assert.equal(db.get("batch:text").toString("utf8"), '{"n":1,"emoji":"🎉"}')
+      assert.equal(
+        db.get("batch:text").toString("utf8"),
+        '{"n":1,"emoji":"🎉"}',
+      )
       assert.deepEqual(db.get("batch:bin"), binary)
       assert.deepEqual(db.get("batch:bom"), bom)
     },
