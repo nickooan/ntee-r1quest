@@ -1,6 +1,11 @@
 // Ergonomic Node.js wrapper around the nteedb C-shared library.
 import { fns, readEnvelope, callAsync } from "./native.js"
 
+// Exact UTF-8 validity check for batch payloads — the JS counterpart of Go's
+// utf8.Valid. fatal makes invalid input throw instead of substituting U+FFFD;
+// ignoreBOM keeps a leading BOM instead of silently stripping it.
+const utf8Strict = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
+
 /**
  * NteeDB is an open handle to a store. Construct via NteeDB.open().
  */
@@ -38,12 +43,46 @@ export class NteeDB {
     readEnvelope(fns.put(this.#h, key, buf, buf.length, ixJSON))
   }
 
+  /**
+   * Append many records in one batch — the bulk counterpart to put() for
+   * imports and other high-volume writes: one FFI crossing, one lock, one
+   * fsync in durable mode. Items are applied in array order (a repeated key's
+   * later item wins); an invalid item rejects the whole batch with nothing
+   * written. Runs off the event loop; the returned promise resolves to the
+   * number of records once ALL of them are appended — synchronous durability
+   * at the batch boundary, unlike lmdb-style fire-and-forget batching.
+   *
+   * items: [{ key, value: Buffer|string, ix? }]
+   */
+  putMany(items) {
+    this.#assertOpen()
+    // Values travel like the get envelope: valid-UTF-8 as a plain string
+    // ("s"), binary as base64 ("v").
+    const payload = items.map(({ key, value, ix }) => {
+      let item
+      if (typeof value === "string") {
+        item = { k: key, s: value }
+      } else {
+        const buf = Buffer.isBuffer(value) ? value : Buffer.from(value)
+        try {
+          item = { k: key, s: utf8Strict.decode(buf) }
+        } catch {
+          item = { k: key, v: buf.toString("base64") }
+        }
+      }
+      return ix ? { ...item, ix } : item
+    })
+    return callAsync(fns.putBatch, this.#h, JSON.stringify(payload))
+  }
+
   /** Get the value for key as a Buffer, or null if absent. */
   get(key) {
     this.#assertOpen()
     const res = readEnvelope(fns.get(this.#h, key))
     if (!res || !res.found) return null
-    return Buffer.from(res.value ?? "", "base64")
+    // Text values arrive as a plain JSON string ("s"), binary as base64 ("v").
+    if (res.v !== undefined) return Buffer.from(res.v, "base64")
+    return Buffer.from(res.s ?? "", "utf8")
   }
 
   /** Whether key exists. */

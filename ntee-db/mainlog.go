@@ -31,8 +31,15 @@ func openMainLog(path string, sync bool) (*mainLog, error) {
 }
 
 // append writes r as one JSONL line and returns the byte offset at which it was
-// written and the total bytes written (including the trailing newline).
+// written and the total bytes written (including the trailing newline). It
+// fsyncs per write when the log was opened in durable mode.
 func (l *mainLog) append(r record) (off int64, n int32, err error) {
+	return l.appendSync(r, l.sync)
+}
+
+// appendSync is append with an explicit per-write fsync decision: batch writers
+// pass false and issue one flush at the end of the batch instead.
+func (l *mainLog) appendSync(r record, sync bool) (off int64, n int32, err error) {
 	data, err := marshalRecord(r)
 	if err != nil {
 		return 0, 0, err
@@ -42,7 +49,7 @@ func (l *mainLog) append(r record) (off int64, n int32, err error) {
 	if _, err := l.f.Write(data); err != nil {
 		return 0, 0, err
 	}
-	if l.sync {
+	if sync {
 		if err := l.f.Sync(); err != nil {
 			return 0, 0, err
 		}

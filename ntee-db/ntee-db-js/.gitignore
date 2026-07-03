@@ -2,3 +2,10 @@ node_modules/
 *.out
 dbg.mjs
 capi/capi
+ntee-store/
+ntee-batch/
+ntee-hints/
+ntee-ix/
+ntee-full/
+lmdb-store/
+lmdb-ix/

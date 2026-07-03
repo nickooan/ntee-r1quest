@@ -348,7 +348,23 @@ func (db *DB) writeLocked(key string, value []byte, explicit IndexValues) error 
 	if err != nil {
 		return err
 	}
+	if err := db.appendRecordLocked(key, value, ix, db.opts.SyncEveryWrite); err != nil {
+		return err
+	}
+	if err := db.enforceMaxPerValueLocked(ix); err != nil {
+		return err
+	}
+	db.writes++
+	db.maybeWriteHintLocked()
+	return nil
+}
 
+// appendRecordLocked is the per-record write core shared by Put and PutBatch:
+// blob offload, main-log append, and primary/secondary index updates. durable
+// controls the per-write fsyncs — batch writers pass false and issue a single
+// flush at the end of the batch. Callers must hold db.mu and have validated ix
+// via buildIndexValues.
+func (db *DB) appendRecordLocked(key string, value []byte, ix map[string]any, durable bool) error {
 	// Large values go to the blob side file; the main record just references
 	// them. The blob is written (and fsynced in durable mode) before the
 	// referencing main record, so a crash can only ever orphan a blob — never
@@ -359,7 +375,7 @@ func (db *DB) writeLocked(key string, value []byte, explicit IndexValues) error 
 		if err != nil {
 			return err
 		}
-		if db.opts.SyncEveryWrite {
+		if durable {
 			if err := db.blobs.flush(); err != nil {
 				return err
 			}
@@ -367,17 +383,12 @@ func (db *DB) writeLocked(key string, value []byte, explicit IndexValues) error 
 		rec = record{Key: key, Blob: &ref, IX: ix}
 	}
 
-	off, n, err := db.main.append(rec)
+	off, n, err := db.main.appendSync(rec, durable)
 	if err != nil {
 		return err
 	}
 	db.pk.upsert(pkEntry{key: key, off: off, n: n})
 	db.refreshSecLocked(key, ix)
-	if err := db.enforceMaxPerValueLocked(ix); err != nil {
-		return err
-	}
-	db.writes++
-	db.maybeWriteHintLocked()
 	return nil
 }
 

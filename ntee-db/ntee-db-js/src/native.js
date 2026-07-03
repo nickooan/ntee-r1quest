@@ -44,6 +44,7 @@ export const fns = {
   drop: def("nteedb_drop", ["uint"]),
   destroy: def("nteedb_destroy", ["str"]),
   put: def("nteedb_put", ["uint", "str", "void *", "int", "str"]),
+  putBatch: def("nteedb_put_batch", ["uint", "str"]),
   get: def("nteedb_get", ["uint", "str"]),
   has: def("nteedb_has", ["uint", "str"]),
   delete: def("nteedb_delete", ["uint", "str"]),

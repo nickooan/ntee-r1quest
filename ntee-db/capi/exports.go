@@ -6,7 +6,9 @@
 // (result omitted when there's nothing to return). The caller reads the string
 // and MUST free it with nteedb_free. A *nteedb.DB is referenced by an opaque
 // uint32 handle. Binary value INPUT (put) is passed as (uint8* ptr, int len);
-// binary OUTPUT (get) is base64 in the envelope, keeping the boundary uniform.
+// value OUTPUT (get) mirrors the on-disk record split — valid-UTF-8 values as
+// a plain JSON string ("s"), binary as base64 ("v") — so text payloads cross
+// the boundary without a base64 round-trip.
 package main
 
 /*
@@ -18,6 +20,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"unicode/utf8"
 	"unsafe"
 
 	nteedb "codeberg.org/nickoan/ntee-r1quest/ntee-db"
@@ -106,7 +109,11 @@ func nteedb_get(h C.uint, key *C.char) *C.char {
 	}
 	res := map[string]any{"found": ok}
 	if ok {
-		res["value"] = base64.StdEncoding.EncodeToString(v)
+		if utf8.Valid(v) {
+			res["s"] = string(v)
+		} else {
+			res["v"] = base64.StdEncoding.EncodeToString(v)
+		}
 	}
 	return reply(res, nil)
 }
@@ -127,6 +134,45 @@ func nteedb_delete(h C.uint, key *C.char) *C.char {
 		return reply(nil, errInvalidHandle)
 	}
 	return reply(nil, db.Delete(C.GoString(key)))
+}
+
+// jsonBatchItem is one PutBatch record on the FFI boundary. The value carries
+// the same split as the get envelope and the on-disk record: valid-UTF-8 as a
+// plain string ("s"), binary as base64 ("v").
+type jsonBatchItem struct {
+	K  string         `json:"k"`
+	S  string         `json:"s,omitempty"` // inline value, valid UTF-8: plain string
+	V  string         `json:"v,omitempty"` // inline value, binary: base64
+	IX map[string]any `json:"ix,omitempty"`
+}
+
+//export nteedb_put_batch
+func nteedb_put_batch(h C.uint, itemsJSON *C.char) *C.char {
+	db := regGet(uint32(h))
+	if db == nil {
+		return reply(nil, errInvalidHandle)
+	}
+	var jitems []jsonBatchItem
+	if err := json.Unmarshal([]byte(C.GoString(itemsJSON)), &jitems); err != nil {
+		return reply(nil, err)
+	}
+	items := make([]nteedb.PutItem, len(jitems))
+	for i, ji := range jitems {
+		var v []byte
+		if ji.S != "" {
+			v = []byte(ji.S)
+		} else if ji.V != "" {
+			var err error
+			if v, err = base64.StdEncoding.DecodeString(ji.V); err != nil {
+				return reply(nil, err)
+			}
+		}
+		items[i] = nteedb.PutItem{Key: ji.K, Value: v, IX: ji.IX}
+	}
+	if err := db.PutBatch(items); err != nil {
+		return reply(nil, err)
+	}
+	return reply(len(items), nil)
 }
 
 //export nteedb_prefix_scan

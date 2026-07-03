@@ -38,6 +38,21 @@ func TestFormatResponseBody(t *testing.T) {
 	if got != want {
 		t.Fatalf("object body:\n%q\nwant\n%q", got, want)
 	}
+	// A raw \r in a rendered line would jump the terminal cursor to column 0
+	// and shear the pane borders (e.g. nginx 503 HTML bodies use CRLF).
+	if got := FormatResponseBody(json.RawMessage("<html>\r\n<body>x</body>\r</html>")); got != "<html>\n<body>x</body>\n</html>" {
+		t.Fatalf("CRLF body: %q", got)
+	}
+	if got := FormatResponseBody(json.RawMessage(`"line 1\r\nline 2"`)); got != "line 1\nline 2" {
+		t.Fatalf("CRLF string body: %q", got)
+	}
+}
+
+func TestNormalizeLinesStripsCR(t *testing.T) {
+	got := NormalizeLines("a\r\nb\nc")
+	if len(got) != 3 || got[0] != "a" || got[1] != "b" || got[2] != "c" {
+		t.Fatalf("got %q", got)
+	}
 }
 
 func TestFormatResponseShowsDuration(t *testing.T) {

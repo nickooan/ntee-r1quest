@@ -19,7 +19,7 @@ typedef struct { const char *p; ptrdiff_t n; } _GoString_;
 /* Start of preamble from import "C" comments.  */
 
 
-#line 12 "exports.go"
+#line 14 "exports.go"
 
 #include <stdlib.h>
 
@@ -87,6 +87,7 @@ extern char* nteedb_put(unsigned int h, char* key, unsigned char* val, int valLe
 extern char* nteedb_get(unsigned int h, char* key);
 extern char* nteedb_has(unsigned int h, char* key);
 extern char* nteedb_delete(unsigned int h, char* key);
+extern char* nteedb_put_batch(unsigned int h, char* itemsJSON);
 extern char* nteedb_prefix_scan(unsigned int h, char* prefix);
 extern char* nteedb_by_index(unsigned int h, char* name, char* valJSON, int limit);
 extern char* nteedb_by_index_prefix(unsigned int h, char* name, char* prefix, int limit);

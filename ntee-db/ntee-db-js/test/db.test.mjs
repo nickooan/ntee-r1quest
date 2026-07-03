@@ -51,6 +51,56 @@ test("put/get/has/delete round-trip", async () => {
   })
 })
 
+test("putMany batches records (order, indexes, validation, caps)", async () => {
+  await withDB(
+    { indexes: [{ name: "traceId", kind: "string", maxPerValue: 2 }] },
+    async (db) => {
+      const n = await db.putMany([
+        { key: "call:1", value: "a", ix: { traceId: "T" } },
+        { key: "call:2", value: Buffer.from("b"), ix: { traceId: "T" } },
+        { key: "call:3", value: "c", ix: { traceId: "T" } },
+        { key: "other:1", value: "x" },
+        { key: "other:1", value: "y" }, // later item for the same key wins
+      ])
+      assert.equal(n, 5)
+
+      // Values round-trip; last write in the batch wins.
+      assert.equal(db.get("other:1").toString(), "y")
+      assert.equal(db.get("call:2").toString(), "b")
+
+      // maxPerValue applied across the batch: only the newest 2 remain.
+      assert.deepEqual(db.byIndex("traceId", "T"), ["call:2", "call:3"])
+      assert.equal(db.has("call:1"), false)
+
+      // An invalid item rejects the whole batch with nothing written.
+      await assert.rejects(
+        db.putMany([
+          { key: "ok:1", value: "v" },
+          { key: "bad:1", value: "v", ix: { nope: "x" } },
+        ]),
+        /unknown index/,
+      )
+      assert.equal(db.has("ok:1"), false)
+
+      // Text goes over the wire as a plain string ("s"), binary as base64
+      // ("v"), a leading BOM must survive — all byte-exact either way.
+      const binary = Buffer.from([0xff, 0xfe, 0x00, 0x01, 0xc3, 0x28])
+      const bom = Buffer.from([0xef, 0xbb, 0xbf, 0x68, 0x69]) // BOM + "hi"
+      await db.putMany([
+        { key: "batch:text", value: '{"n":1,"emoji":"🎉"}' },
+        { key: "batch:bin", value: binary },
+        { key: "batch:bom", value: bom },
+      ])
+      assert.equal(
+        db.get("batch:text").toString("utf8"),
+        '{"n":1,"emoji":"🎉"}',
+      )
+      assert.deepEqual(db.get("batch:bin"), binary)
+      assert.deepEqual(db.get("batch:bom"), bom)
+    },
+  )
+})
+
 test("prefix scan", async () => {
   await withDB({}, (db) => {
     for (const k of [
@@ -67,6 +117,23 @@ test("prefix scan", async () => {
       "input:GetPropertyNames",
     ])
     assert.equal(db.prefixScan("input:").length, 4)
+  })
+})
+
+test("text and invalid-UTF-8 binary values round-trip byte-exactly", async () => {
+  await withDB({}, (db) => {
+    // Text values are stored as readable JSON strings on disk ("s" field);
+    // binary stays base64 ("v") — either way the bytes come back identical.
+    const text = '{"endpoint":"/api/users","note":"emoji 🎉"}'
+    db.put("text", text)
+    assert.equal(db.get("text").toString("utf8"), text)
+
+    const binary = Buffer.from([0xff, 0xfe, 0x00, 0x01, 0xc3, 0x28])
+    db.put("bin", binary)
+    assert.deepEqual(db.get("bin"), binary)
+
+    db.put("empty", "")
+    assert.deepEqual(db.get("empty"), Buffer.alloc(0))
   })
 })
 

@@ -62,7 +62,7 @@ func FormatResponseBody(body json.RawMessage) string {
 
 	var s string
 	if json.Unmarshal(body, &s) == nil {
-		return s
+		return normalizeNewlines(s)
 	}
 
 	var b bool
@@ -79,7 +79,15 @@ func FormatResponseBody(body json.RawMessage) string {
 	if json.Indent(&buf, body, "", "  ") == nil {
 		return buf.String()
 	}
-	return trimmed
+	return normalizeNewlines(trimmed)
+}
+
+// normalizeNewlines converts CRLF and lone CR to LF for display. A raw \r in a
+// TUI pane jumps the cursor to column 0 and shears the box borders; only the
+// rendered string changes — the stored body keeps its exact bytes.
+func normalizeNewlines(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	return strings.ReplaceAll(s, "\r", "\n")
 }
 
 func formatRequestPath(rawURL, baseURL string) string {
