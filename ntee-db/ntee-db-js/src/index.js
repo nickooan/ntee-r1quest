@@ -66,7 +66,9 @@ export class NteeDB {
     this.#assertOpen()
     const res = readEnvelope(fns.get(this.#h, key))
     if (!res || !res.found) return null
-    return Buffer.from(res.value ?? "", "base64")
+    // Text values arrive as a plain JSON string ("s"), binary as base64 ("v").
+    if (res.v !== undefined) return Buffer.from(res.v, "base64")
+    return Buffer.from(res.s ?? "", "utf8")
   }
 
   /** Whether key exists. */

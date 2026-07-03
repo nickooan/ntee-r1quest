@@ -115,6 +115,9 @@ test("text and invalid-UTF-8 binary values round-trip byte-exactly", async () =>
     const binary = Buffer.from([0xff, 0xfe, 0x00, 0x01, 0xc3, 0x28])
     db.put("bin", binary)
     assert.deepEqual(db.get("bin"), binary)
+
+    db.put("empty", "")
+    assert.deepEqual(db.get("empty"), Buffer.alloc(0))
   })
 })
 

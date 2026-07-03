@@ -6,7 +6,9 @@
 // (result omitted when there's nothing to return). The caller reads the string
 // and MUST free it with nteedb_free. A *nteedb.DB is referenced by an opaque
 // uint32 handle. Binary value INPUT (put) is passed as (uint8* ptr, int len);
-// binary OUTPUT (get) is base64 in the envelope, keeping the boundary uniform.
+// value OUTPUT (get) mirrors the on-disk record split — valid-UTF-8 values as
+// a plain JSON string ("s"), binary as base64 ("v") — so text payloads cross
+// the boundary without a base64 round-trip.
 package main
 
 /*
@@ -18,6 +20,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"unicode/utf8"
 	"unsafe"
 
 	nteedb "codeberg.org/nickoan/ntee-r1quest/ntee-db"
@@ -106,7 +109,11 @@ func nteedb_get(h C.uint, key *C.char) *C.char {
 	}
 	res := map[string]any{"found": ok}
 	if ok {
-		res["value"] = base64.StdEncoding.EncodeToString(v)
+		if utf8.Valid(v) {
+			res["s"] = string(v)
+		} else {
+			res["v"] = base64.StdEncoding.EncodeToString(v)
+		}
 	}
 	return reply(res, nil)
 }
