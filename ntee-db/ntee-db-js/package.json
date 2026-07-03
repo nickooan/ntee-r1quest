@@ -21,5 +21,8 @@
   },
   "dependencies": {
     "koffi": "^2.9.0"
+  },
+  "devDependencies": {
+    "lmdb": "^3.5.6"
   }
 }
