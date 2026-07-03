@@ -16,6 +16,7 @@ capping** (`MaxPerValue`, keep only the newest N records per index value) and
 <dir>/main.jsonl        append-only data log — source of truth (one JSON record per line)
 <dir>/blobs.dat         append-only large values, referenced by a blob ref in a main.jsonl line
 <dir>/main.jsonl.hint   persisted index snapshot (JSONL): sorted key→{off,len} + a "covers" watermark
+<dir>/LOCK              single-writer guard (kernel flock; the file itself carries no state)
 ```
 
 - **No separate WAL.** The data log _is_ the write-ahead log: the index is always
@@ -31,6 +32,11 @@ capping** (`MaxPerValue`, keep only the newest N records per index value) and
   A torn final line from a crash mid-append is detected and truncated.
 - **Compaction** rewrites the main log with only live records (dropping
   superseded versions and tombstones) via a single atomic rename.
+- **Single writer per store.** `Open` takes an exclusive, non-blocking kernel
+  lock (`flock`) on `<dir>/LOCK`; a second process gets `ErrLocked` and can
+  degrade gracefully (e.g. run without its cache). The lock is tied to the
+  process, not the file — it releases automatically on any exit (Ctrl+C, crash,
+  `kill -9`), so no stale-lock state is possible. Unix (macOS/Linux) only.
 
 ## Scope
 
@@ -173,7 +179,7 @@ db.Compact()
 | `Dir`            | Store directory (required).                                                                                                                                                                                                                                                                                                                                 |
 | `BlobThreshold`  | Values ≥ this many bytes go to `blobs.dat`. `0` → 64 KiB default; negative disables blobs. This is a layout/compaction knob, not a memory one (values are never resident regardless). Keep it generous: inline values are reclaimed by `Compact`, whereas `blobs.dat` is append-only and not yet compacted — so reserve blobs for genuinely large payloads. |
 | `SyncEveryWrite` | fsync the log on every write (durable but slower). When false, a crash may lose the most recent writes.                                                                                                                                                                                                                                                     |
-| `HintEveryN`     | Rewrite the hint after N writes (also on `Close` and after compaction). `0` disables periodic rewrites.                                                                                                                                                                                                                                                     |
+| `HintEveryN`     | Rewrite the hint after N writes (also on `Close` and after compaction). `0` disables periodic rewrites. Periodic rewrites run in a **background goroutine, off the write path** — a `Put` only pays a cheap in-memory snapshot; `Close`/`Compact`/range-delete hints remain synchronous checkpoints.                                                        |
 
 ## Testing
 

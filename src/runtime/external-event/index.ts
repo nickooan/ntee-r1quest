@@ -1,6 +1,7 @@
 import { existsSync, statSync, unlinkSync } from "node:fs"
 import { createConnection, createServer } from "node:net"
 import { basename, join } from "node:path"
+import type { RecordApiCallInput } from "../cache/api.ts"
 
 export type ExternalRequestEvent = {
   ntsPath: string
@@ -10,6 +11,11 @@ export type ExternalRequestEvent = {
   // Batch/task id from the request's `-ti` flag. Present only when the request
   // was tagged with one.
   traceId?: string
+  // Full API-call record for the receiving app to persist. The history store
+  // is single-writer: while a terminal app is open it holds the store lock, so
+  // a one-shot run cannot record directly — it hands the record over here and
+  // the app (the lock holder) writes it. Absent on events from older senders.
+  call?: RecordApiCallInput
 }
 
 export type ExternalEventListener = {
@@ -45,13 +51,37 @@ const assertExternalRequestEvent = (value: unknown): ExternalRequestEvent => {
     throw new TypeError("External event traceId must be a string.")
   }
 
+  const call =
+    value.call === undefined ? undefined : assertCallRecord(value.call)
+
   return {
     ntsPath: value.ntsPath,
     ntsFile: value.ntsFile,
     time: value.time,
     responseContent: value.responseContent,
     ...(value.traceId === undefined ? {} : { traceId: value.traceId }),
+    ...(call === undefined ? {} : { call }),
   }
+}
+
+const assertCallRecord = (value: unknown): RecordApiCallInput => {
+  if (!isRecord(value)) {
+    throw new TypeError("External event call must be a JSON object.")
+  }
+
+  if (typeof value.at !== "number" || typeof value.durationMs !== "number") {
+    throw new TypeError("External event call.at/durationMs must be numbers.")
+  }
+
+  if (!isRecord(value.request) || !isRecord(value.response)) {
+    throw new TypeError("External event call.request/response must be objects.")
+  }
+
+  if (typeof value.response.status !== "number") {
+    throw new TypeError("External event call.response.status must be a number.")
+  }
+
+  return value as RecordApiCallInput
 }
 
 export const parseExternalRequestEvent = (
@@ -77,6 +107,7 @@ export const buildExternalRequestEvent = (
   time: number,
   responseContent: string,
   traceId?: string,
+  call?: RecordApiCallInput,
 ): ExternalRequestEvent => {
   const normalizedRequestPath = requestPath.trim().replaceAll("\\", "/")
   const ntsPath = normalizedRequestPath.includes("/")
@@ -90,6 +121,7 @@ export const buildExternalRequestEvent = (
     time,
     responseContent,
     ...(traceId ? { traceId } : {}),
+    ...(call ? { call } : {}),
   }
 }
 

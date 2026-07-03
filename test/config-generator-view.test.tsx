@@ -35,17 +35,24 @@ describe("config generator view", () => {
     expect(output).toContain("Cursor")
   })
 
-  test("builds config values with no defaults selected", () => {
+  test("builds config values with a default temp-dir socket", () => {
+    // Every generated config carries a default `sock` under the OS temp dir,
+    // so one-shot runs can hand call records to an open terminal app.
+    const sock = expect.stringMatching(/ntee-r1quest\.sock$/)
+
     expect(buildHomeConfigInput("", 0)).toEqual({
       root: null,
+      sock,
     })
     expect(buildHomeConfigInput("~/collections/example", 2)).toEqual({
       root: "~/collections/example",
       ai: "claude",
+      sock,
     })
     expect(buildHomeConfigInput("~/collections/example", 3)).toEqual({
       root: "~/collections/example",
       ai: "cursor",
+      sock,
     })
   })
 })

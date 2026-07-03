@@ -18,6 +18,7 @@ import {
   listAiSessions as listAiSessionsFromCache,
   listApiEndpoints as listApiEndpointsFromCache,
   listTraceCalls as listTraceCallsFromCache,
+  recordApiCall as recordApiCallToCache,
   recordInput as recordInputToCache,
   suggestInputs as suggestInputsFromCache,
   refreshAiSession,
@@ -287,7 +288,15 @@ export class InProcessRuntimeClient implements RuntimeClient {
     try {
       this.externalListener = startExternalEventListener(
         socketPath,
-        (event) => this.handlers.onExternalEvent?.(event),
+        (event) => {
+          // The history store is single-writer and this process holds the
+          // lock, so a one-shot run can't record its call directly — it
+          // arrives here instead, and we persist it before notifying the UI.
+          if (event.call) {
+            void recordApiCallToCache(event.call)
+          }
+          this.handlers.onExternalEvent?.(event)
+        },
         (error) => this.handlers.onError?.(error),
       )
     } catch (error) {

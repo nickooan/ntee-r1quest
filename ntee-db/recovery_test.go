@@ -21,11 +21,13 @@ func TestCrashRecoveryTornTail(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Simulate a crash: flush + drop handles WITHOUT writing a hint.
+	// Simulate a crash: flush + drop handles WITHOUT writing a hint. The lock
+	// release mirrors what the kernel does on process death.
 	db.main.flush()
 	db.main.close()
 	db.rf.Close()
 	db.blobs.close()
+	db.lock.Close()
 	db.closed = true
 
 	// A crash mid-append leaves a partial line with no trailing newline.

@@ -32,6 +32,20 @@ func BenchmarkPut(b *testing.B) {
 	}
 }
 
+// BenchmarkPutHintEveryN measures the write path with periodic hint rewrites
+// enabled (the app uses HintEveryN=5), including the every-Nth-write hint cost.
+func BenchmarkPutHintEveryN(b *testing.B) {
+	db, err := Open(Options{Dir: b.TempDir(), HintEveryN: 5})
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = db.Put(fmt.Sprintf("key%07d", i), []byte("value"))
+	}
+}
+
 func BenchmarkGet(b *testing.B) {
 	_, db := benchSeed(b, 10000)
 	defer db.Close()

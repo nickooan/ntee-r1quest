@@ -26,10 +26,12 @@ type indexHintLine struct {
 	IX  map[string]any `json:"ix,omitempty"`
 }
 
-// writeIndexHint atomically writes the index (in sorted order) plus the covers
-// watermark to path, via a temp file + rename so a crash never leaves a
-// half-written hint. pkSec supplies each key's secondary index values (may be nil).
-func writeIndexHint(path string, ix *pkIndex, pkSec map[string]map[string]any, covers int64) (err error) {
+// writeIndexHint atomically writes the index entries (in sorted order) plus
+// the covers watermark to path, via a temp file + rename so a crash never
+// leaves a half-written hint. It takes a plain entries slice (not *pkIndex) so
+// the background hint writer can pass a snapshot. pkSec supplies each key's
+// secondary index values (may be nil).
+func writeIndexHint(path string, entries []pkEntry, pkSec map[string]map[string]any, covers int64) (err error) {
 	tmp := path + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {
@@ -46,7 +48,7 @@ func writeIndexHint(path string, ix *pkIndex, pkSec map[string]map[string]any, c
 	if err = encodeJSONLine(w, indexHintMeta{Version: indexHintFormatVersion, Covers: covers}); err != nil {
 		return err
 	}
-	for _, e := range ix.entries { // already sorted by key
+	for _, e := range entries { // already sorted by key
 		var sv map[string]any
 		if pkSec != nil {
 			sv = pkSec[e.key]

@@ -2,7 +2,7 @@
 // its own module and shares the single store opened by `openCache` (./store.ts).
 
 export { formatEndpointLabel } from "./endpoint-label-helper.ts"
-export { openCache } from "./store.ts"
+export { openCache, closeCache } from "./store.ts"
 export { recordInput, suggestInputs, type InputRecord } from "./input.ts"
 export {
   recordApiCall,

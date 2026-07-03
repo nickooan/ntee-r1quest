@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -238,17 +239,19 @@ func (m Model) renderSearch(width, height int) string {
 }
 
 func renderSearchLine(line string, matches []view.LineMatch, focused, width int) string {
-	display := line
-	if len(display) > width {
-		display = display[:width]
-	}
+	// Truncate by runes, never bytes: content lines carry multi-byte runes
+	// (e.g. the ─ box-drawing chars in section dividers), and a byte cut can
+	// split one mid-sequence, rendering as �. Match offsets stay valid — they
+	// are byte positions into the original line, and the rune truncation point
+	// is always a rune boundary at or after any clipped match.
+	display := truncateRunes(line, width)
 	if len(matches) == 0 {
 		return padTo(display, width)
 	}
 
 	var b strings.Builder
-	cursor := 0
-	rendered := 0 // visible byte count (ASCII content); excludes ANSI
+	cursor := 0   // byte offset into display
+	rendered := 0 // visible rune count; excludes ANSI styling
 	for _, lm := range matches {
 		start := lm.Start
 		end := lm.End
@@ -263,7 +266,7 @@ func renderSearchLine(line string, matches []view.LineMatch, focused, width int)
 		}
 		if start > cursor {
 			b.WriteString(display[cursor:start])
-			rendered += start - cursor
+			rendered += utf8.RuneCountInString(display[cursor:start])
 		}
 		if start < end {
 			style := searchMatchStyle
@@ -271,13 +274,13 @@ func renderSearchLine(line string, matches []view.LineMatch, focused, width int)
 				style = searchFocusedStyle
 			}
 			b.WriteString(style.Render(display[start:end]))
-			rendered += end - start
+			rendered += utf8.RuneCountInString(display[start:end])
 		}
 		cursor = end
 	}
 	if cursor < len(display) {
 		b.WriteString(display[cursor:])
-		rendered += len(display) - cursor
+		rendered += utf8.RuneCountInString(display[cursor:])
 	}
 	if pad := width - rendered; pad > 0 {
 		b.WriteString(strings.Repeat(" ", pad))

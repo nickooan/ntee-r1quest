@@ -28,10 +28,74 @@ import {
   buildExternalRequestEvent,
   postExternalRequestEvent,
 } from "./src/runtime/external-event/index.ts"
+import type { RecordApiCallInput } from "./src/runtime/cache/index.ts"
 import { ConfigGenerator } from "./src/views/config-generator/index.tsx"
 import { formatError, formatResponse } from "./src/views/response.ts"
+import type { AxiosResponse } from "axios"
 
 export { VERSION } from "./src/runtime/version.ts"
+
+// Builds the full API-call record carried on the external event, from the
+// request fields axios kept on the response. While a terminal app is open it
+// holds the history store's single-writer lock, so this run can't record the
+// call itself — the app persists this payload on receipt.
+const toCallRecord = (
+  response: AxiosResponse,
+  startedAt: number,
+  traceId?: string,
+): RecordApiCallInput => ({
+  at: startedAt,
+  durationMs: Date.now() - startedAt,
+  traceId,
+  request: {
+    url: response.config?.url,
+    method: response.config?.method,
+    headers: (response.config?.headers ?? {}) as Record<string, unknown>,
+    body: response.config?.data,
+  },
+  response: {
+    status: response.status,
+    headers: response.headers as Record<string, unknown>,
+    data: response.data,
+  },
+})
+
+// Posts the event to an open terminal app, if any. A missing or dead socket is
+// the normal "no app is running" case and stays quiet; only unexpected errors
+// are reported.
+const postToOpenApp = async (
+  config: RuntimeConfig,
+  requestPath: string | undefined,
+  requestStartTime: number,
+  responseContent: string,
+  response: AxiosResponse,
+  traceId?: string,
+): Promise<void> => {
+  const socketPath = config.sock
+
+  if (!socketPath || !requestPath) {
+    return
+  }
+
+  try {
+    await postExternalRequestEvent(
+      socketPath,
+      buildExternalRequestEvent(
+        requestPath,
+        Date.now() - requestStartTime,
+        responseContent,
+        traceId,
+        toCallRecord(response, requestStartTime, traceId),
+      ),
+    )
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code
+
+    if (code !== "ECONNREFUSED" && code !== "ENOENT") {
+      process.stderr.write(`${formatError(error)}\n`)
+    }
+  }
+}
 
 const runPathArgument = async (
   args: string[],
@@ -54,24 +118,14 @@ const runPathArgument = async (
 
     process.stdout.write(responseContent)
 
-    const socketPath = config.sock
-    const requestPath = config.parsedArgs.path
-
-    if (socketPath && requestPath) {
-      try {
-        await postExternalRequestEvent(
-          socketPath,
-          buildExternalRequestEvent(
-            requestPath,
-            Date.now() - requestStartTime,
-            responseContent,
-            traceId,
-          ),
-        )
-      } catch (error) {
-        process.stderr.write(`${formatError(error)}\n`)
-      }
-    }
+    await postToOpenApp(
+      config,
+      config.parsedArgs.path,
+      requestStartTime,
+      responseContent,
+      response,
+      traceId,
+    )
 
     return true
   } catch (error) {
@@ -79,16 +133,31 @@ const runPathArgument = async (
     // A non-2xx response surfaces as a thrown AxiosError carrying `.response`;
     // render it the same as a success (to stderr, exit 1). Only true failures
     // with no response fall through to the error block.
-    const content =
-      isAxiosError(error) && error.response
-        ? formatResponse(
-            toExecuteResult(error.response, Date.now() - requestStartTime),
-            traceId,
-          )
-        : formatError(error, traceId)
+    const failedResponse =
+      isAxiosError(error) && error.response ? error.response : undefined
+    const content = failedResponse
+      ? formatResponse(
+          toExecuteResult(failedResponse, Date.now() - requestStartTime),
+          traceId,
+        )
+      : formatError(error, traceId)
 
     process.stderr.write(`${content}\n`)
     process.exitCode = 1
+
+    // Failed calls are kept in history too — hand them to an open app the
+    // same way (the one-shot's own record is a no-op while an app holds the
+    // store lock).
+    if (failedResponse && typeof failedResponse.status === "number") {
+      await postToOpenApp(
+        config,
+        config.parsedArgs.path,
+        requestStartTime,
+        content,
+        failedResponse,
+        traceId,
+      )
+    }
 
     return true
   }

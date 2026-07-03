@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 )
 
 // DefaultBlobThreshold is the value size at or above which a value is stored in
@@ -76,12 +77,23 @@ type DB struct {
 	metaPath string
 
 	mu     sync.RWMutex
+	lock   *os.File   // exclusive flock handle enforcing a single writer process
 	main   *mainLog   // append writer for main.jsonl (the main table)
 	rf     *os.File   // read handle for main.jsonl (ReadAt is concurrency-safe)
 	blobs  *blobStore // large-value side file
 	pk     *pkIndex   // in-memory primary-key index
 	writes int        // writes since the last hint rewrite
 	closed bool
+
+	// Async periodic hint machinery. The periodic hint rewrite (every
+	// HintEveryN writes) runs in a background goroutine off the write path;
+	// Close/Compact/range-delete hints stay synchronous checkpoints. Lock
+	// order: foreground db.mu → hintMu; the background writer takes hintMu
+	// only (never db.mu), so Close can wait on hintWG while holding db.mu.
+	hintMu   sync.Mutex     // serializes all hint-file writes (async + sync)
+	hintGen  atomic.Uint64  // bumped by every sync hint write; stale-snapshot guard
+	hintBusy atomic.Bool    // single-flight: at most one async hint writer
+	hintWG   sync.WaitGroup // lets Close wait out an in-flight writer
 
 	// Secondary indexes (declared via Options.Indexes).
 	indexDefs   []IndexDef
@@ -103,8 +115,23 @@ func Open(opts Options) (*DB, error) {
 		return nil, err
 	}
 
+	// Enforce a single writer process before touching any store file. The lock
+	// is released on every failed-Open path below, on Close, and automatically
+	// by the kernel if the process dies.
+	lock, err := acquireLock(opts.Dir)
+	if err != nil {
+		return nil, err
+	}
+	opened := false
+	defer func() {
+		if !opened {
+			_ = lock.Close()
+		}
+	}()
+
 	db := &DB{
 		opts:        opts,
+		lock:        lock,
 		mainPath:    filepath.Join(opts.Dir, mainFile),
 		hintPath:    filepath.Join(opts.Dir, hintFile),
 		blobPath:    filepath.Join(opts.Dir, blobFile),
@@ -157,6 +184,7 @@ func Open(opts Options) (*DB, error) {
 	db.main = lg
 	db.rf = rf
 	db.blobs = blobs
+	opened = true
 	return db, nil
 }
 
@@ -253,9 +281,15 @@ func (db *DB) adoptSchema() error {
 	return writeMeta(db.metaPath, out)
 }
 
-// writeHintLocked flushes the log so the watermark reflects durable data, then
-// atomically rewrites the hint. Callers must hold db.mu.
+// writeHintLocked is the synchronous hint checkpoint (Close, Compact, range
+// delete): it flushes the log so the watermark reflects durable data, then
+// atomically rewrites the hint. Bumping hintGen first invalidates any
+// in-flight async snapshot so a stale hint can never land after this fresh
+// one. Callers must hold db.mu.
 func (db *DB) writeHintLocked() error {
+	db.hintGen.Add(1)
+	db.hintMu.Lock()
+	defer db.hintMu.Unlock()
 	// Flush blobs first: a main record may reference a blob, so the blob must be
 	// durable before the watermark declares that record covered.
 	if db.blobs != nil {
@@ -266,20 +300,87 @@ func (db *DB) writeHintLocked() error {
 	if err := db.main.flush(); err != nil {
 		return err
 	}
-	if err := writeIndexHint(db.hintPath, db.pk, db.pkSec, db.main.size); err != nil {
+	if err := writeIndexHint(db.hintPath, db.pk.entries, db.pkSec, db.main.size); err != nil {
 		return err
 	}
 	db.writes = 0
 	return nil
 }
 
-// maybeWriteHintLocked rewrites the hint once HintEveryN writes have
-// accumulated. It is best-effort: a failure is ignored because the data is
-// already durable in the log and a stale hint only costs a slower next boot.
+// hintSnapshot is a consistent copy of everything the background hint writer
+// needs, taken under db.mu. entries is a fresh slice; pkSec is a shallow copy
+// of the outer map only — safe because stored inner maps are never mutated in
+// place (see refreshSecLocked).
+type hintSnapshot struct {
+	entries []pkEntry
+	pkSec   map[string]map[string]any
+	covers  int64
+	gen     uint64
+	main    *mainLog
+	blobs   *blobStore
+	path    string
+}
+
+// maybeWriteHintLocked spawns a background hint rewrite once HintEveryN writes
+// have accumulated, so the periodic hint never stalls the caller's Put with
+// fsyncs and a full index serialization. Single-flight: while one rewrite is
+// in flight, further triggers are skipped and the write counter keeps
+// accumulating until the next eligible write. The hint is a disposable
+// fast-boot optimization, so everything here is best-effort. Callers must
+// hold db.mu.
 func (db *DB) maybeWriteHintLocked() {
-	if db.opts.HintEveryN > 0 && db.writes >= db.opts.HintEveryN {
-		_ = db.writeHintLocked()
+	if db.opts.HintEveryN <= 0 || db.writes < db.opts.HintEveryN {
+		return
 	}
+	if !db.hintBusy.CompareAndSwap(false, true) {
+		return // one rewrite already in flight; coalesce
+	}
+	snap := hintSnapshot{
+		entries: append([]pkEntry(nil), db.pk.entries...),
+		pkSec:   make(map[string]map[string]any, len(db.pkSec)),
+		covers:  db.main.size,
+		gen:     db.hintGen.Load(),
+		main:    db.main,
+		blobs:   db.blobs,
+		path:    db.hintPath,
+	}
+	for k, v := range db.pkSec {
+		snap.pkSec[k] = v
+	}
+	db.writes = 0
+	db.hintWG.Add(1)
+	go db.writeHintAsync(snap)
+}
+
+// writeHintAsync flushes the data files and writes the snapshotted hint from a
+// background goroutine. It never takes db.mu: the flushes are bare fsyncs on
+// fds whose Go-side state is only mutated under db.mu, and the snapshot is
+// self-contained. Any error (e.g. Compact closed the old fd under us) aborts —
+// a missed hint only costs a slower next boot.
+func (db *DB) writeHintAsync(snap hintSnapshot) {
+	defer db.hintWG.Done()
+	defer db.hintBusy.Store(false)
+
+	// Durability ordering as in the sync path: blobs, then log, so covers only
+	// ever claims bytes whose referenced blobs are durable too.
+	if snap.blobs != nil {
+		if err := snap.blobs.flush(); err != nil {
+			return
+		}
+	}
+	if err := snap.main.flush(); err != nil {
+		return
+	}
+
+	db.hintMu.Lock()
+	defer db.hintMu.Unlock()
+	// A synchronous checkpoint (Close/Compact/range delete) may have written a
+	// fresher hint while we were flushing; never clobber it with this stale
+	// snapshot.
+	if db.hintGen.Load() != snap.gen {
+		return
+	}
+	_ = writeIndexHint(snap.path, snap.entries, snap.pkSec, snap.covers)
 }
 
 // Put stores value under key. Any secondary indexes with an Extract function
@@ -403,6 +504,10 @@ func (db *DB) Close() error {
 	}
 	db.closed = true
 
+	// Wait out any in-flight background hint writer before closing the file
+	// handles it flushes. Safe while holding db.mu: the writer never takes it.
+	db.hintWG.Wait()
+
 	var err error
 	if db.main != nil {
 		// Write a final hint so the next boot is fast (this also flushes the log).
@@ -420,6 +525,12 @@ func (db *DB) Close() error {
 	}
 	if db.blobs != nil {
 		if e := db.blobs.close(); e != nil && err == nil {
+			err = e
+		}
+	}
+	// Release the single-writer lock last, once the store's files are closed.
+	if db.lock != nil {
+		if e := db.lock.Close(); e != nil && err == nil {
 			err = e
 		}
 	}

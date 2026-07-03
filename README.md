@@ -519,7 +519,23 @@ Entries missing a `name` or `instruction` are skipped. See
 When `sock` is set, the terminal app listens on that Unix socket for external
 request events. A `-p` execution posts its formatted response to the socket when
 available, so an open terminal app can highlight the matching request and show
-the result.
+the result. `r1q --init` sets a default socket path under the OS temp directory
+(e.g. `/tmp/ntee-r1quest.sock`).
+
+The event also carries the **full call record**, which matters for history:
+the request history store is **single-writer** — while a terminal app is open
+it holds an exclusive lock, so a one-shot run cannot write history directly.
+Instead, the one-shot hands its call record over the socket and the open app
+(the lock holder) persists it, so history stays complete and the app sees the
+call immediately. The two paths are mutually exclusive by construction:
+
+- **App open + `sock` configured** — the app records the call (and highlights
+  the request). The one-shot's own write is a clean no-op.
+- **No app running** — the one-shot records history directly; the socket post
+  quietly does nothing.
+- **App open but `sock` not configured** — the one-shot's calls are not added
+  to history for that overlap (the store is locked and there is no hand-off
+  channel); everything else works normally. Configure `sock` to avoid this.
 
 ## Collection Structure
 

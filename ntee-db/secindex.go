@@ -464,6 +464,11 @@ func (db *DB) buildIndexValues(key string, value []byte, explicit IndexValues) (
 // refreshSecLocked retracts a key's previous secondary entries and applies its
 // new ones. It is best-effort (skips unknown indexes / invalid values) so it is
 // safe to call during boot replay where the declared index set may differ.
+//
+// Invariant: the ix map stored into db.pkSec is owned by it from here on and is
+// never mutated in place (every writer allocates a fresh map and replaces
+// wholesale). The background hint writer relies on this to snapshot pkSec with
+// a shallow copy of the outer map only.
 func (db *DB) refreshSecLocked(key string, ix map[string]any) {
 	db.retractSecLocked(key)
 	if len(ix) == 0 {
