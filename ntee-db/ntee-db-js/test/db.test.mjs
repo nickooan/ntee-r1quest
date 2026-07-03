@@ -81,6 +81,19 @@ test("putMany batches records (order, indexes, validation, caps)", async () => {
         /unknown index/,
       )
       assert.equal(db.has("ok:1"), false)
+
+      // Text goes over the wire as a plain string ("s"), binary as base64
+      // ("v"), a leading BOM must survive — all byte-exact either way.
+      const binary = Buffer.from([0xff, 0xfe, 0x00, 0x01, 0xc3, 0x28])
+      const bom = Buffer.from([0xef, 0xbb, 0xbf, 0x68, 0x69]) // BOM + "hi"
+      await db.putMany([
+        { key: "batch:text", value: '{"n":1,"emoji":"🎉"}' },
+        { key: "batch:bin", value: binary },
+        { key: "batch:bom", value: bom },
+      ])
+      assert.equal(db.get("batch:text").toString("utf8"), '{"n":1,"emoji":"🎉"}')
+      assert.deepEqual(db.get("batch:bin"), binary)
+      assert.deepEqual(db.get("batch:bom"), bom)
     },
   )
 })

@@ -1,6 +1,11 @@
 // Ergonomic Node.js wrapper around the nteedb C-shared library.
 import { fns, readEnvelope, callAsync } from "./native.js"
 
+// Exact UTF-8 validity check for batch payloads — the JS counterpart of Go's
+// utf8.Valid. fatal makes invalid input throw instead of substituting U+FFFD;
+// ignoreBOM keeps a leading BOM instead of silently stripping it.
+const utf8Strict = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
+
 /**
  * NteeDB is an open handle to a store. Construct via NteeDB.open().
  */
@@ -51,13 +56,22 @@ export class NteeDB {
    */
   putMany(items) {
     this.#assertOpen()
-    const payload = items.map(({ key, value, ix }) => ({
-      k: key,
-      v: (Buffer.isBuffer(value) ? value : Buffer.from(value)).toString(
-        "base64",
-      ),
-      ...(ix ? { ix } : {}),
-    }))
+    // Values travel like the get envelope: valid-UTF-8 as a plain string
+    // ("s"), binary as base64 ("v").
+    const payload = items.map(({ key, value, ix }) => {
+      let item
+      if (typeof value === "string") {
+        item = { k: key, s: value }
+      } else {
+        const buf = Buffer.isBuffer(value) ? value : Buffer.from(value)
+        try {
+          item = { k: key, s: utf8Strict.decode(buf) }
+        } catch {
+          item = { k: key, v: buf.toString("base64") }
+        }
+      }
+      return ix ? { ...item, ix } : item
+    })
     return callAsync(fns.putBatch, this.#h, JSON.stringify(payload))
   }
 

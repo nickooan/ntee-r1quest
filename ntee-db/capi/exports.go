@@ -136,11 +136,13 @@ func nteedb_delete(h C.uint, key *C.char) *C.char {
 	return reply(nil, db.Delete(C.GoString(key)))
 }
 
-// jsonBatchItem is one PutBatch record on the FFI boundary: base64 value,
-// optional index values — matching the get/put envelope conventions.
+// jsonBatchItem is one PutBatch record on the FFI boundary. The value carries
+// the same split as the get envelope and the on-disk record: valid-UTF-8 as a
+// plain string ("s"), binary as base64 ("v").
 type jsonBatchItem struct {
 	K  string         `json:"k"`
-	V  string         `json:"v"`
+	S  string         `json:"s,omitempty"` // inline value, valid UTF-8: plain string
+	V  string         `json:"v,omitempty"` // inline value, binary: base64
 	IX map[string]any `json:"ix,omitempty"`
 }
 
@@ -156,9 +158,14 @@ func nteedb_put_batch(h C.uint, itemsJSON *C.char) *C.char {
 	}
 	items := make([]nteedb.PutItem, len(jitems))
 	for i, ji := range jitems {
-		v, err := base64.StdEncoding.DecodeString(ji.V)
-		if err != nil {
-			return reply(nil, err)
+		var v []byte
+		if ji.S != "" {
+			v = []byte(ji.S)
+		} else if ji.V != "" {
+			var err error
+			if v, err = base64.StdEncoding.DecodeString(ji.V); err != nil {
+				return reply(nil, err)
+			}
 		}
 		items[i] = nteedb.PutItem{Key: ji.K, Value: v, IX: ji.IX}
 	}
