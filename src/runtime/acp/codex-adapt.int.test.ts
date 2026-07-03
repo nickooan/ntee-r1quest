@@ -179,7 +179,7 @@ describe("Codex ACP adapter integration", () => {
     expect(spawnMock).toHaveBeenCalledWith(
       process.execPath,
       [
-        expect.stringContaining("@zed-industries/codex-acp/bin/codex-acp.js"),
+        expect.stringContaining("@agentclientprotocol/codex-acp/dist/index.js"),
         "--example",
       ],
       expect.objectContaining({

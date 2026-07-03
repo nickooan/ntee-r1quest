@@ -28,7 +28,7 @@ ACP Adapter
   |     ` wait for write({ type: "permission", ... }) if not answered
   v
 Agent ACP Process
-  | Codex: @zed-industries/codex-acp
+  | Codex: @agentclientprotocol/codex-acp
   | Claude: @agentclientprotocol/claude-agent-acp
   | Cursor: agent acp
 ```

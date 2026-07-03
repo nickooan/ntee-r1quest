@@ -226,7 +226,7 @@ export class CodexAcpAdapter {
 
   private async start(): Promise<this> {
     const codexAcpPath = fileURLToPath(
-      import.meta.resolve("@zed-industries/codex-acp/bin/codex-acp.js"),
+      import.meta.resolve("@agentclientprotocol/codex-acp/dist/index.js"),
     )
     const childProcess = spawn(process.execPath, [codexAcpPath, ...this.args], {
       cwd: this.cwd,

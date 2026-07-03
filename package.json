@@ -74,10 +74,10 @@
   },
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "^0.36.1",
+    "@agentclientprotocol/codex-acp": "^1.1.0",
     "@agentclientprotocol/sdk": "^0.22.1",
-    "@types/react": "^19.2.14",
-    "@zed-industries/codex-acp": "^0.14.0",
     "@ntee/ntee-db": "*",
+    "@types/react": "^19.2.14",
     "axios": "^1.16.1",
     "ink": "^7.0.1",
     "ohm-js": "^17.5.0",
