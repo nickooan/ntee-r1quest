@@ -54,6 +54,20 @@ export declare class NteeDB {
     value: Value,
     ix?: { [index: string]: string | number },
   ): void
+  /**
+   * Append many records in one batch (one FFI crossing, one lock, one fsync in
+   * durable mode). Applied in array order; an invalid item rejects the whole
+   * batch with nothing written. Runs off the event loop; resolves to the
+   * number of records once all are appended.
+   */
+  putMany(
+    items: {
+      key: string
+      value: Value
+      ix?: { [index: string]: string | number }
+    }[],
+  ): Promise<number>
+
   /** Get the value for `key`, or null if absent. */
   get(key: string): Buffer | null
   /** Whether `key` exists. */

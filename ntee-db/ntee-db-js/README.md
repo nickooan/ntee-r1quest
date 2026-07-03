@@ -10,26 +10,44 @@ platform).
 
 Microbenchmark vs `lmdb` (lmdb-js) from Node, on a cache-shaped workload:
 20,000 records, ~120-byte JSON values, time-ordered keys
-(`api:<zero-padded-id>`). Apple M2 Pro, Node 24. The test code is in the
-[appendix at the bottom](#appendix-benchmark-code).
+(`api:<zero-padded-id>`). Apple M2 Pro, Node 24. Each figure is the **mean of
+5 rounds** (fresh store per round, warm-up round discarded). The test code is
+in the [appendix at the bottom](#appendix-benchmark-code).
 
 | Operation                    | @ntee/ntee-db | lmdb                       | Faster            |
 | ---------------------------- | ------------- | -------------------------- | ----------------- |
-| `get`                        | 5.3 µs/op     | 0.7 µs/op                  | lmdb ~7×          |
-| exists check                 | 1.1 µs/op     | 0.5 µs/op                  | lmdb ~2×          |
-| put (non-durable path)       | 4.1 µs/op     | 1.0 µs/op (async, batched) | lmdb ~4×          |
-| **put (synchronous commit)** | **4.1 µs/op** | 2,827 µs/op (`putSync`)    | **ntee-db ~690×** |
-| put (sync, `hintEveryN: 5`)  | 15.4 µs/op    | —                          |                   |
-| prefix scan, all 20k keys    | **2.7 ms**    | 5.8 ms (range scan)        | **ntee-db ~2×**   |
+| `get`                        | 6.2 µs/op     | 0.8 µs/op                  | lmdb ~8×          |
+| exists check                 | 1.3 µs/op     | 0.6 µs/op                  | lmdb ~2×          |
+| put (non-durable path)       | 4.7 µs/op     | 0.9 µs/op (async, batched) | lmdb ~5×          |
+| `putMany` (one 20k batch)    | 5.2 µs/op     | 0.9 µs/op (async, batched) | lmdb ~6×          |
+| **put (synchronous commit)** | **4.7 µs/op** | 2,827 µs/op (`putSync`)    | **ntee-db ~600×** |
+| put (sync, `hintEveryN: 5`)  | ~19 µs/op     | —                          |                   |
+| prefix scan, all 20k keys    | **3.7 ms**    | 5.8 ms (range scan)        | **ntee-db ~1.6×** |
+
+Since the readable-values format (text stored as JSON strings in `main.jsonl`
+instead of base64), put/get pay ~0.5–1 µs more on JSON-heavy payloads — string
+escaping/unescaping costs more than base64 for quote-dense content. The trade
+buys a grep-able log and ~25% smaller records; still microseconds either way.
+It also makes `putMany` slightly _slower per-op than plain put_ for text
+values (the batch base64-encodes for the FFI envelope AND escapes for disk) —
+its wins are the free event loop and the single fsync, not per-op cost.
 
 The `hintEveryN: 5` row is the app's boot-optimization config: periodic hint
 rewrites run in a **background goroutine**, so a put only pays a cheap
-in-memory snapshot (~11 µs at this uncapped 20k size — before hints went
-async, this same row measured **~1.3 ms/op**, a ~85× improvement).
+in-memory snapshot (~14 µs at this uncapped 20k size — before hints went
+async, this same row measured **~1.3 ms/op**, a ~70× improvement).
 
 Note: `prefixScan` above is the **primary-key** prefix scan — it needs no index
 declaration (the PK index always exists), and lmdb's counterpart is likewise a
 PK range scan, so that row is like-for-like.
+
+`putMany` batches N records into one FFI call (one lock, one fsync in durable
+mode) and runs **off the event loop**. Read its row honestly: for text values
+it is not a per-op saving at all (the batch's own base64/JSON envelope costs
+about what the saved crossings gain). Its real wins are that a bulk load does
+not block the JS thread at all, and in durable mode it costs **one fsync
+instead of N** — while still resolving only when every record is appended (no
+lmdb-style exit-loss window).
 
 **Indexed workload** — the app's real shape: every write carries two secondary
 index values (`endpoint`, `traceId`); 20k records across 500 distinct
@@ -60,8 +78,8 @@ How to read this honestly:
   zero-copy reads; an ntee-db `get` pays an FFI crossing + a `pread` +
   JSON/base64 marshaling. Both are microseconds — for tens of ops per user
   interaction the difference is imperceptible.
-- **Synchronous writes: ntee-db wins (~690×).** The append-only log makes a
-  caller-synchronous write a single ~4 µs append, so a CLI that exits right
+- **Synchronous writes: ntee-db wins (~600×).** The append-only log makes a
+  caller-synchronous write a single ~5 µs append, so a CLI that exits right
   after a request still persists its record. lmdb's equivalent (`putSync`)
   commits a copy-on-write transaction per call (~2.8 ms); its fast write path
   is async/batched — similar durability to ntee-db's default, but not
@@ -149,19 +167,20 @@ db.close() // or db.drop() to delete the store
 
 ## API
 
-| Method                                   | Returns            | Notes                                                   |
-| ---------------------------------------- | ------------------ | ------------------------------------------------------- |
-| `NteeDB.open(dir, opts?)`                | `NteeDB`           | creates if missing                                      |
-| `NteeDB.destroy(dir)`                    | `void`             | delete a store's files (no open handle)                 |
-| `put(key, value, ix?)`                   | `void`             | `value`: Buffer\|string; `ix`: `{name: string\|number}` |
-| `get(key)`                               | `Buffer \| null`   |                                                         |
-| `has(key)` / `delete(key)`               | `boolean` / `void` |                                                         |
-| `prefixScan(prefix)`                     | `string[]`         | sorted keys                                             |
-| `byIndex / byIndexPrefix / byIndexRange` | `string[]`         | primary keys                                            |
-| `searchByIndex / searchByPrefix`         | `{key, value}[]`   | keys + content                                          |
-| `droppedIndexes / prospectiveIndexes`    | `string[]`         | schema state                                            |
-| `compact()` / `reindex()`                | `Promise<void>`    | run off the event loop                                  |
-| `close()` / `drop()`                     | `void`             |                                                         |
+| Method                                   | Returns            | Notes                                                             |
+| ---------------------------------------- | ------------------ | ----------------------------------------------------------------- |
+| `NteeDB.open(dir, opts?)`                | `NteeDB`           | creates if missing                                                |
+| `NteeDB.destroy(dir)`                    | `void`             | delete a store's files (no open handle)                           |
+| `put(key, value, ix?)`                   | `void`             | `value`: Buffer\|string; `ix`: `{name: string\|number}`           |
+| `putMany(items)`                         | `Promise<number>`  | one batch off the event loop; in-order; all-or-nothing validation |
+| `get(key)`                               | `Buffer \| null`   |                                                                   |
+| `has(key)` / `delete(key)`               | `boolean` / `void` |                                                                   |
+| `prefixScan(prefix)`                     | `string[]`         | sorted keys                                                       |
+| `byIndex / byIndexPrefix / byIndexRange` | `string[]`         | primary keys                                                      |
+| `searchByIndex / searchByPrefix`         | `{key, value}[]`   | keys + content                                                    |
+| `droppedIndexes / prospectiveIndexes`    | `string[]`         | schema state                                                      |
+| `compact()` / `reindex()`                | `Promise<void>`    | run off the event loop                                            |
+| `close()` / `drop()`                     | `void`             |                                                                   |
 
 ## Notes / limitations
 
@@ -373,4 +392,21 @@ const ldb = lmdbOpen({ path: "./lmdb-ix" })
   )
 }
 await ldb.close()
+```
+
+The `putMany` row comes from this snippet (same scratch project):
+
+```js
+import { NteeDB } from "./src/index.js"
+
+const N = 20000
+const value = JSON.stringify({ endpoint: "/api/users [get]", status: 200 })
+const key = (i) => "api:" + String(i).padStart(16, "0")
+
+const db = NteeDB.open("./ntee-batch", {})
+const items = Array.from({ length: N }, (_, i) => ({ key: key(i), value }))
+const t0 = performance.now()
+await db.putMany(items) // one FFI call, off the event loop
+console.log(((performance.now() - t0) * 1000) / N, "µs/op")
+db.drop()
 ```

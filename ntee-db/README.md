@@ -21,6 +21,12 @@ capping** (`MaxPerValue`, keep only the newest N records per index value) and
 
 - **No separate WAL.** The data log _is_ the write-ahead log: the index is always
   rebuildable from it and can never drift out of sync with the data.
+- **Readable values.** Valid-UTF-8 values are stored as plain JSON strings
+  (grep-able in `main.jsonl`, ~25% smaller); only genuine binary falls back to
+  base64. Auto-detected — `utf8.Valid` is exactly the "can JSON carry it
+  losslessly" predicate, so no corruption is possible in either direction.
+  (Logs from older versions read fine; older binaries see new-format values as
+  empty — acceptable for a best-effort store.)
 - **In-memory index** is a single slice kept sorted by key. It serves both exact
   lookups and prefix scans in O(log n) via binary search. (A hash map is avoided
   because prefix scans on a hash map require a full O(n) scan.)
@@ -162,6 +168,13 @@ db.Put("input:GetOrders", []byte("..."))
 v, ok, err := db.Get("input:GetOrders")
 keys, err := db.PrefixScan("input:Get") // sorted keys with that prefix
 db.Delete("input:GetOrders")
+
+// Bulk writes: one lock acquisition, one fsync in durable mode. Items apply in
+// order; index values are validated up front, so a bad item writes nothing.
+err = db.PutBatch([]nteedb.PutItem{
+    {Key: "call:1", Value: body1, IX: nteedb.IndexValues{"traceId": "T1"}},
+    {Key: "call:2", Value: body2},
+})
 
 // Range delete by primary key (strict bounds; the cutoff key itself is kept).
 // With time-ordered keys this is "drop everything older/newer than X".

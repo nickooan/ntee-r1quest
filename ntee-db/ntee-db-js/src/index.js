@@ -38,6 +38,29 @@ export class NteeDB {
     readEnvelope(fns.put(this.#h, key, buf, buf.length, ixJSON))
   }
 
+  /**
+   * Append many records in one batch — the bulk counterpart to put() for
+   * imports and other high-volume writes: one FFI crossing, one lock, one
+   * fsync in durable mode. Items are applied in array order (a repeated key's
+   * later item wins); an invalid item rejects the whole batch with nothing
+   * written. Runs off the event loop; the returned promise resolves to the
+   * number of records once ALL of them are appended — synchronous durability
+   * at the batch boundary, unlike lmdb-style fire-and-forget batching.
+   *
+   * items: [{ key, value: Buffer|string, ix? }]
+   */
+  putMany(items) {
+    this.#assertOpen()
+    const payload = items.map(({ key, value, ix }) => ({
+      k: key,
+      v: (Buffer.isBuffer(value) ? value : Buffer.from(value)).toString(
+        "base64",
+      ),
+      ...(ix ? { ix } : {}),
+    }))
+    return callAsync(fns.putBatch, this.#h, JSON.stringify(payload))
+  }
+
   /** Get the value for key as a Buffer, or null if absent. */
   get(key) {
     this.#assertOpen()

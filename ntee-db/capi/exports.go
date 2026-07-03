@@ -129,6 +129,38 @@ func nteedb_delete(h C.uint, key *C.char) *C.char {
 	return reply(nil, db.Delete(C.GoString(key)))
 }
 
+// jsonBatchItem is one PutBatch record on the FFI boundary: base64 value,
+// optional index values — matching the get/put envelope conventions.
+type jsonBatchItem struct {
+	K  string         `json:"k"`
+	V  string         `json:"v"`
+	IX map[string]any `json:"ix,omitempty"`
+}
+
+//export nteedb_put_batch
+func nteedb_put_batch(h C.uint, itemsJSON *C.char) *C.char {
+	db := regGet(uint32(h))
+	if db == nil {
+		return reply(nil, errInvalidHandle)
+	}
+	var jitems []jsonBatchItem
+	if err := json.Unmarshal([]byte(C.GoString(itemsJSON)), &jitems); err != nil {
+		return reply(nil, err)
+	}
+	items := make([]nteedb.PutItem, len(jitems))
+	for i, ji := range jitems {
+		v, err := base64.StdEncoding.DecodeString(ji.V)
+		if err != nil {
+			return reply(nil, err)
+		}
+		items[i] = nteedb.PutItem{Key: ji.K, Value: v, IX: ji.IX}
+	}
+	if err := db.PutBatch(items); err != nil {
+		return reply(nil, err)
+	}
+	return reply(len(items), nil)
+}
+
 //export nteedb_prefix_scan
 func nteedb_prefix_scan(h C.uint, prefix *C.char) *C.char {
 	db := regGet(uint32(h))
