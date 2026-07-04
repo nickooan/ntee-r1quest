@@ -28,6 +28,13 @@ export interface OpenOptions {
   syncEveryWrite?: boolean
   /** Rewrite the index hint after this many writes (also on close/compact). 0 disables periodic rewrites. */
   hintEveryN?: number
+  /**
+   * How value-returning reads decode values. 'json' (default) parses JSON values
+   * into objects/arrays/scalars, with a Buffer fallback for binary/non-JSON;
+   * 'buffer' returns byte-exact Buffers for everything. Governs get / getMany /
+   * the *Records searches; key-only queries are unaffected.
+   */
+  valueFormat?: "json" | "buffer"
   /** Secondary indexes to maintain. */
   indexes?: IndexDef[]
 }
@@ -35,9 +42,16 @@ export interface OpenOptions {
 /** A value: a Buffer, or a string (encoded as UTF-8). */
 export type Value = Buffer | string
 
+/**
+ * A read value: under valueFormat 'json' a parsed JSON value (or a Buffer for
+ * binary/non-JSON); under 'buffer' a Buffer. `unknown` because the concrete type
+ * depends on the store's valueFormat — narrow or cast at the call site.
+ */
+export type ReadValue = unknown
+
 export interface Record {
   key: string
-  value: Buffer | null
+  value: ReadValue
 }
 
 export declare class NteeDB {
@@ -68,13 +82,13 @@ export declare class NteeDB {
     }[],
   ): Promise<number>
 
-  /** Get the value for `key`, or null if absent. */
-  get(key: string): Buffer | null
+  /** Get the value for `key`, or null if absent. Type per valueFormat (see ReadValue). */
+  get(key: string): ReadValue | null
   /**
    * Get the values for many keys in one FFI call, aligned to `keys`: each entry
-   * is a Buffer, or null if that key is absent.
+   * is a value (per valueFormat), or null if that key is absent.
    */
-  getMany(keys: string[]): (Buffer | null)[]
+  getMany(keys: string[]): (ReadValue | null)[]
   /** Whether `key` exists. */
   has(key: string): boolean
   /** Delete `key` (no-op if absent). */

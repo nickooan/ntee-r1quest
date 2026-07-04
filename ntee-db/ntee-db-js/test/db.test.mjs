@@ -5,9 +5,11 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { NteeDB } from "../src/index.js"
 
+// These tests assert byte-exact storage, so default the helper to buffer mode;
+// json-mode behavior is covered by its own tests (a test may override opts).
 async function withDB(opts, fn) {
   const dir = await mkdtemp(path.join(tmpdir(), "nteedb-"))
-  const db = NteeDB.open(dir, opts)
+  const db = NteeDB.open(dir, { valueFormat: "buffer", ...opts })
   try {
     await fn(db, dir)
   } finally {
@@ -161,6 +163,53 @@ test("getMany: order preserved, missing → null, text/binary/blob values", asyn
     assert.deepEqual(got[3], binary)
 
     assert.deepEqual(db.getMany([]), []) // empty input
+  })
+})
+
+test("valueFormat json (default): reads return parsed JSON, with Buffer fallback", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "nteedb-"))
+  const db = NteeDB.open(dir, {
+    indexes: [{ name: "traceId", kind: "string" }],
+  }) // no valueFormat → default is json
+  try {
+    const obj = { endpoint: "/api/users", status: 200, tags: ["a", "b"] }
+    db.put("rec", JSON.stringify(obj), { traceId: "T1" })
+    db.put("rec2", JSON.stringify({ n: 2 }), { traceId: "T1" })
+    db.put("text", "hello") // not valid JSON → Buffer fallback
+    db.put("bin", Buffer.from([0xff, 0x00, 0x01])) // binary → Buffer
+
+    // get: parsed object, not a Buffer.
+    assert.deepEqual(db.get("rec"), obj)
+    assert.equal(db.get("missing"), null)
+    // Non-JSON and binary fall back to Buffer.
+    assert.ok(Buffer.isBuffer(db.get("text")))
+    assert.equal(db.get("text").toString(), "hello")
+    assert.deepEqual(db.get("bin"), Buffer.from([0xff, 0x00, 0x01]))
+
+    // getMany + secIndexRecords return parsed values too.
+    assert.deepEqual(db.getMany(["rec", "missing"]), [obj, null])
+    const recs = db.secIndexRecords("traceId", "T1")
+    assert.deepEqual(
+      recs.map((r) => r.value),
+      [obj, { n: 2 }],
+    )
+
+    // Scalar coercion under json (documented): "123" → number 123.
+    db.put("num", "123")
+    assert.equal(db.get("num"), 123)
+  } finally {
+    db.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("valueFormat buffer: same data comes back byte-exact", async () => {
+  await withDB({ valueFormat: "buffer" }, (db) => {
+    db.put("rec", JSON.stringify({ n: 1 }))
+    db.put("num", "123")
+    assert.ok(Buffer.isBuffer(db.get("rec")))
+    assert.equal(db.get("rec").toString(), '{"n":1}')
+    assert.equal(db.get("num").toString(), "123") // string, not the number 123
   })
 })
 

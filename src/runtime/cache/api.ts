@@ -124,17 +124,13 @@ export const listApiEndpoints = (): ApiCallRecord[] => {
     // endpoint is the latest.
     const latest = new Map<string, ApiCallRecord>()
 
-    for (const { value } of cache.searchByPrefix(NS.api)) {
-      if (!value) {
+    for (const { value } of cache.prefixScanRecords(NS.api)) {
+      // json valueFormat: value is the parsed record; skip corrupt/absent.
+      if (value == null || Buffer.isBuffer(value)) {
         continue
       }
-
-      try {
-        const record = JSON.parse(value.toString("utf8")) as ApiCallRecord
-        latest.set(record.endpoint, record)
-      } catch {
-        // skip a corrupt record
-      }
+      const record = value as ApiCallRecord
+      latest.set(record.endpoint, record)
     }
 
     return [...latest.values()].sort((left, right) =>
@@ -169,20 +165,16 @@ export const listApiEndpointsByPrefix = (prefix: string): ApiCallRecord[] => {
 
     // -1 → the single most-recent record of each endpoint under the prefix,
     // already grouped and ordered by endpoint label.
-    for (const { value } of cache.searchByIndexPrefix(
+    for (const { value } of cache.secIndexPrefixRecords(
       ENDPOINT_INDEX,
       prefix,
       -1,
     )) {
-      if (!value) {
+      // json valueFormat: value is the parsed record; skip corrupt/absent.
+      if (value == null || Buffer.isBuffer(value)) {
         continue
       }
-
-      try {
-        records.push(JSON.parse(value.toString("utf8")) as ApiCallRecord)
-      } catch {
-        // skip a corrupt record
-      }
+      records.push(value as ApiCallRecord)
     }
 
     return records
@@ -201,7 +193,7 @@ export const getApiCall = (endpoint: string): ApiCallRecord | undefined => {
 
   try {
     // -1 → the single most-recent record for this endpoint.
-    const [key] = cache.byIndex(ENDPOINT_INDEX, endpoint, -1)
+    const [key] = cache.secIndex(ENDPOINT_INDEX, endpoint, -1)
 
     return key ? cacheGet<ApiCallRecord>(cache, key) : undefined
   } catch {

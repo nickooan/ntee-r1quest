@@ -47,6 +47,8 @@ export const fns = {
   putBatch: def("nteedb_put_batch", ["uint", "str"]),
   get: def("nteedb_get", ["uint", "str"]),
   getMany: def("nteedb_get_many", ["uint", "str"]),
+  getJson: def("nteedb_get_json", ["uint", "str"]),
+  getManyJson: def("nteedb_get_many_json", ["uint", "str"]),
   has: def("nteedb_has", ["uint", "str"]),
   delete: def("nteedb_delete", ["uint", "str"]),
   prefixScan: def("nteedb_prefix_scan", ["uint", "str"]),

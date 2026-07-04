@@ -50,7 +50,7 @@ full scan + parse + dedup in JS.
 | put carrying 2 index values         | **16.7 µs**   | 1.2 µs (no indexes\*)  | 25.2 µs             |
 | put, full app config\*\*            | 68 µs         | —                      | —                   |
 | search a value → keys (~20 matches) | 3.5 µs        | —§                     | **2.9 µs**          |
-| search a value → records (~20)      | 116 µs        | —§                     | **12 µs**           |
+| search a value → records (~20)      | ~85 µs        | —§                     | **11 µs**           |
 | latest call of one endpoint         | 2.5 µs        | —                      | **1.5 µs**          |
 | latest call of every endpoint (500) | **0.1 ms**    | 17.8 ms (scan + dedup) | 1.5 ms (`GROUP BY`) |
 
@@ -86,17 +86,18 @@ How to read this honestly:
 - **Scans: ntee-db wins (~2×).** Keys live in a RAM-resident sorted index; a
   full-prefix scan is a bounded native traversal.
 - **Grouped "newest per value": ntee-db wins even vs SQLite (~15×; ~180× vs
-  lmdb).** `byIndexPrefix(name, prefix, -1)` returns one key per distinct value
+  lmdb).** `secIndexPrefix(name, prefix, -1)` returns one key per distinct value
   in a single cache-resident traversal, vs SQLite's `GROUP BY` over the index or
   lmdb's scan-and-dedup in JS. This is the app's History-list query.
-- **Record-returning index search is ntee-db's weak spot (~10× vs SQLite).**
-  Looking up an index value's _keys_ is competitive (3.5 vs 2.9 µs), but
-  `searchByIndex` then does one FFI `get` per key to fetch values — ~20
-  crossings for a 20-match value (116 µs), where SQLite returns key+value in one
-  indexed query (12 µs). The whole gap is the per-key value fetch across the
-  boundary (a batched `getMany` would close it). Still sub-ms for the app's
-  ~50-record renders, but SQLite's single-query fetch is the right tool for
-  value-heavy index scans.
+- **Record-returning index search is ntee-db's soft spot (~7× vs SQLite).**
+  Looking up an index value's _keys_ is competitive (3–5 µs), but fetching the
+  values adds the cost. `secIndexRecords` now uses a batched native `getMany`
+  (one crossing, not N+1 — down from ~116 µs) and returns parsed objects
+  directly under the default `json` valueFormat, so it's ~85 µs for a 20-match
+  value vs SQLite's 11 µs. The residual gap is **not** crossing count anymore —
+  it's the koffi string boundary itself (Go marshals one JSON document, JS
+  parses it), which only a native N-API addon would remove. Still sub-ms for the
+  app's ~50-record renders.
 - **Where the others fundamentally win:** SQLite brings SQL, transactions,
   multi-process access, and decades of durability hardening; lmdb brings the
   fastest reads and scales to datasets far past what ntee-db (all keys in RAM,
@@ -104,37 +105,22 @@ How to read this honestly:
 
 ### Why r1quest uses ntee-db
 
-r1quest is a local app on the user's own device. At this scale **all three
-engines are "fast enough"** — the accurate summary is not "ntee-db is faster",
-it's: _ntee-db is faster exactly where this app is sensitive (caller-sync
-appends, sorted-key scans, grouped newest-per-value queries), decent everywhere
-else, and ships retention + a readable log for free._ SQLite would be the pick
-if the app needed general SQL, transactions, or multi-process; lmdb if it
-needed raw read throughput or far larger datasets — none of which this workload
-does.
+It's a local, single-user app, so all three engines are "fast enough" — what
+matters is _fit_. Every operation r1quest leans on is a row ntee-db wins in the
+tables above:
 
-- **Sync writes are the hot requirement.** One-shot CLI runs exit immediately
-  after the request, so "on disk before the process exits" must be the
-  _default_ write path — ~17 µs for the app's real indexed write.
-- **Reads only need to be decent — and they are.** Rendering a 50-endpoint
-  history costs ~0.2 ms; the ~3× read gap vs SQLite would only show at thousands
-  of reads per frame, which a human-paced TUI never does.
-- **The feature fit is the bigger argument.** Secondary indexes, grouped
-  newest-per-value queries, `maxPerValue` retention, and range delete by
-  time-ordered key are all used by the app. SQLite could express the queries in
-  SQL but not the retention (that needs a trigger), and its grouped
-  newest-per-value is ~15× slower; with lmdb each was hand-rolled JS. The
-  History-list pattern measured 0.1 ms via the index vs 1.5 ms (SQLite) / 17.8
-  ms (lmdb scan).
-- **Its weaknesses are structurally avoided.** `maxPerValue` caps the store by
-  construction and the hint keeps boots fast, so all-keys-in-RAM and the O(n)
-  boot scan never bite; conversely SQLite's and lmdb's superpowers (SQL,
-  transactions, multi-process, huge datasets) were dead weight for this
-  workload.
-- **Multi-process overlap is guarded.** `open` takes an exclusive kernel lock
-  (`flock`); a second opener fails fast and the app degrades that process to a
-  cache-less run. The lock is process-owned, so it releases on any exit —
-  Ctrl+C, crash, `kill -9` — with no stale-lock state possible.
+| the app needs… | ntee-db | vs the field |
+| --- | --- | --- |
+| persist before a one-shot CLI exits (sync write) | ~17 µs | ~2.4× faster than SQLite's caller-sync write |
+| the History list — latest call per endpoint | 0.1 ms | ~15× SQLite `GROUP BY`, ~180× an lmdb scan |
+| a cache that can't grow (`maxPerValue` retention) | built-in | no native equivalent in SQLite or lmdb |
+
+Point reads are ~3× behind SQLite but sub-ms and rare per interaction. SQLite
+would win if the app needed SQL, transactions, or multi-process; lmdb for raw
+reads or far larger datasets — none of which a local request cache does. The one
+real multi-process case (a TUI session overlapping a one-shot run) is guarded by
+a single-writer `flock`: the second opener fails fast and degrades to a
+cache-less run, and the lock releases on any exit (Ctrl+C, crash, `kill -9`).
 
 ### Running the benchmarks
 
@@ -154,6 +140,7 @@ import { NteeDB } from "@ntee/ntee-db"
 
 const db = NteeDB.open("/path/to/store", {
   blobThreshold: 64 * 1024, // values >= this go to the blob side file
+  valueFormat: "json", // default: reads return parsed JSON ("buffer" = byte-exact Buffers)
   indexes: [
     { name: "traceId", kind: "string" }, // explicit values
     { name: "kind", kind: "string", jsonPath: "kind" }, // auto-derived from JSON
@@ -163,14 +150,15 @@ const db = NteeDB.open("/path/to/store", {
 // write (value is a Buffer or string; 3rd arg = explicit index values)
 db.put("call:1", JSON.stringify({ kind: "request" }), { traceId: "T1" })
 
-// read content back
-const buf = db.get("call:1") // Buffer | null
+// read content back — parsed under the default json valueFormat
+const rec = db.get("call:1") // { kind: "request" } | null  (Buffer under "buffer")
+db.getMany(["call:1", "call:2"]) // values aligned to keys, in one call
 
-// search → keys, then get; or searchByIndex → records in one call
-db.byIndex("traceId", "T1") // ['call:1', ...]
-db.searchByIndex("kind", "request") // [{ key, value: Buffer }, ...]
+// search → keys, then get; or secIndexRecords → records in one call
+db.secIndex("traceId", "T1") // ['call:1', ...]
+db.secIndexRecords("kind", "request") // [{ key, value }, ...]
 db.prefixScan("call:") // sorted keys
-db.byIndexRange("status", 200, 299) // numeric range
+db.secIndexRange("status", 200, 299) // numeric range
 
 // maintenance (off the event loop)
 await db.compact() // reclaim dead records
@@ -181,29 +169,34 @@ db.close() // or db.drop() to delete the store
 
 ## API
 
-| Method                                   | Returns            | Notes                                                             |
-| ---------------------------------------- | ------------------ | ----------------------------------------------------------------- |
-| `NteeDB.open(dir, opts?)`                | `NteeDB`           | creates if missing                                                |
-| `NteeDB.destroy(dir)`                    | `void`             | delete a store's files (no open handle)                           |
-| `put(key, value, ix?)`                   | `void`             | `value`: Buffer\|string; `ix`: `{name: string\|number}`           |
-| `putMany(items)`                         | `Promise<number>`  | one batch off the event loop; in-order; all-or-nothing validation |
-| `get(key)`                               | `Buffer \| null`   |                                                                   |
-| `has(key)` / `delete(key)`               | `boolean` / `void` |                                                                   |
-| `prefixScan(prefix)`                     | `string[]`         | sorted keys                                                       |
-| `byIndex / byIndexPrefix / byIndexRange` | `string[]`         | primary keys                                                      |
-| `searchByIndex / searchByPrefix`         | `{key, value}[]`   | keys + content                                                    |
-| `droppedIndexes / prospectiveIndexes`    | `string[]`         | schema state                                                      |
-| `compact()` / `reindex()`                | `Promise<void>`    | run off the event loop                                            |
-| `close()` / `drop()`                     | `void`             |                                                                   |
+| Method                                                        | Returns            | Notes                                                             |
+| ------------------------------------------------------------- | ------------------ | ----------------------------------------------------------------- |
+| `NteeDB.open(dir, opts?)`                                     | `NteeDB`           | creates if missing                                                |
+| `NteeDB.destroy(dir)`                                         | `void`             | delete a store's files (no open handle)                           |
+| `put(key, value, ix?)`                                        | `void`             | `value`: Buffer\|string; `ix`: `{name: string\|number}`           |
+| `putMany(items)`                                              | `Promise<number>`  | one batch off the event loop; in-order; all-or-nothing validation |
+| `get(key)`                                                    | value \| `null`    | parsed JSON (`json`) or Buffer (`buffer`), per `valueFormat`      |
+| `getMany(keys)`                                               | `(value\|null)[]`  | batched get, one crossing; aligned to `keys`                      |
+| `has(key)` / `delete(key)`                                    | `boolean` / `void` |                                                                   |
+| `prefixScan(prefix)`                                          | `string[]`         | sorted keys                                                       |
+| `secIndex / secIndexPrefix / secIndexRange`                   | `string[]`         | primary keys                                                      |
+| `secIndexRecords / secIndexPrefixRecords / prefixScanRecords` | `{key, value}[]`   | keys + content (value per `valueFormat`)                          |
+| `secIndexDropped / secIndexProspective`                       | `string[]`         | schema state                                                      |
+| `compact()` / `reindex()`                                     | `Promise<void>`    | run off the event loop                                            |
+| `close()` / `drop()`                                          | `void`             |                                                                   |
 
 ## Notes / limitations
 
 - **Index values from JS**: pass them explicitly via `put(..., ix)`, or declare a
   `jsonPath` so the value is derived from the record (the only form `reindex()`
   can back-fill). JS-function extractors are not supported.
-- **Marshaling**: the API is Buffer/string in, Buffer out, byte-exact. On the
-  wire and on disk, valid-UTF-8 values travel as plain JSON strings and only
-  binary values as base64.
+- **Marshaling**: `put` takes a Buffer or string. Reads depend on `valueFormat`:
+  `"json"` (default) returns the value parsed (a Buffer for binary / non-JSON
+  values), `"buffer"` returns a byte-exact Buffer for everything. On disk and
+  the wire, valid-UTF-8 values travel as plain JSON and only binary as base64.
+- **Value coercion under `json`**: a stored scalar that is valid JSON is parsed —
+  `put("k", "123")` reads back as the number `123`. Use `valueFormat: "buffer"`
+  if you need bytes back exactly as written.
 - Errors from the store surface as thrown `Error`s.
 
 ## Building the native lib

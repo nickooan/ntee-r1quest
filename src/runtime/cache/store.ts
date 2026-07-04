@@ -76,19 +76,17 @@ export const closeCache = (): void => {
   openFailed = false
 }
 
-/** Reads and JSON-decodes a cache value, or undefined when absent/corrupt. */
+/**
+ * Reads a cache value, or undefined when absent/corrupt. The store opens with
+ * the default valueFormat 'json', so get() already returns the parsed object; a
+ * Buffer here means a non-JSON / corrupt value, treated as absent.
+ */
 export const cacheGet = <T>(db: NteeDB, key: string): T | undefined => {
-  const buffer = db.get(key)
-
-  if (!buffer) {
+  const value = db.get(key)
+  if (value == null || Buffer.isBuffer(value)) {
     return undefined
   }
-
-  try {
-    return JSON.parse(buffer.toString("utf8")) as T
-  } catch {
-    return undefined
-  }
+  return value as T
 }
 
 /**
