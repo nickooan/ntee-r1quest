@@ -1,7 +1,7 @@
 export type ValueKind = "string" | "number"
 
 export interface IndexDef {
-  /** Index name (used in byIndex queries and as the key in PutIndexed values). */
+  /** Index name (used in secIndex queries and as the key in put's ix values). */
   name: string
   /** Value type stored in the index. */
   kind: ValueKind
@@ -28,6 +28,13 @@ export interface OpenOptions {
   syncEveryWrite?: boolean
   /** Rewrite the index hint after this many writes (also on close/compact). 0 disables periodic rewrites. */
   hintEveryN?: number
+  /**
+   * How value-returning reads decode values. 'json' (default) parses JSON values
+   * into objects/arrays/scalars, with a Buffer fallback for binary/non-JSON;
+   * 'buffer' returns byte-exact Buffers for everything. Governs get / getMany /
+   * the *Records searches; key-only queries are unaffected.
+   */
+  valueFormat?: "json" | "buffer"
   /** Secondary indexes to maintain. */
   indexes?: IndexDef[]
 }
@@ -35,9 +42,16 @@ export interface OpenOptions {
 /** A value: a Buffer, or a string (encoded as UTF-8). */
 export type Value = Buffer | string
 
+/**
+ * A read value: under valueFormat 'json' a parsed JSON value (or a Buffer for
+ * binary/non-JSON); under 'buffer' a Buffer. `unknown` because the concrete type
+ * depends on the store's valueFormat — narrow or cast at the call site.
+ */
+export type ReadValue = unknown
+
 export interface Record {
   key: string
-  value: Buffer | null
+  value: ReadValue
 }
 
 export declare class NteeDB {
@@ -68,8 +82,13 @@ export declare class NteeDB {
     }[],
   ): Promise<number>
 
-  /** Get the value for `key`, or null if absent. */
-  get(key: string): Buffer | null
+  /** Get the value for `key`, or null if absent. Type per valueFormat (see ReadValue). */
+  get(key: string): ReadValue | null
+  /**
+   * Get the values for many keys in one FFI call, aligned to `keys`: each entry
+   * is a value (per valueFormat), or null if that key is absent.
+   */
+  getMany(keys: string[]): (ReadValue | null)[]
   /** Whether `key` exists. */
   has(key: string): boolean
   /** Delete `key` (no-op if absent). */
@@ -78,24 +97,28 @@ export declare class NteeDB {
   /** Sorted keys with the given primary-key prefix. */
   prefixScan(prefix: string): string[]
   /**
-   * Primary keys whose value in `name` equals `val` (multi-value).
+   * Primary keys whose value in the secondary index `name` equals `val` (multi-value).
    * @param limit 0 = all (ascending); N>0 = first N ascending; N<0 = last |N| descending.
    */
-  byIndex(name: string, val: string | number, limit?: number): string[]
+  secIndex(name: string, val: string | number, limit?: number): string[]
   /**
-   * Primary keys whose (string) value in `name` starts with `prefix`.
+   * Primary keys whose (string) value in the secondary index `name` starts with `prefix`.
    * @param limit applied per distinct index value (grouped): 0 (default) = all
    * matches flat; N>0 = first N of each value ascending; N<0 = last |N| of each
    * value descending.
    */
-  byIndexPrefix(name: string, prefix: string, limit?: number): string[]
-  /** Primary keys whose value in `name` is within [lo, hi]. */
-  byIndexRange(name: string, lo: string | number, hi: string | number): string[]
+  secIndexPrefix(name: string, prefix: string, limit?: number): string[]
+  /** Primary keys whose value in the secondary index `name` is within [lo, hi]. */
+  secIndexRange(
+    name: string,
+    lo: string | number,
+    hi: string | number,
+  ): string[]
 
   /** Indexes lingering in records after a soft-drop (until reindex). */
-  droppedIndexes(): string[]
+  secIndexDropped(): string[]
   /** Indexes not yet back-filled over pre-existing records. */
-  prospectiveIndexes(): string[]
+  secIndexProspective(): string[]
 
   /**
    * Delete every key strictly less than `cutoff` (cutoff kept). Lexical key
@@ -119,15 +142,19 @@ export declare class NteeDB {
   /** Close and delete all of the store's files. */
   drop(): void
 
-  /** Search by index, returning records {key, value} in one call. limit as byIndex. */
-  searchByIndex(name: string, val: string | number, limit?: number): Record[]
-  /** Search by primary-key prefix, returning records {key, value}. */
-  searchByPrefix(prefix: string): Record[]
   /**
-   * Search by index prefix (string index), returning records {key, value}
-   * ordered by (index value, then primary key). limit as byIndexPrefix (grouped).
+   * Search a secondary index, returning records {key, value} in one call (keys
+   * query + one batched getMany). limit as secIndex.
    */
-  searchByIndexPrefix(name: string, prefix: string, limit?: number): Record[]
+  secIndexRecords(name: string, val: string | number, limit?: number): Record[]
+  /**
+   * Search by secondary-index prefix (string index), returning records
+   * {key, value} ordered by (index value, then primary key). limit as
+   * secIndexPrefix (grouped).
+   */
+  secIndexPrefixRecords(name: string, prefix: string, limit?: number): Record[]
+  /** Search by primary-key prefix, returning records {key, value}. */
+  prefixScanRecords(prefix: string): Record[]
 }
 
 export default NteeDB

@@ -19,16 +19,13 @@ export const listTraceCalls = (traceId: string): ApiCallRecord[] => {
   try {
     const records: ApiCallRecord[] = []
 
-    for (const { value } of cache.searchByIndex(TRACE_INDEX, traceId)) {
-      if (!value) {
+    for (const { value } of cache.secIndexRecords(TRACE_INDEX, traceId)) {
+      // json valueFormat: value is the parsed record; a Buffer/null means
+      // corrupt or absent → skip.
+      if (value == null || Buffer.isBuffer(value)) {
         continue
       }
-
-      try {
-        records.push(JSON.parse(value.toString("utf8")) as ApiCallRecord)
-      } catch {
-        // skip a corrupt record
-      }
+      records.push(value as ApiCallRecord)
     }
 
     return records

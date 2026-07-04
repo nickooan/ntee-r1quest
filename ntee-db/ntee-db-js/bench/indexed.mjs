@@ -48,14 +48,30 @@ const ndb = NteeDB.open("./ntee-ix", {
 }
 {
   const t0 = performance.now()
-  for (let i = 0; i < ENDPOINTS; i++) ndb.byIndex("endpoint", endpoint(i), -1)
-  report("ntee-db byIndex exact latest", performance.now() - t0, ENDPOINTS)
+  for (let i = 0; i < ENDPOINTS; i++) ndb.secIndex("endpoint", endpoint(i), -1)
+  report("ntee-db secIndex exact latest", performance.now() - t0, ENDPOINTS)
 }
 {
   const t0 = performance.now()
-  const keys = ndb.byIndexPrefix("endpoint", "/api/", -1)
+  const keys = ndb.secIndexPrefix("endpoint", "/api/", -1)
   console.log(
-    `ntee-db byIndexPrefix('/api/', -1) → latest of all ${keys.length} endpoints: ${(performance.now() - t0).toFixed(1)} ms`,
+    `ntee-db secIndexPrefix('/api/', -1) → latest of all ${keys.length} endpoints: ${(performance.now() - t0).toFixed(1)} ms`,
+  )
+}
+{
+  // Secondary-index equality search: all keys for a value (traceId → ~20 each).
+  const t0 = performance.now()
+  for (let i = 0; i < 1000; i++) ndb.secIndex("traceId", `T${i}`)
+  report("ntee-db secIndex all (search, keys)", performance.now() - t0, 1000)
+}
+{
+  // Same search, returning records (keys + values) in one call.
+  const t0 = performance.now()
+  for (let i = 0; i < 1000; i++) ndb.secIndexRecords("traceId", `T${i}`)
+  report(
+    "ntee-db secIndexRecords (search, records)",
+    performance.now() - t0,
+    1000,
   )
 }
 ndb.close()
@@ -105,12 +121,28 @@ sdb.exec("CREATE INDEX ix_tr ON calls(traceId)")
   report("sqlite latest one endpoint", performance.now() - t0, ENDPOINTS)
 }
 {
-  const q = sdb.prepare("SELECT endpoint, MAX(key) AS key FROM calls GROUP BY endpoint")
+  const q = sdb.prepare(
+    "SELECT endpoint, MAX(key) AS key FROM calls GROUP BY endpoint",
+  )
   const t0 = performance.now()
   const rows = q.all()
   console.log(
     `sqlite GROUP BY → latest of all ${rows.length} endpoints: ${(performance.now() - t0).toFixed(1)} ms`,
   )
+}
+{
+  // Secondary-index equality search: all keys for a value (served by ix_tr).
+  const q = sdb.prepare("SELECT key FROM calls WHERE traceId = ?").pluck()
+  const t0 = performance.now()
+  for (let i = 0; i < 1000; i++) q.all(`T${i}`)
+  report("sqlite search (keys)", performance.now() - t0, 1000)
+}
+{
+  // Same search, returning records (key + value).
+  const q = sdb.prepare("SELECT key, value FROM calls WHERE traceId = ?")
+  const t0 = performance.now()
+  for (let i = 0; i < 1000; i++) q.all(`T${i}`)
+  report("sqlite search (records)", performance.now() - t0, 1000)
 }
 sdb.close()
 rmSqlite("./sqlite-ix.sqlite")

@@ -118,6 +118,92 @@ func nteedb_get(h C.uint, key *C.char) *C.char {
 	return reply(res, nil)
 }
 
+//export nteedb_get_many
+func nteedb_get_many(h C.uint, keysJSON *C.char) *C.char {
+	db := regGet(uint32(h))
+	if db == nil {
+		return reply(nil, errInvalidHandle)
+	}
+	var keys []string
+	if err := json.Unmarshal([]byte(C.GoString(keysJSON)), &keys); err != nil {
+		return reply(nil, err)
+	}
+	values, found, err := db.GetMany(keys)
+	if err != nil {
+		return reply(nil, err)
+	}
+	// One element per key, in order, using the get envelope convention: a found
+	// value is a UTF-8 string ("s") or base64 binary ("v"); a miss is {found:false}.
+	out := make([]map[string]any, len(keys))
+	for i := range keys {
+		rec := map[string]any{"found": found[i]}
+		if found[i] {
+			if utf8.Valid(values[i]) {
+				rec["s"] = string(values[i])
+			} else {
+				rec["v"] = base64.StdEncoding.EncodeToString(values[i])
+			}
+		}
+		out[i] = rec
+	}
+	return reply(out, nil)
+}
+
+// valJSON is one value on the inline-JSON read path. A value that is valid JSON
+// is spliced verbatim into JSON (no escaping) so the JS envelope parse yields
+// the object directly; binary / non-JSON falls back to base64.
+type valJSON struct {
+	Found bool            `json:"found"`
+	JSON  json.RawMessage `json:"json,omitempty"`
+	V     string          `json:"v,omitempty"`
+}
+
+func encodeValJSON(v []byte, found bool) valJSON {
+	rec := valJSON{Found: found}
+	if found {
+		if json.Valid(v) {
+			rec.JSON = json.RawMessage(v)
+		} else {
+			rec.V = base64.StdEncoding.EncodeToString(v)
+		}
+	}
+	return rec
+}
+
+//export nteedb_get_json
+func nteedb_get_json(h C.uint, key *C.char) *C.char {
+	db := regGet(uint32(h))
+	if db == nil {
+		return reply(nil, errInvalidHandle)
+	}
+	v, ok, err := db.Get(C.GoString(key))
+	if err != nil {
+		return reply(nil, err)
+	}
+	return reply(encodeValJSON(v, ok), nil)
+}
+
+//export nteedb_get_many_json
+func nteedb_get_many_json(h C.uint, keysJSON *C.char) *C.char {
+	db := regGet(uint32(h))
+	if db == nil {
+		return reply(nil, errInvalidHandle)
+	}
+	var keys []string
+	if err := json.Unmarshal([]byte(C.GoString(keysJSON)), &keys); err != nil {
+		return reply(nil, err)
+	}
+	values, found, err := db.GetMany(keys)
+	if err != nil {
+		return reply(nil, err)
+	}
+	out := make([]valJSON, len(keys))
+	for i := range keys {
+		out[i] = encodeValJSON(values[i], found[i])
+	}
+	return reply(out, nil)
+}
+
 //export nteedb_has
 func nteedb_has(h C.uint, key *C.char) *C.char {
 	db := regGet(uint32(h))
