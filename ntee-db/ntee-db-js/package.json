@@ -23,6 +23,7 @@
     "koffi": "^2.9.0"
   },
   "devDependencies": {
+    "better-sqlite3": "^12.11.1",
     "lmdb": "^3.5.6"
   }
 }

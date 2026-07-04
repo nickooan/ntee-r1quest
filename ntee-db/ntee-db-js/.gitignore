@@ -9,3 +9,7 @@ ntee-ix/
 ntee-full/
 lmdb-store/
 lmdb-ix/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+sqlite-ix/
