@@ -67,6 +67,56 @@ func TestPutGetDelete(t *testing.T) {
 	}
 }
 
+func TestGetMany(t *testing.T) {
+	db, err := Open(Options{Dir: t.TempDir(), BlobThreshold: 32})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	binary := []byte{0xff, 0xfe, 0x00, 0x01}
+	big := make([]byte, 4096) // over BlobThreshold → blob path
+	for i := range big {
+		big[i] = 0xcd
+	}
+	if err := db.Put("text", []byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Put("bin", binary); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Put("blob", big); err != nil {
+		t.Fatal(err)
+	}
+
+	values, found, err := db.GetMany([]string{"blob", "missing", "text", "bin"})
+	if err != nil {
+		t.Fatalf("GetMany: %v", err)
+	}
+	if len(values) != 4 || len(found) != 4 {
+		t.Fatalf("lengths = %d %d, want 4 4", len(values), len(found))
+	}
+	// Aligned to input order.
+	if !found[0] || string(values[0]) != string(big) {
+		t.Errorf("blob: found=%v len=%d", found[0], len(values[0]))
+	}
+	if found[1] || values[1] != nil {
+		t.Errorf("missing key should be found=false, nil value; got %v %v", found[1], values[1])
+	}
+	if !found[2] || string(values[2]) != "hello" {
+		t.Errorf("text = %q %v", values[2], found[2])
+	}
+	if !found[3] || string(values[3]) != string(binary) {
+		t.Errorf("bin = %v %v", values[3], found[3])
+	}
+
+	// Empty input.
+	values, found, err = db.GetMany(nil)
+	if err != nil || len(values) != 0 || len(found) != 0 {
+		t.Errorf("GetMany(nil) = %v %v %v", values, found, err)
+	}
+}
+
 func TestReopenRestoresState(t *testing.T) {
 	dir := t.TempDir()
 

@@ -127,7 +127,9 @@ async function round(warmup) {
 
   // --- better-sqlite3 (WAL + NORMAL = fast path) ---
   const sdb = openSqlite("./sqlite-normal.sqlite", "NORMAL")
-  const sPut = sdb.prepare("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)")
+  const sPut = sdb.prepare(
+    "INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)",
+  )
   const sGet = sdb.prepare("SELECT value FROM kv WHERE key = ?")
   const sHas = sdb.prepare("SELECT 1 FROM kv WHERE key = ?")
   const sScan = sdb.prepare(

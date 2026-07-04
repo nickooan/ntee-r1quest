@@ -85,6 +85,21 @@ export class NteeDB {
     return Buffer.from(res.s ?? "", "utf8")
   }
 
+  /**
+   * Get the values for many keys in one FFI call, aligned to `keys`: each entry
+   * is a Buffer, or null if that key is absent. The batched counterpart to
+   * get() — used by the *Records searches so fetching N values is one crossing.
+   */
+  getMany(keys) {
+    this.#assertOpen()
+    const res = readEnvelope(fns.getMany(this.#h, JSON.stringify(keys)))
+    return (res ?? []).map((rec) => {
+      if (!rec || !rec.found) return null
+      if (rec.v !== undefined) return Buffer.from(rec.v, "base64")
+      return Buffer.from(rec.s ?? "", "utf8")
+    })
+  }
+
   /** Whether key exists. */
   has(key) {
     this.#assertOpen()
@@ -104,10 +119,11 @@ export class NteeDB {
   }
 
   /**
-   * Primary keys whose value in `name` equals `val` (multi-value).
+   * Primary keys whose value in the secondary index `name` equals `val`
+   * (multi-value).
    * limit: 0 = all (ascending); N>0 = first N ascending; N<0 = last |N| descending.
    */
-  byIndex(name, val, limit = 0) {
+  secIndex(name, val, limit = 0) {
     this.#assertOpen()
     return (
       readEnvelope(fns.byIndex(this.#h, name, JSON.stringify(val), limit)) ?? []
@@ -115,17 +131,18 @@ export class NteeDB {
   }
 
   /**
-   * Primary keys whose (string) value in `name` starts with `prefix`.
+   * Primary keys whose (string) value in the secondary index `name` starts with
+   * `prefix`.
    * limit is applied per distinct index value (grouped): 0 = all matches flat;
    * N>0 = first N of each value ascending; N<0 = last |N| of each value descending.
    */
-  byIndexPrefix(name, prefix, limit = 0) {
+  secIndexPrefix(name, prefix, limit = 0) {
     this.#assertOpen()
     return readEnvelope(fns.byIndexPrefix(this.#h, name, prefix, limit)) ?? []
   }
 
-  /** Primary keys whose value in `name` is within [lo, hi]. */
-  byIndexRange(name, lo, hi) {
+  /** Primary keys whose value in the secondary index `name` is within [lo, hi]. */
+  secIndexRange(name, lo, hi) {
     this.#assertOpen()
     return (
       readEnvelope(
@@ -135,13 +152,13 @@ export class NteeDB {
   }
 
   /** Indexes lingering in records after a soft-drop (until Reindex). */
-  droppedIndexes() {
+  secIndexDropped() {
     this.#assertOpen()
     return readEnvelope(fns.droppedIndexes(this.#h)) ?? []
   }
 
   /** Indexes not yet back-filled over pre-existing records. */
-  prospectiveIndexes() {
+  secIndexProspective() {
     this.#assertOpen()
     return readEnvelope(fns.prospectiveIndexes(this.#h)) ?? []
   }
@@ -193,29 +210,32 @@ export class NteeDB {
   }
 
   /**
-   * Search by index and return records {key, value: Buffer} in one call.
+   * Search a secondary index and return records {key, value: Buffer} in one
+   * call — the keys query plus a single batched getMany, not one get per key.
    * limit: 0 = all; N>0 = first N ascending; N<0 = last |N| descending.
    */
-  searchByIndex(name, val, limit = 0) {
-    return this.#withValues(this.byIndex(name, val, limit))
-  }
-
-  /** Search by primary-key prefix and return records {key, value: Buffer}. */
-  searchByPrefix(prefix) {
-    return this.#withValues(this.prefixScan(prefix))
+  secIndexRecords(name, val, limit = 0) {
+    const keys = this.secIndex(name, val, limit)
+    const vals = this.getMany(keys)
+    return keys.map((key, i) => ({ key, value: vals[i] }))
   }
 
   /**
-   * Search by index prefix (string index) and return records {key, value: Buffer}.
-   * limit as byIndexPrefix (grouped per distinct value). Records come back ordered
-   * by (index value, then selected primary key).
+   * Search by secondary-index prefix (string index) and return records
+   * {key, value: Buffer}. limit as secIndexPrefix (grouped per distinct value);
+   * records come back ordered by (index value, then selected primary key).
    */
-  searchByIndexPrefix(name, prefix, limit = 0) {
-    return this.#withValues(this.byIndexPrefix(name, prefix, limit))
+  secIndexPrefixRecords(name, prefix, limit = 0) {
+    const keys = this.secIndexPrefix(name, prefix, limit)
+    const vals = this.getMany(keys)
+    return keys.map((key, i) => ({ key, value: vals[i] }))
   }
 
-  #withValues(keys) {
-    return keys.map((key) => ({ key, value: this.get(key) }))
+  /** Search by primary-key prefix and return records {key, value: Buffer}. */
+  prefixScanRecords(prefix) {
+    const keys = this.prefixScan(prefix)
+    const vals = this.getMany(keys)
+    return keys.map((key, i) => ({ key, value: vals[i] }))
   }
 }
 

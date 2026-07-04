@@ -24,12 +24,12 @@ db.put("call:3", JSON.stringify({ kind: "history", url: "/x" }), {
   traceId: "T2",
 })
 
-console.log("by traceId T1:", db.byIndex("traceId", "T1"))
-console.log("by kind=request:", db.byIndex("kind", "request"))
+console.log("by traceId T1:", db.secIndex("traceId", "T1"))
+console.log("by kind=request:", db.secIndex("kind", "request"))
 console.log(
-  "searchByIndex kind=request:",
+  "secIndexRecords kind=request:",
   db
-    .searchByIndex("kind", "request")
+    .secIndexRecords("kind", "request")
     .map((r) => ({ key: r.key, value: JSON.parse(r.value.toString()) })),
 )
 

@@ -432,6 +432,41 @@ func (db *DB) Get(key string) (value []byte, ok bool, err error) {
 	return rec.Value, true, nil
 }
 
+// GetMany returns the values for keys, aligned to the input order: values[i] is
+// the value for keys[i] and found[i] reports whether that key existed (a missing
+// key yields found[i]=false, values[i]=nil). It reads every record under a
+// single read-lock — the batched counterpart to Get for callers (e.g. a
+// records-by-index search) that resolve many keys at once.
+func (db *DB) GetMany(keys []string) (values [][]byte, found []bool, err error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	if db.closed {
+		return nil, nil, ErrClosed
+	}
+	values = make([][]byte, len(keys))
+	found = make([]bool, len(keys))
+	for i, key := range keys {
+		e, ok := db.pk.get(key)
+		if !ok {
+			continue
+		}
+		rec, err := db.readRecord(e)
+		if err != nil {
+			return nil, nil, err
+		}
+		if rec.Blob != nil {
+			v, err := db.blobs.readAt(*rec.Blob)
+			if err != nil {
+				return nil, nil, err
+			}
+			values[i], found[i] = v, true
+			continue
+		}
+		values[i], found[i] = rec.Value, true
+	}
+	return values, found, nil
+}
+
 // useBlobFor reports whether a value of the given size should be stored in the
 // blob side file rather than inline. A non-positive BlobThreshold disables blobs.
 func (db *DB) useBlobFor(size int) bool {
