@@ -146,8 +146,8 @@ const db = NteeDB.open("/path/to/store", {
   ],
 })
 
-// write (value is a Buffer or JSON string; 3rd arg = explicit index values)
-db.put("call:1", JSON.stringify({ kind: "request" }), { traceId: "T1" })
+// write — an object is JSON-serialized for you (3rd arg = explicit index values)
+db.put("call:1", { kind: "request" }, { traceId: "T1" })
 
 // read content back — ntee-db is a JSON store, so reads return the parsed value
 const rec = db.get("call:1") // { kind: "request" } | null
@@ -173,8 +173,8 @@ string or a Buffer doesn't matter — what matters is whether the bytes are vali
 JSON. Valid JSON comes back parsed; anything else comes back as a `Buffer`.
 
 ```js
-// Store JSON → read it back parsed.
-db.put("obj", JSON.stringify({ ok: true }))
+// Store an object (JSON-serialized for you) → read it back parsed.
+db.put("obj", { ok: true })
 db.get("obj") // → { ok: true }
 
 // A stored scalar coerces per JSON parse rules.
@@ -200,22 +200,22 @@ if (Buffer.isBuffer(v)) {
 
 ## API
 
-| Method                                                        | Returns            | Notes                                                             |
-| ------------------------------------------------------------- | ------------------ | ----------------------------------------------------------------- |
-| `NteeDB.open(dir, opts?)`                                     | `NteeDB`           | creates if missing                                                |
-| `NteeDB.destroy(dir)`                                         | `void`             | delete a store's files (no open handle)                           |
-| `put(key, value, ix?)`                                        | `void`             | `value`: Buffer\|string; `ix`: `{name: string\|number}`           |
-| `putMany(items)`                                              | `Promise<number>`  | one batch off the event loop; in-order; all-or-nothing validation |
-| `get(key)`                                                    | value \| `null`    | the stored JSON parsed (a Buffer for binary/non-JSON)             |
-| `getMany(keys)`                                               | `(value\|null)[]`  | batched get, one crossing; aligned to `keys`                      |
-| `has(key)` / `delete(key)`                                    | `boolean` / `void` |                                                                   |
-| `prefixScan(prefix)`                                          | `string[]`         | sorted keys                                                       |
-| `secIndex / secIndexPrefix / secIndexRange`                   | `string[]`         | primary keys                                                      |
-| `secIndexHas(name, val)`                                      | `boolean`          | any record has `val` in the index (no keys materialized)          |
-| `secIndexRecords / secIndexPrefixRecords / prefixScanRecords` | `{key, value}[]`   | keys + parsed content                                             |
-| `secIndexDropped / secIndexProspective`                       | `string[]`         | schema state                                                      |
-| `compact()` / `reindex()`                                     | `Promise<void>`    | run off the event loop                                            |
-| `close()` / `drop()`                                          | `void`             |                                                                   |
+| Method                                                        | Returns            | Notes                                                                           |
+| ------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------- |
+| `NteeDB.open(dir, opts?)`                                     | `NteeDB`           | creates if missing                                                              |
+| `NteeDB.destroy(dir)`                                         | `void`             | delete a store's files (no open handle)                                         |
+| `put(key, value, ix?)`                                        | `void`             | `value`: object\|string\|Buffer (object → JSON); `ix`: `{name: string\|number}` |
+| `putMany(items)`                                              | `Promise<number>`  | one batch off the event loop; in-order; all-or-nothing validation               |
+| `get(key)`                                                    | value \| `null`    | the stored JSON parsed (a Buffer for binary/non-JSON)                           |
+| `getMany(keys)`                                               | `(value\|null)[]`  | batched get, one crossing; aligned to `keys`                                    |
+| `has(key)` / `delete(key)`                                    | `boolean` / `void` |                                                                                 |
+| `prefixScan(prefix)`                                          | `string[]`         | sorted keys                                                                     |
+| `secIndex / secIndexPrefix / secIndexRange`                   | `string[]`         | primary keys                                                                    |
+| `secIndexHas(name, val)`                                      | `boolean`          | any record has `val` in the index (no keys materialized)                        |
+| `secIndexRecords / secIndexPrefixRecords / prefixScanRecords` | `{key, value}[]`   | keys + parsed content                                                           |
+| `secIndexDropped / secIndexProspective`                       | `string[]`         | schema state                                                                    |
+| `compact()` / `reindex()`                                     | `Promise<void>`    | run off the event loop                                                          |
+| `close()` / `drop()`                                          | `void`             |                                                                                 |
 
 ## Notes / limitations
 

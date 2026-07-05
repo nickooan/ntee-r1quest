@@ -14,15 +14,10 @@ let db = NteeDB.open(dir, {
   ],
 })
 
-db.put("call:1", JSON.stringify({ kind: "request", url: "/orders" }), {
-  traceId: "T1",
-})
-db.put("call:2", JSON.stringify({ kind: "request", url: "/items" }), {
-  traceId: "T1",
-})
-db.put("call:3", JSON.stringify({ kind: "history", url: "/x" }), {
-  traceId: "T2",
-})
+// Objects are JSON-serialized for you.
+db.put("call:1", { kind: "request", url: "/orders" }, { traceId: "T1" })
+db.put("call:2", { kind: "request", url: "/items" }, { traceId: "T1" })
+db.put("call:3", { kind: "history", url: "/x" }, { traceId: "T2" })
 
 console.log("by traceId T1:", db.secIndex("traceId", "T1"))
 console.log("by kind=request:", db.secIndex("kind", "request"))

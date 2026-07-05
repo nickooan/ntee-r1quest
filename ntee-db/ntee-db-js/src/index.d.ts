@@ -32,8 +32,11 @@ export interface OpenOptions {
   indexes?: IndexDef[]
 }
 
-/** A value: a Buffer, or a string (encoded as UTF-8). */
-export type Value = Buffer | string
+/**
+ * A value to store: a string or Buffer is stored as-is (Buffer = raw/binary);
+ * an object, array, or scalar is JSON-serialized automatically.
+ */
+export type Value = Buffer | string | object | number | boolean | null
 
 /**
  * A read value: the stored JSON parsed (object/array/scalar), or a `Buffer` for

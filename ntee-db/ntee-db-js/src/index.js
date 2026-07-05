@@ -6,6 +6,15 @@ import { fns, readEnvelope, callAsync } from "./native.js"
 // ignoreBOM keeps a leading BOM instead of silently stripping it.
 const utf8Strict = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
 
+// Normalize a put value: a Buffer or string passes through unchanged (raw bytes
+// / verbatim text — no double-encoding), and anything else (object, array,
+// number, boolean, null) is JSON-serialized. Lets callers store objects
+// directly without a manual JSON.stringify.
+function toStorable(value) {
+  if (Buffer.isBuffer(value) || typeof value === "string") return value
+  return JSON.stringify(value)
+}
+
 // Decode one element of the inline-JSON read envelope: a parsed JSON value
 // (already an object/array/scalar from the single envelope parse), a Buffer for
 // a binary/non-JSON value ("v"), or null when the key is absent. A found value
@@ -49,10 +58,15 @@ export class NteeDB {
     if (this.#closed) throw new Error("nteedb: database is closed")
   }
 
-  /** Store value (Buffer | string) under key, with optional secondary index values. */
+  /**
+   * Store a value under key, with optional secondary index values. An object,
+   * array, or scalar is JSON-serialized automatically; a string or Buffer is
+   * stored as-is (Buffer for raw/binary content).
+   */
   put(key, value, ix) {
     this.#assertOpen()
-    const buf = Buffer.isBuffer(value) ? value : Buffer.from(value)
+    const v = toStorable(value)
+    const buf = Buffer.isBuffer(v) ? v : Buffer.from(v)
     const ixJSON = ix ? JSON.stringify(ix) : ""
     readEnvelope(fns.put(this.#h, key, buf, buf.length, ixJSON))
   }
@@ -66,22 +80,23 @@ export class NteeDB {
    * number of records once ALL of them are appended — synchronous durability
    * at the batch boundary, unlike lmdb-style fire-and-forget batching.
    *
-   * items: [{ key, value: Buffer|string, ix? }]
+   * items: [{ key, value: object|string|Buffer, ix? }] — a value is JSON-
+   * serialized unless it is already a string or Buffer (as in put()).
    */
   putMany(items) {
     this.#assertOpen()
     // Values travel like the get envelope: valid-UTF-8 as a plain string
     // ("s"), binary as base64 ("v").
     const payload = items.map(({ key, value, ix }) => {
+      const val = toStorable(value)
       let item
-      if (typeof value === "string") {
-        item = { k: key, s: value }
+      if (typeof val === "string") {
+        item = { k: key, s: val }
       } else {
-        const buf = Buffer.isBuffer(value) ? value : Buffer.from(value)
         try {
-          item = { k: key, s: utf8Strict.decode(buf) }
+          item = { k: key, s: utf8Strict.decode(val) }
         } catch {
-          item = { k: key, v: buf.toString("base64") }
+          item = { k: key, v: val.toString("base64") }
         }
       }
       return ix ? { ...item, ix } : item

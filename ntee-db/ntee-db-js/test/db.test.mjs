@@ -162,6 +162,29 @@ test("getMany: order preserved, missing → null, text/binary/blob values", asyn
   })
 })
 
+test("put/putMany accept an object directly (JSON-serialized)", async () => {
+  await withDB({}, async (db) => {
+    const obj = { kind: "request", tags: ["a", "b"] }
+    db.put("a", obj) // object, not a string
+    assert.deepEqual(db.get("a"), obj)
+
+    db.put("n", 42) // scalar
+    assert.equal(db.get("n"), 42)
+
+    // string and Buffer still pass through unchanged (no double-encoding).
+    db.put("s", '{"pre":"serialized"}')
+    assert.deepEqual(db.get("s"), { pre: "serialized" })
+
+    await db.putMany([
+      { key: "b1", value: { n: 1 } },
+      { key: "b2", value: "raw-string" }, // stays a string → non-JSON → Buffer
+    ])
+    assert.deepEqual(db.get("b1"), { n: 1 })
+    assert.ok(Buffer.isBuffer(db.get("b2")))
+    assert.equal(db.get("b2").toString(), "raw-string")
+  })
+})
+
 test("JSON store: reads return parsed values, Buffer for non-JSON", async () => {
   await withDB({ indexes: [{ name: "traceId", kind: "string" }] }, (db) => {
     const obj = { endpoint: "/api/users", status: 200, tags: ["a", "b"] }
