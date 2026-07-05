@@ -2,8 +2,84 @@ package nteedb
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 )
+
+// BenchmarkGetContention measures parallel Get latency with and without a
+// Compact loop hammering the exclusive write lock. Get holds db.mu.RLock across
+// its pread, so a Compact (which takes the exclusive Lock for its whole
+// duration) stalls readers at RLock acquisition until it finishes.
+//
+// This documents a KNOWN limitation, not a live tuning knob. The "unlocked
+// reads" idea (snapshot rf + read outside db.mu) was tried and reverted: it
+// does not help, because readers block acquiring the RLock while Compact holds
+// the exclusive Lock — the pread never being the thing under the lock is
+// irrelevant. The real fix is online compaction (build the rewrite off the
+// exclusive lock via a COW index clone, take the lock only to replay the tail
+// and swap); see the note on Compact. r1quest compacts occasionally, so the
+// stall this measures does not arise in practice.
+func BenchmarkGetContention(b *testing.B) {
+	const seed = 20_000
+	keys := make([]string, seed)
+	value := []byte("a modest api-call record payload, ~64 bytes give or take xx")
+	setup := func(b *testing.B) *DB {
+		db, err := Open(Options{Dir: b.TempDir()})
+		if err != nil {
+			b.Fatal(err)
+		}
+		for i := range keys {
+			keys[i] = fmt.Sprintf("k%09d", i)
+			if err := db.Put(keys[i], value); err != nil {
+				b.Fatal(err)
+			}
+		}
+		return db
+	}
+
+	b.Run("readers-only", func(b *testing.B) {
+		db := setup(b)
+		defer db.Close()
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for i := 0; pb.Next(); i++ {
+				if _, _, err := db.Get(keys[i%len(keys)]); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	})
+
+	b.Run("readers+compaction", func(b *testing.B) {
+		db := setup(b)
+		defer db.Close()
+		stop := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_ = db.Compact() // holds the exclusive Lock for its duration
+				}
+			}
+		}()
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for i := 0; pb.Next(); i++ {
+				if _, _, err := db.Get(keys[i%len(keys)]); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.StopTimer()
+		close(stop)
+		wg.Wait()
+	})
+}
 
 func benchSeed(b *testing.B, n int) (dir string, db *DB) {
 	b.Helper()

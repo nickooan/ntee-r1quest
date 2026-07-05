@@ -188,6 +188,92 @@ func TestByIndexRangeEdges(t *testing.T) {
 	check(250, 300, []string{"k2"})             // value exactly at hi included
 }
 
+// Reads pread outside db.mu (retrying on a Compact swap): concurrent Get and
+// GetMany must always return the correct value while Compact repeatedly rewrites
+// and swaps the main log. Run under -race.
+func TestGetDuringCompact(t *testing.T) {
+	db := mustOpen(t, t.TempDir())
+	defer db.Close()
+
+	const n = 2000
+	want := make(map[string]string, n)
+	key := func(i int) string { return fmt.Sprintf("k%05d", i) }
+	for i := 0; i < n; i++ {
+		v := fmt.Sprintf("value-for-record-%05d", i)
+		want[key(i)] = v
+		if err := db.Put(key(i), []byte(v)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Compact in a tight loop — the worst case for read/write contention.
+	stop := make(chan struct{})
+	var compactWG sync.WaitGroup
+	compactWG.Add(1)
+	go func() {
+		defer compactWG.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				if err := db.Compact(); err != nil {
+					t.Errorf("compact: %v", err)
+					return
+				}
+			}
+		}
+	}()
+
+	var readers sync.WaitGroup
+	errCh := make(chan error, 12)
+	for r := 0; r < 12; r++ {
+		readers.Add(1)
+		go func(seed int) {
+			defer readers.Done()
+			for j := 0; j < 4000; j++ {
+				if seed%2 == 0 { // half exercise Get
+					k := key((seed*7 + j) % n)
+					v, ok, err := db.Get(k)
+					if err != nil {
+						errCh <- fmt.Errorf("Get(%s): %w", k, err)
+						return
+					}
+					if !ok || string(v) != want[k] {
+						errCh <- fmt.Errorf("Get(%s) = %q %v, want %q", k, v, ok, want[k])
+						return
+					}
+				} else { // the other half exercise GetMany
+					ks := []string{key(j % n), key((j + 1) % n), "absent"}
+					vals, found, err := db.GetMany(ks)
+					if err != nil {
+						errCh <- fmt.Errorf("GetMany: %w", err)
+						return
+					}
+					for i := 0; i < 2; i++ {
+						if !found[i] || string(vals[i]) != want[ks[i]] {
+							errCh <- fmt.Errorf("GetMany[%d]=%q %v, want %q", i, vals[i], found[i], want[ks[i]])
+							return
+						}
+					}
+					if found[2] {
+						errCh <- fmt.Errorf("GetMany absent key reported found")
+						return
+					}
+				}
+			}
+		}(r)
+	}
+
+	readers.Wait()
+	close(stop)
+	compactWG.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Error(err)
+	}
+}
+
 // The async periodic-hint writer racing writes, Compact, and Close — the
 // subtlest concurrency in the core. Run under -race; afterwards every record
 // must survive a reopen.

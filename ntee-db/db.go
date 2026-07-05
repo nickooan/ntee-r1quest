@@ -418,6 +418,13 @@ func (db *DB) PutIndexed(key string, value []byte, idx IndexValues) error {
 }
 
 // Get returns the value stored under key. ok is false if the key is absent.
+//
+// Note: this holds db.mu.RLock across the pread, and Compact holds the exclusive
+// Lock for its whole duration — so a read that arrives during a Compact stalls
+// until it finishes. Fine when Compact is occasional (its whole point is to run
+// rarely); a compaction-heavy workload would want online compaction (do the
+// expensive buildRewrite off the exclusive lock via a COW index clone, take the
+// lock only to replay the tail and swap). See BenchmarkGetContention.
 func (db *DB) Get(key string) (value []byte, ok bool, err error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
