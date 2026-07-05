@@ -109,11 +109,11 @@ It's a local, single-user app, so all three engines are "fast enough" — what
 matters is _fit_. Every operation r1quest leans on is a row ntee-db wins in the
 tables above:
 
-| the app needs… | ntee-db | vs the field |
-| --- | --- | --- |
-| persist before a one-shot CLI exits (sync write) | ~17 µs | ~2.4× faster than SQLite's caller-sync write |
-| the History list — latest call per endpoint | 0.1 ms | ~15× SQLite `GROUP BY`, ~180× an lmdb scan |
-| a cache that can't grow (`maxPerValue` retention) | built-in | no native equivalent in SQLite or lmdb |
+| the app needs…                                    | ntee-db  | vs the field                                 |
+| ------------------------------------------------- | -------- | -------------------------------------------- |
+| persist before a one-shot CLI exits (sync write)  | ~17 µs   | ~2.4× faster than SQLite's caller-sync write |
+| the History list — latest call per endpoint       | 0.1 ms   | ~15× SQLite `GROUP BY`, ~180× an lmdb scan   |
+| a cache that can't grow (`maxPerValue` retention) | built-in | no native equivalent in SQLite or lmdb       |
 
 Point reads are ~3× behind SQLite but sub-ms and rare per interaction. SQLite
 would win if the app needed SQL, transactions, or multi-process; lmdb for raw
