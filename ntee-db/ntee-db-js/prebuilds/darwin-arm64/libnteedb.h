@@ -101,6 +101,7 @@ extern char* nteedb_delete(unsigned int h, char* key);
 extern char* nteedb_put_batch(unsigned int h, char* itemsJSON);
 extern char* nteedb_prefix_scan(unsigned int h, char* prefix);
 extern char* nteedb_by_index(unsigned int h, char* name, char* valJSON, int limit);
+extern char* nteedb_by_index_has(unsigned int h, char* name, char* valJSON);
 extern char* nteedb_by_index_prefix(unsigned int h, char* name, char* prefix, int limit);
 extern char* nteedb_by_index_range(unsigned int h, char* name, char* loJSON, char* hiJSON);
 extern char* nteedb_remove_by_pk_less(unsigned int h, char* cutoff);

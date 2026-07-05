@@ -224,6 +224,17 @@ func (si *secIndex) exact(val any, limit int) ([]string, error) {
 	return out, nil
 }
 
+// exists reports whether any entry has index value == val, without collecting
+// the matching primary keys — the cheap (O(log n), allocation-free) counterpart
+// of exact for a presence check.
+func (si *secIndex) exists(val any) (bool, error) {
+	probe, err := si.makeEntry(val, "")
+	if err != nil {
+		return false, err
+	}
+	return si.lowerBound(probe) < si.upperBoundValue(probe), nil
+}
+
 // prefixUpperBound returns the smallest string strictly greater than every
 // string that begins with p — the exclusive end of p's prefix range. It clones
 // p, increments the last byte that isn't 0xFF, and drops everything after it
@@ -559,6 +570,22 @@ func (db *DB) ByIndex(name string, val any, limit ...int) ([]string, error) {
 		n = limit[0]
 	}
 	return si.exact(val, n)
+}
+
+// ByIndexHas reports whether any record has value val in the named index,
+// without materializing the matching keys — the secondary-index counterpart of
+// Has. An unknown index name (or a value of the wrong kind) is an error.
+func (db *DB) ByIndexHas(name string, val any) (bool, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	if db.closed {
+		return false, ErrClosed
+	}
+	si := db.secIndexes[name]
+	if si == nil {
+		return false, fmt.Errorf("nteedb: unknown index %q", name)
+	}
+	return si.exists(val)
 }
 
 // ByIndexPrefix returns the primary keys whose value in the named (string) index

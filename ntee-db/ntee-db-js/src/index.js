@@ -158,6 +158,17 @@ export class NteeDB {
   }
 
   /**
+   * Whether any record has `val` in the secondary index `name` — the
+   * secondary-index counterpart of has(), without materializing the keys.
+   */
+  secIndexHas(name, val) {
+    this.#assertOpen()
+    return (
+      readEnvelope(fns.byIndexHas(this.#h, name, JSON.stringify(val))) === true
+    )
+  }
+
+  /**
    * Primary keys whose (string) value in the secondary index `name` starts with
    * `prefix`.
    * limit is applied per distinct index value (grouped): 0 = all matches flat;

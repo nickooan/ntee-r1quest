@@ -101,6 +101,8 @@ export declare class NteeDB {
    * @param limit 0 = all (ascending); N>0 = first N ascending; N<0 = last |N| descending.
    */
   secIndex(name: string, val: string | number, limit?: number): string[]
+  /** Whether any record has `val` in the secondary index `name` (no keys materialized). */
+  secIndexHas(name: string, val: string | number): boolean
   /**
    * Primary keys whose (string) value in the secondary index `name` starts with `prefix`.
    * @param limit applied per distinct index value (grouped): 0 (default) = all

@@ -53,6 +53,7 @@ export const fns = {
   delete: def("nteedb_delete", ["uint", "str"]),
   prefixScan: def("nteedb_prefix_scan", ["uint", "str"]),
   byIndex: def("nteedb_by_index", ["uint", "str", "str", "int"]),
+  byIndexHas: def("nteedb_by_index_has", ["uint", "str", "str"]),
   byIndexPrefix: def("nteedb_by_index_prefix", ["uint", "str", "str", "int"]),
   byIndexRange: def("nteedb_by_index_range", ["uint", "str", "str", "str"]),
   removeByPkLess: def("nteedb_remove_by_pk_less", ["uint", "str"]),

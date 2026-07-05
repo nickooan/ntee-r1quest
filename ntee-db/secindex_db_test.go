@@ -30,6 +30,40 @@ func mustBy(t *testing.T, db *DB, name string, val any) []string {
 	return got
 }
 
+func TestByIndexHas(t *testing.T) {
+	db := openIndexed(t, t.TempDir())
+	defer db.Close()
+
+	db.PutIndexed("call:1", []byte("a"), IndexValues{"traceId": "T1", "status": 200})
+	db.PutIndexed("call:2", []byte("b"), IndexValues{"traceId": "T1", "status": 404})
+
+	check := func(name string, val any, want bool) {
+		t.Helper()
+		got, err := db.ByIndexHas(name, val)
+		if err != nil {
+			t.Fatalf("ByIndexHas(%s,%v): %v", name, val, err)
+		}
+		if got != want {
+			t.Errorf("ByIndexHas(%s,%v) = %v, want %v", name, val, got, want)
+		}
+	}
+	check("traceId", "T1", true)
+	check("traceId", "T9", false)
+	check("status", 404, true)
+	check("status", 500, false)
+
+	// Unknown index is an error.
+	if _, err := db.ByIndexHas("nope", "x"); err == nil {
+		t.Error("ByIndexHas(unknown) should error")
+	}
+
+	// Presence tracks deletes: gone once every record for the value is removed.
+	db.Delete("call:1")
+	check("traceId", "T1", true) // call:2 still has T1
+	db.Delete("call:2")
+	check("traceId", "T1", false)
+}
+
 func TestSecondaryMultiValueTraceId(t *testing.T) {
 	db := openIndexed(t, t.TempDir())
 	defer db.Close()

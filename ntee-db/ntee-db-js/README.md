@@ -180,6 +180,7 @@ db.close() // or db.drop() to delete the store
 | `has(key)` / `delete(key)`                                    | `boolean` / `void` |                                                                   |
 | `prefixScan(prefix)`                                          | `string[]`         | sorted keys                                                       |
 | `secIndex / secIndexPrefix / secIndexRange`                   | `string[]`         | primary keys                                                      |
+| `secIndexHas(name, val)`                                      | `boolean`          | any record has `val` in the index (no keys materialized)          |
 | `secIndexRecords / secIndexPrefixRecords / prefixScanRecords` | `{key, value}[]`   | keys + content (value per `valueFormat`)                          |
 | `secIndexDropped / secIndexProspective`                       | `string[]`         | schema state                                                      |
 | `compact()` / `reindex()`                                     | `Promise<void>`    | run off the event loop                                            |

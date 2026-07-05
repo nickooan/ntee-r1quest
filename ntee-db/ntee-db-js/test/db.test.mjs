@@ -237,8 +237,18 @@ test("secondary indexes: explicit values, multi-value, range, prefix", async () 
         "call:3",
       ])
 
+      // secIndexHas: presence per value, both kinds; false after the value
+      // has no more records.
+      assert.equal(db.secIndexHas("traceId", "T1"), true)
+      assert.equal(db.secIndexHas("traceId", "T9"), false)
+      assert.equal(db.secIndexHas("status", 404), true)
+      assert.equal(db.secIndexHas("status", 500), false)
+      assert.throws(() => db.secIndexHas("nope", "x"), /unknown index/)
+
       db.delete("call:1")
       assert.deepEqual(db.secIndex("traceId", "T1"), ["call:2"])
+      db.delete("call:2")
+      assert.equal(db.secIndexHas("traceId", "T1"), false) // both gone
     },
   )
 })

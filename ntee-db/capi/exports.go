@@ -291,6 +291,23 @@ func nteedb_by_index(h C.uint, name *C.char, valJSON *C.char, limit C.int) *C.ch
 	return reply(emptyIfNil(keys), nil)
 }
 
+//export nteedb_by_index_has
+func nteedb_by_index_has(h C.uint, name *C.char, valJSON *C.char) *C.char {
+	db := regGet(uint32(h))
+	if db == nil {
+		return reply(nil, errInvalidHandle)
+	}
+	var val any
+	if err := json.Unmarshal([]byte(C.GoString(valJSON)), &val); err != nil {
+		return reply(nil, err)
+	}
+	ok, err := db.ByIndexHas(C.GoString(name), val)
+	if err != nil {
+		return reply(nil, err)
+	}
+	return reply(ok, nil)
+}
+
 //export nteedb_by_index_prefix
 func nteedb_by_index_prefix(h C.uint, name *C.char, prefix *C.char, limit C.int) *C.char {
 	db := regGet(uint32(h))
