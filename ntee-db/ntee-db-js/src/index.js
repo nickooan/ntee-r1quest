@@ -1,11 +1,6 @@
 // Ergonomic Node.js wrapper around the nteedb C-shared library.
 import { fns, readEnvelope, callAsync } from "./native.js"
 
-// Exact UTF-8 validity check for batch payloads — the JS counterpart of Go's
-// utf8.Valid. fatal makes invalid input throw instead of substituting U+FFFD;
-// ignoreBOM keeps a leading BOM instead of silently stripping it.
-const utf8Strict = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
-
 // Normalize a put value: a Buffer or string passes through unchanged (raw bytes
 // / verbatim text — no double-encoding), and anything else (object, array,
 // number, boolean, null) is JSON-serialized. Lets callers store objects
@@ -89,26 +84,30 @@ export class NteeDB {
    *
    * items: [{ key, value: object|string|Buffer, ix? }] — a value is JSON-
    * serialized unless it is already a string or Buffer (as in put()).
+   *
+   * Wire format: only keys, value byte-lengths, and index values travel as JSON;
+   * the value bytes ride a single concatenated buffer (no per-value escaping or
+   * base64). Runs off the event loop.
    */
   putMany(items) {
     this.#assertOpen()
-    // Values travel like the get envelope: valid-UTF-8 as a plain string
-    // ("s"), binary as base64 ("v").
-    const payload = items.map(({ key, value, ix }) => {
+    const metas = new Array(items.length)
+    const bufs = new Array(items.length)
+    for (let i = 0; i < items.length; i++) {
+      const { key, value, ix } = items[i]
       const val = toStorable(value)
-      let item
-      if (typeof val === "string") {
-        item = { k: key, s: val }
-      } else {
-        try {
-          item = { k: key, s: utf8Strict.decode(val) }
-        } catch {
-          item = { k: key, v: val.toString("base64") }
-        }
-      }
-      return ix ? { ...item, ix } : item
-    })
-    return callAsync(fns.putBatch, this.#h, JSON.stringify(payload))
+      const buf = Buffer.isBuffer(val) ? val : Buffer.from(val, "utf8")
+      bufs[i] = buf
+      metas[i] = ix ? { k: key, n: buf.length, ix } : { k: key, n: buf.length }
+    }
+    const blob = Buffer.concat(bufs)
+    return callAsync(
+      fns.putBatchBin,
+      this.#h,
+      JSON.stringify(metas),
+      blob,
+      blob.length,
+    )
   }
 
   /**

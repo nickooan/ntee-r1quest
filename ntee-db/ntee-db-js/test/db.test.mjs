@@ -185,6 +185,26 @@ test("put/putMany accept an object directly (JSON-serialized)", async () => {
   })
 })
 
+test("putMany binary ABI: empty batch, blob-path + mixed values, byte-exact", async () => {
+  await withDB({ blobThreshold: 64 }, async (db) => {
+    assert.equal(await db.putMany([]), 0) // empty batch is a no-op
+
+    const big = Buffer.alloc(4096, 0x5a) // over blobThreshold → blob path
+    const bin = Buffer.from([0xff, 0x00, 0xfe])
+    const n = await db.putMany([
+      { key: "k:big", value: big },
+      { key: "k:obj", value: { a: 1 } },
+      { key: "k:bin", value: bin },
+      { key: "k:str", value: "plain" }, // non-JSON string → Buffer on read
+    ])
+    assert.equal(n, 4)
+    assert.ok(db.get("k:big").equals(big))
+    assert.deepEqual(db.get("k:obj"), { a: 1 })
+    assert.deepEqual(db.get("k:bin"), bin)
+    assert.equal(db.get("k:str").toString(), "plain")
+  })
+})
+
 test("JSON store: reads return parsed values, Buffer for non-JSON", async () => {
   await withDB(
     { indexes: [{ name: "traceId", kind: "string" }] },
