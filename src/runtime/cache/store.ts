@@ -90,16 +90,16 @@ export const cacheGet = <T>(db: NteeDB, key: string): T | undefined => {
 }
 
 /**
- * JSON-encodes and stores a cache value, optionally with secondary index values
- * (e.g. { traceId }).
+ * Stores a cache record (an object, JSON-serialized by ntee-db), optionally with
+ * secondary index values (e.g. { traceId }).
  */
 export const cachePut = (
   db: NteeDB,
   key: string,
-  value: unknown,
+  value: object,
   ix?: Record<string, string | number>,
 ): void => {
-  db.put(key, Buffer.from(JSON.stringify(value), "utf8"), ix)
+  db.put(key, value, ix) // ntee-db JSON-serializes the object
 }
 
 /** Deletes a cache key. */
