@@ -57,6 +57,10 @@ func nteedb_open(dir *C.char, optsJSON *C.char) *C.char {
 	return reply(regPut(db), nil)
 }
 
+// nteedb_close and nteedb_drop are deliberately idempotent: an unknown or
+// already-released handle succeeds silently (unlike data ops, which return
+// errInvalidHandle) so teardown paths can never fail on a double close.
+//
 //export nteedb_close
 func nteedb_close(h C.uint) *C.char {
 	if db := regDelete(uint32(h)); db != nil {
@@ -158,6 +162,15 @@ func nteedb_has(h C.uint, key *C.char) *C.char {
 		return reply(nil, errInvalidHandle)
 	}
 	return reply(db.Has(C.GoString(key)), nil)
+}
+
+//export nteedb_stats
+func nteedb_stats(h C.uint) *C.char {
+	db := regGet(uint32(h))
+	if db == nil {
+		return reply(nil, errInvalidHandle)
+	}
+	return reply(db.Stats(), nil)
 }
 
 //export nteedb_delete

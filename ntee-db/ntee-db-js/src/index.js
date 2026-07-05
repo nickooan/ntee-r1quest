@@ -12,6 +12,13 @@ const utf8Strict = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
 // directly without a manual JSON.stringify.
 function toStorable(value) {
   if (Buffer.isBuffer(value) || typeof value === "string") return value
+  if (value === undefined) {
+    // JSON.stringify(undefined) is undefined, which would surface later as a
+    // cryptic Buffer.from error (put) or silently store empty (putMany).
+    throw new TypeError(
+      "nteedb: value is undefined (store null explicitly if intended)",
+    )
+  }
   return JSON.stringify(value)
 }
 
@@ -132,6 +139,16 @@ export class NteeDB {
     return readEnvelope(fns.has(this.#h, key)) === true
   }
 
+  /**
+   * Point-in-time store size: { records, mainBytes, blobBytes }. Cheap — all
+   * values are in-memory counters (no I/O). mainBytes/blobBytes include dead
+   * records / orphaned blobs until compact().
+   */
+  stats() {
+    this.#assertOpen()
+    return readEnvelope(fns.stats(this.#h))
+  }
+
   /** Delete key (no-op if absent). */
   delete(key) {
     this.#assertOpen()
@@ -247,8 +264,9 @@ export class NteeDB {
   }
 
   /**
-   * Search a secondary index and return records {key, value: Buffer} in one
-   * call — the keys query plus a single batched getMany, not one get per key.
+   * Search a secondary index and return records {key, value} in one call — the
+   * keys query plus a single batched getMany, not one get per key. value is
+   * the parsed JSON (a Buffer for binary/non-JSON), like get().
    * limit: 0 = all; N>0 = first N ascending; N<0 = last |N| descending.
    */
   secIndexRecords(name, val, limit = 0) {
@@ -259,8 +277,9 @@ export class NteeDB {
 
   /**
    * Search by secondary-index prefix (string index) and return records
-   * {key, value: Buffer}. limit as secIndexPrefix (grouped per distinct value);
-   * records come back ordered by (index value, then selected primary key).
+   * {key, value} (value parsed as in get()). limit as secIndexPrefix (grouped
+   * per distinct value); records come back ordered by (index value, then
+   * selected primary key).
    */
   secIndexPrefixRecords(name, prefix, limit = 0) {
     const keys = this.secIndexPrefix(name, prefix, limit)
@@ -268,7 +287,7 @@ export class NteeDB {
     return keys.map((key, i) => ({ key, value: vals[i] }))
   }
 
-  /** Search by primary-key prefix and return records {key, value: Buffer}. */
+  /** Search by primary-key prefix, returning records {key, value} (value parsed as in get()). */
   prefixScanRecords(prefix) {
     const keys = this.prefixScan(prefix)
     const vals = this.getMany(keys)

@@ -36,10 +36,12 @@ type IndexValues = map[string]any
 // record(s) — lowest primary key within the group — as a full, durable delete
 // (tombstone; the record leaves the primary index and every secondary index).
 // "Oldest" therefore relies on the caller designing time-ordered keys (see the
-// README's key-design section). 0 or negative = unlimited. Enforced on the
-// write path only: not during boot replay or Reindex back-fill, but a group
-// left over the cap (e.g. after lowering it) is drained by the next write to
-// that value.
+// README's key-design section). A write whose NEW key would itself be the
+// eviction victim (it sorts at/below a full group's eviction boundary) is
+// rejected with an error rather than silently vanishing. 0 or negative =
+// unlimited. Enforced on the write path only: not during boot replay or
+// Reindex back-fill, but a group left over the cap (e.g. after lowering it) is
+// drained by the next write to that value.
 type IndexDef struct {
 	Name        string
 	Kind        ValueKind
@@ -59,6 +61,13 @@ type secEntry struct {
 // (value, primary key). It mirrors the primary index's sorted-slice approach, so
 // exact (multi-value), prefix, and range queries are all bounded binary-search
 // walks.
+//
+// Scaling note: insert/remove memmove the tail — O(n) per write. Unlike the
+// primary index (ascending keys append), a secondary insert lands wherever its
+// VALUE sorts, so a hot value that isn't lexically last memmoves every entry
+// after its group on every write — O(N²) to build a large low-cardinality
+// index. Fine at maxPerValue-capped sizes; the contemplated upgrade is an
+// order-preserving btree. BenchmarkPutIndexedHotValue guards this cliff.
 type secIndex struct {
 	name    string
 	kind    ValueKind
@@ -359,6 +368,9 @@ func (db *DB) writeLocked(key string, value []byte, explicit IndexValues) error 
 	if err != nil {
 		return err
 	}
+	if err := db.checkSelfEvictionLocked(key, ix); err != nil {
+		return err
+	}
 	if err := db.appendRecordLocked(key, value, ix, db.opts.SyncEveryWrite); err != nil {
 		return err
 	}
@@ -377,19 +389,20 @@ func (db *DB) writeLocked(key string, value []byte, explicit IndexValues) error 
 // via buildIndexValues.
 func (db *DB) appendRecordLocked(key string, value []byte, ix map[string]any, durable bool) error {
 	// Large values go to the blob side file; the main record just references
-	// them. The blob is written (and fsynced in durable mode) before the
-	// referencing main record, so a crash can only ever orphan a blob — never
-	// leave a main record pointing at a missing one.
+	// them. The blob is fsynced before the referencing main record is appended —
+	// on EVERY path, not just durable mode: the two live in different files, so
+	// without this barrier a power loss could persist the main record while the
+	// blob bytes are still in the page cache, leaving a reference past the end
+	// of blobs.dat. With it, a crash can only ever orphan a blob. Blobs are rare
+	// (values >= BlobThreshold), so the extra fsync on the fast path is cheap.
 	rec := record{Key: key, Value: value, IX: ix}
 	if db.useBlobFor(len(value)) {
 		ref, err := db.blobs.append(value)
 		if err != nil {
 			return err
 		}
-		if durable {
-			if err := db.blobs.flush(); err != nil {
-				return err
-			}
+		if err := db.blobs.flush(); err != nil {
+			return err
 		}
 		rec = record{Key: key, Blob: &ref, IX: ix}
 	}
@@ -443,6 +456,63 @@ func (db *DB) enforceMaxPerValueLocked(ix map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// checkSelfEvictionLocked rejects a write whose key would be immediately
+// evicted by a capped index: eviction keeps a group's highest primary keys, so
+// a NEW key that sorts at (or below) the group's eviction boundary would be
+// tombstoned by its own write — Put would report success while Get finds
+// nothing. Rejecting up front (before anything is appended) turns that silent
+// loss into an explicit error. Overwrites of a key already in the group never
+// grow it, so they are always allowed. Callers must hold db.mu.
+func (db *DB) checkSelfEvictionLocked(key string, ix map[string]any) error {
+	for name, val := range ix {
+		si := db.secIndexes[name]
+		if si == nil || si.max <= 0 {
+			continue
+		}
+		evict, err := si.wouldSelfEvict(val, key)
+		if err != nil {
+			continue // value already validated by buildIndexValues; be lenient
+		}
+		if evict {
+			return fmt.Errorf(
+				"nteedb: key %q would be immediately evicted by index %q (maxPerValue %d): keys must be ordered so new keys sort after existing ones",
+				key, name, si.max)
+		}
+	}
+	return nil
+}
+
+// wouldSelfEvict reports whether inserting (val, key) into this capped index
+// would make the new entry itself an eviction victim: the group is at (or over)
+// its cap, key is not already a member, and key sorts within the group's lowest
+// `excess` entries after insertion.
+func (si *secIndex) wouldSelfEvict(val any, key string) (bool, error) {
+	if si.max <= 0 {
+		return false, nil
+	}
+	probe, err := si.makeEntry(val, "")
+	if err != nil {
+		return false, err
+	}
+	lo := si.lowerBound(probe)
+	hi := si.upperBoundValue(probe)
+	excess := (hi - lo) + 1 - si.max // group size after inserting the new entry
+	if excess <= 0 {
+		return false, nil
+	}
+	// An overwrite of an existing member does not grow the group.
+	self, err := si.makeEntry(val, key)
+	if err != nil {
+		return false, err
+	}
+	if i := si.lowerBound(self); i < hi && si.entries[i].pk == key {
+		return false, nil
+	}
+	// The new entry is among the victims iff it sorts at or below the
+	// excess-th smallest existing member of the group.
+	return key <= si.entries[lo+excess-1].pk, nil
 }
 
 // buildIndexValues merges explicit values with values derived from index

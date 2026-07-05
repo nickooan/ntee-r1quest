@@ -8,7 +8,8 @@ export interface IndexDef {
   /**
    * Optional dotted JSON path; when set, the index value is derived
    * automatically from each record's JSON value (the "scan itself" mode), and
-   * reindex() can back-fill it over historical records.
+   * reindex() can back-fill it over historical records. Objects only — the
+   * path cannot traverse arrays.
    */
   jsonPath?: string
   /**
@@ -24,7 +25,11 @@ export interface IndexDef {
 export interface OpenOptions {
   /** Values >= this many bytes are stored in the blob side file. 0 = 64 KiB default; negative disables blobs. */
   blobThreshold?: number
-  /** fsync on every write (durable but slower) vs. periodic flush. */
+  /**
+   * fsync every write (power-loss durable; each write pays ~ms). When false
+   * (default), writes still reach the OS immediately (no in-process buffer):
+   * a process crash loses nothing; only power loss can drop recent writes.
+   */
   syncEveryWrite?: boolean
   /** Rewrite the index hint after this many writes (also on close/compact). 0 disables periodic rewrites. */
   hintEveryN?: number
@@ -48,6 +53,16 @@ export type ReadValue = unknown
 export interface Record {
   key: string
   value: ReadValue
+}
+
+/** Point-in-time store size. Sizes include dead records / orphaned blobs until compact(). */
+export interface StoreStats {
+  /** Live records (primary keys). */
+  records: number
+  /** main.jsonl bytes. */
+  mainBytes: number
+  /** blobs.dat bytes. */
+  blobBytes: number
 }
 
 export declare class NteeDB {
@@ -87,6 +102,8 @@ export declare class NteeDB {
   getMany(keys: string[]): (ReadValue | null)[]
   /** Whether `key` exists. */
   has(key: string): boolean
+  /** Point-in-time store size (cheap, in-memory counters). */
+  stats(): StoreStats
   /** Delete `key` (no-op if absent). */
   delete(key: string): void
 

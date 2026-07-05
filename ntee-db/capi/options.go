@@ -56,7 +56,8 @@ func parseOptions(dir, optsJSON string) (nteedb.Options, error) {
 }
 
 // jsonPathExtractor returns an IndexDef.Extract that pulls a dotted field path
-// out of a JSON record value and returns it typed per the index kind.
+// out of a JSON record value and returns it typed per the index kind. Objects
+// only: the path cannot traverse arrays (an array element ends the walk).
 func jsonPathExtractor(path string, kind nteedb.ValueKind) func(string, []byte) (any, bool) {
 	parts := strings.Split(path, ".")
 	return func(_ string, value []byte) (any, bool) {

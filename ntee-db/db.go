@@ -49,9 +49,11 @@ type Options struct {
 	// values stored inline).
 	BlobThreshold int
 
-	// SyncEveryWrite fsyncs the main log on every write (durable but slower).
-	// When false, durability follows the OS flush schedule and a crash may lose
-	// the most recent writes.
+	// SyncEveryWrite fsyncs the main log on every write (power-loss durable,
+	// but each write pays the hardware fsync, ~ms). When false, appends still
+	// go straight to the OS via write(2) — there is no in-process buffer — so
+	// a PROCESS crash (panic, kill -9, exit without Close) loses nothing; only
+	// an OS crash / power loss can drop the most recent writes.
 	SyncEveryWrite bool
 
 	// HintEveryN rewrites the index hint file after this many writes (in
@@ -214,8 +216,21 @@ func (db *DB) load() error {
 
 // replayTail scans the main log from byte offset `from`, applying each record to
 // the index, then truncates any torn final line left by a crash mid-append.
+//
+// A record whose blob ref points past the end of blobs.dat is treated the same
+// as a torn line: writes fsync the blob before appending the referencing main
+// record, so a dangling ref can only mean a power loss persisted main-log pages
+// that were never acknowledged durable — the record (and everything after it)
+// is part of the lost tail.
 func (db *DB) replayTail(from int64) error {
+	blobSize := int64(0)
+	if info, err := os.Stat(db.blobPath); err == nil {
+		blobSize = info.Size()
+	}
 	end, err := scanMainLog(db.mainPath, from, func(r record, off int64, n int32) error {
+		if r.Blob != nil && r.Blob.Off+int64(r.Blob.Size) > blobSize {
+			return errStopScan // dangling blob ref → start of the torn tail
+		}
 		if r.isTombstone() {
 			db.pk.remove(r.Key)
 			db.retractSecLocked(r.Key)
@@ -471,6 +486,31 @@ func (db *DB) GetMany(keys []string) (values [][]byte, found []bool, err error) 
 // blob side file rather than inline. A non-positive BlobThreshold disables blobs.
 func (db *DB) useBlobFor(size int) bool {
 	return db.opts.BlobThreshold > 0 && size >= db.opts.BlobThreshold
+}
+
+// Stats is a point-in-time snapshot of store size.
+type Stats struct {
+	Records   int   `json:"records"`   // live records (primary keys)
+	MainBytes int64 `json:"mainBytes"` // main.jsonl size — includes dead records until Compact
+	BlobBytes int64 `json:"blobBytes"` // blobs.dat size — includes orphaned blobs
+}
+
+// Stats returns the store's live record count and on-disk file sizes. Cheap:
+// every value is already tracked in memory (no I/O, no scans).
+func (db *DB) Stats() Stats {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	if db.closed {
+		return Stats{}
+	}
+	s := Stats{Records: db.pk.len()}
+	if db.main != nil {
+		s.MainBytes = db.main.size
+	}
+	if db.blobs != nil {
+		s.BlobBytes = db.blobs.size
+	}
+	return s
 }
 
 // Has reports whether key is present without reading its value.

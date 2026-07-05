@@ -46,6 +46,35 @@ func BenchmarkPutHintEveryN(b *testing.B) {
 	}
 }
 
+// BenchmarkPutIndexedHotValue guards the sorted-slice insert cliff: 50k seeded
+// entries share index value "zzz", and every benchmarked write carries value
+// "aaa" — sorting BEFORE the whole zzz block, so each insert memmoves all 50k
+// entries (O(n) per write; O(N²) to build such an index). If this row degrades
+// sharply vs BenchmarkPut, the btree upgrade contemplated in secindex.go is due.
+func BenchmarkPutIndexedHotValue(b *testing.B) {
+	db, err := Open(Options{Dir: b.TempDir(), Indexes: []IndexDef{{Name: "v", Kind: KindString}}})
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+	const seed = 50_000
+	items := make([]PutItem, seed)
+	for i := range items {
+		items[i] = PutItem{
+			Key:   fmt.Sprintf("z%08d", i),
+			Value: []byte("value"),
+			IX:    IndexValues{"v": "zzz"},
+		}
+	}
+	if err := db.PutBatch(items); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = db.PutIndexed(fmt.Sprintf("a%08d", i), []byte("value"), IndexValues{"v": "aaa"})
+	}
+}
+
 func BenchmarkGet(b *testing.B) {
 	_, db := benchSeed(b, 10000)
 	defer db.Close()

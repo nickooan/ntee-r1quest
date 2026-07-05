@@ -2,17 +2,45 @@ package nteedb
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 )
+
+// openMainLogFn is a seam so tests can inject a reopen failure into the
+// compaction swap (the fail-stop path below is otherwise unreachable).
+var openMainLogFn = openMainLog
+
+// failStopLocked permanently disables the store after an unrecoverable error
+// mid-compaction-swap: the old main handles are already closed and no usable
+// replacements exist. Marking the store closed makes every later call return
+// ErrClosed (instead of "file already closed" confusion), and the remaining
+// resources are released since Close() would now be a no-op. Callers hold db.mu.
+func (db *DB) failStopLocked(cause error) error {
+	db.closed = true
+	db.main, db.rf = nil, nil
+	db.hintWG.Wait() // let any in-flight background hint writer finish first
+	if db.blobs != nil {
+		_ = db.blobs.close()
+	}
+	if db.lock != nil {
+		_ = db.lock.Close()
+	}
+	return fmt.Errorf("nteedb: store disabled after failed compaction swap: %w", cause)
+}
 
 // Compact rewrites the main log to contain only live records (one per key, with
 // superseded versions and tombstones dropped), reclaiming space. It is also
 // schema-aware: each record's ix is filtered to the currently declared indexes,
-// so fields of dropped indexes are swept away. No record values are read, so
-// this is cheap. The store is briefly read-only (the write lock is held).
+// so fields of dropped indexes are swept away. Cost is O(live bytes): every
+// live record line — including inline values — is read and rewritten (only
+// blob CONTENTS are spared; their refs are copied verbatim). The store is
+// briefly read-only (the write lock is held).
 //
 // Only the main log is rewritten; blob references are preserved and blobs.dat is
-// left untouched, keeping the swap a single atomic rename (crash-safe).
+// left untouched, keeping the swap a single atomic rename (crash-safe). The
+// containing directory is deliberately not fsynced after the rename: if power
+// is lost before the rename metadata is durable, the old main.jsonl simply
+// remains and the leftover .compact file is ignored on the next open.
 func (db *DB) Compact() error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
@@ -31,16 +59,25 @@ func (db *DB) compactTransform(rec record) (record, error) {
 }
 
 // filterIX returns the subset of ix whose names are currently *active* indexes
-// (used by Reindex, which purges soft-dropped indexes).
+// AND whose values match the index's declared kind (used by Reindex, which
+// purges soft-dropped indexes). The kind check matters when an explicit-value
+// index's kind changed: without it the old wrong-kind value would be rewritten
+// into the record forever — un-indexable (makeEntry rejects it at boot) yet
+// never cleaned, since Reindex cannot re-derive explicit values.
 func (db *DB) filterIX(ix map[string]any) map[string]any {
 	if len(ix) == 0 {
 		return nil
 	}
 	out := make(map[string]any, len(ix))
 	for name, v := range ix {
-		if _, ok := db.secIndexes[name]; ok {
-			out[name] = v
+		si, ok := db.secIndexes[name]
+		if !ok {
+			continue
 		}
+		if _, err := si.makeEntry(v, ""); err != nil {
+			continue // wrong kind for the current declaration: drop it
+		}
+		out[name] = v
 	}
 	if len(out) == 0 {
 		return nil
@@ -82,21 +119,25 @@ func (db *DB) rewriteLocked(transform func(record) (record, error)) error {
 		return err
 	}
 
-	// Swap: close old main handles, atomically replace the file, reopen.
+	// Swap: close old main handles, atomically replace the file, reopen. Past
+	// this point the old handles are gone — any failure below must fail-stop
+	// (see failStopLocked): limping on would leave db.main/db.rf pointing at
+	// closed files while db.closed stays false, wedging every later call with
+	// confusing "file already closed" errors.
 	_ = db.main.close()
 	_ = db.rf.Close()
 	if err := os.Rename(newMain, db.mainPath); err != nil {
-		return err
+		return db.failStopLocked(err)
 	}
 
-	lg, err := openMainLog(db.mainPath, db.opts.SyncEveryWrite)
+	lg, err := openMainLogFn(db.mainPath, db.opts.SyncEveryWrite)
 	if err != nil {
-		return err
+		return db.failStopLocked(err)
 	}
 	rf, err := os.Open(db.mainPath)
 	if err != nil {
 		_ = lg.close()
-		return err
+		return db.failStopLocked(err)
 	}
 	db.main = lg
 	db.rf = rf

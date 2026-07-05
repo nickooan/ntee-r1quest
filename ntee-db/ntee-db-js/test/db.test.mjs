@@ -448,6 +448,123 @@ test("drop deletes the store", async () => {
   }
 })
 
+test("stats reports records and file sizes", async () => {
+  await withDB({ blobThreshold: 32 }, (db) => {
+    const empty = db.stats()
+    assert.deepEqual(empty, { records: 0, mainBytes: 0, blobBytes: 0 })
+
+    db.put("a", { n: 1 })
+    db.put("b", Buffer.alloc(100, 0xcd)) // blob path
+    const s = db.stats()
+    assert.equal(s.records, 2)
+    assert.ok(s.mainBytes > 0)
+    assert.equal(s.blobBytes, 100)
+
+    db.delete("a")
+    const s2 = db.stats()
+    assert.equal(s2.records, 1)
+    assert.ok(s2.mainBytes > s.mainBytes) // tombstone appended until compact
+  })
+})
+
+test("static destroy deletes a closed store's files", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "nteedb-"))
+  try {
+    const db = NteeDB.open(dir, {})
+    db.put("a", { n: 1 })
+    db.close()
+
+    NteeDB.destroy(dir)
+    const db2 = NteeDB.open(dir, {}) // fresh store: nothing survives
+    assert.equal(db2.get("a"), null)
+    db2.close()
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("secIndexDropped / secIndexProspective report schema state", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "nteedb-"))
+  try {
+    // Declare an index, write through it, close.
+    const db = NteeDB.open(dir, { indexes: [{ name: "tmp", kind: "string" }] })
+    db.put("k1", { v: 1 }, { tmp: "T" })
+    db.close()
+
+    // Reopen without it → soft-dropped; with a NEW index over existing data →
+    // prospective (covers only future writes until reindex()).
+    const db2 = NteeDB.open(dir, {
+      indexes: [{ name: "later", kind: "string", jsonPath: "v" }],
+    })
+    assert.deepEqual(db2.secIndexDropped(), ["tmp"])
+    assert.deepEqual(db2.secIndexProspective(), ["later"])
+
+    // reindex back-fills the jsonPath index and purges the dropped one.
+    await db2.reindex()
+    assert.deepEqual(db2.secIndexDropped(), [])
+    assert.deepEqual(db2.secIndexProspective(), [])
+    db2.close()
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("operations on a closed handle throw", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "nteedb-"))
+  try {
+    const db = NteeDB.open(dir, {})
+    db.put("a", { n: 1 })
+    db.close()
+    db.close() // idempotent
+
+    for (const op of [
+      () => db.get("a"),
+      () => db.put("b", { n: 2 }),
+      () => db.stats(),
+      () => db.prefixScan(""),
+      () => db.drop(),
+    ]) {
+      assert.throws(op, /database is closed/)
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("put(key, undefined) throws a clear error", async () => {
+  await withDB({}, (db) => {
+    assert.throws(() => db.put("k", undefined), /value is undefined/)
+    // putMany validates the payload before going async → throws synchronously,
+    // like its closed-handle guard.
+    assert.throws(
+      () => db.putMany([{ key: "k", value: undefined }]),
+      /value is undefined/,
+    )
+    assert.equal(db.has("k"), false)
+  })
+})
+
+test("overlapping async operations settle consistently", async () => {
+  await withDB({}, async (db) => {
+    const items = Array.from({ length: 500 }, (_, i) => ({
+      key: "k" + String(i).padStart(4, "0"),
+      value: { i },
+    }))
+    // Fire batch writes, compaction, and a range delete concurrently — all run
+    // on libuv worker threads against the same handle.
+    const [n] = await Promise.all([
+      db.putMany(items),
+      db.compact(),
+      db.reindex(),
+    ])
+    assert.equal(n, 500)
+    await db.removeByPkLess("k0100")
+    assert.equal(db.get("k0099"), null)
+    assert.deepEqual(db.get("k0100"), { i: 100 })
+    assert.equal(db.stats().records, 400)
+  })
+})
+
 test("no memory leak across many calls (RSS stays bounded)", async () => {
   await withDB({}, (db) => {
     const big = Buffer.alloc(64 * 1024, 0x7a) // 64 KiB

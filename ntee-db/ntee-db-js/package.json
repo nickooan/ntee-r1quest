@@ -13,7 +13,8 @@
   },
   "files": [
     "src",
-    "prebuilds"
+    "prebuilds",
+    "!prebuilds/**/*.h"
   ],
   "scripts": {
     "build:native": "bash ../capi/build.sh",

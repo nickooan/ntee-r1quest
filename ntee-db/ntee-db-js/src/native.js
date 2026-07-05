@@ -26,7 +26,21 @@ function libraryPath() {
   )
 }
 
-const lib = koffi.load(libraryPath())
+const lib = (() => {
+  const path = libraryPath()
+  try {
+    return koffi.load(path)
+  } catch (cause) {
+    // A raw dlopen error is unactionable; say what was looked for and how to fix.
+    throw new Error(
+      `nteedb: no native library for ${process.platform}-${process.arch} at ${path} ` +
+        `(prebuilds ship for darwin-arm64, linux-amd64, linux-arm64). ` +
+        `Build one for this host with: npm run build:native (requires Go). ` +
+        `Original error: ${cause.message}`,
+      { cause },
+    )
+  }
+})()
 
 const free = lib.func("nteedb_free", "void", ["void *"])
 
@@ -48,6 +62,7 @@ export const fns = {
   getJson: def("nteedb_get_json", ["uint", "str"]),
   getManyJson: def("nteedb_get_many_json", ["uint", "str"]),
   has: def("nteedb_has", ["uint", "str"]),
+  stats: def("nteedb_stats", ["uint"]),
   delete: def("nteedb_delete", ["uint", "str"]),
   prefixScan: def("nteedb_prefix_scan", ["uint", "str"]),
   byIndex: def("nteedb_by_index", ["uint", "str", "str", "int"]),
@@ -64,7 +79,20 @@ export const fns = {
 
 // readEnvelope parses the JSON envelope string, returning `result` or throwing `err`.
 export function readEnvelope(s) {
-  const env = JSON.parse(s)
+  if (typeof s !== "string") {
+    throw new Error(`nteedb: native call returned no envelope (got ${s})`)
+  }
+  let env
+  try {
+    env = JSON.parse(s)
+  } catch {
+    throw new Error(
+      `nteedb: malformed envelope from native library: ${s.slice(0, 120)}`,
+    )
+  }
+  if (env === null) {
+    throw new Error("nteedb: malformed envelope from native library: null")
+  }
   if (env.err) throw new Error(env.err)
   return env.result
 }

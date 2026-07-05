@@ -16,6 +16,13 @@ type pkEntry struct {
 // key. A sorted slice serves both exact lookups and prefix scans in O(log n) via
 // sort.Search; a hash map is avoided because a prefix scan on a hash map would
 // require a full O(n) scan over every key.
+//
+// Scaling note: upsert of a NON-append key and remove both memmove the tail —
+// O(n) per write. That is fine for this store's design point (time-ordered
+// ascending keys, maxPerValue-capped sizes: appends move nothing) but is the
+// known cliff at 50k+ records with random keys. The contemplated upgrade is an
+// order-preserving btree, which keeps the O(log n) range/prefix walks while
+// making insert/delete O(log n); see BenchmarkPutIndexedHotValue for the guard.
 type pkIndex struct {
 	entries []pkEntry
 }

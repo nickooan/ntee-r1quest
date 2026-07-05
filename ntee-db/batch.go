@@ -30,12 +30,18 @@ func (db *DB) PutBatch(items []PutItem) error {
 		return nil
 	}
 
-	// Pass 1 — validate everything before writing anything.
+	// Pass 1 — validate everything before writing anything. The self-eviction
+	// check runs against pre-batch state: it catches a key that sorts below an
+	// EXISTING full group. Items within one batch may still evict each other —
+	// that is normal retention (the cap keeps the highest keys of the batch).
 	ixs := make([]map[string]any, len(items))
 	for i, it := range items {
 		ix, err := db.buildIndexValues(it.Key, it.Value, it.IX)
 		if err != nil {
 			return fmt.Errorf("nteedb: batch item %d (%q): %w", i, it.Key, err)
+		}
+		if err := db.checkSelfEvictionLocked(it.Key, ix); err != nil {
+			return fmt.Errorf("nteedb: batch item %d: %w", i, err)
 		}
 		ixs[i] = ix
 	}

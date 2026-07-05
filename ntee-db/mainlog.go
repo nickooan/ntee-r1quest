@@ -3,9 +3,14 @@ package nteedb
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"io"
 	"os"
 )
+
+// errStopScan is returned by a scanMainLog callback to stop the scan and treat
+// the current record as the start of a torn tail (goodEnd excludes it).
+var errStopScan = errors.New("nteedb: stop scan")
 
 // mainLog is the append-only writer for main.jsonl — the store's main table and
 // source of truth (not an auxiliary action log). It tracks the file size so each
@@ -106,6 +111,11 @@ func scanMainLog(path string, from int64, fn func(r record, off int64, n int32) 
 		}
 		n := int32(len(line))
 		if ferr := fn(rec, off, n); ferr != nil {
+			if errors.Is(ferr, errStopScan) {
+				// The callback declared this record the start of the torn
+				// tail: stop cleanly, goodEnd excludes it.
+				return off, nil
+			}
 			return 0, ferr
 		}
 		off += int64(n)

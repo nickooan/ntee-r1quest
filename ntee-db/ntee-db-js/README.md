@@ -200,22 +200,23 @@ if (Buffer.isBuffer(v)) {
 
 ## API
 
-| Method                                                        | Returns            | Notes                                                                           |
-| ------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------- |
-| `NteeDB.open(dir, opts?)`                                     | `NteeDB`           | creates if missing                                                              |
-| `NteeDB.destroy(dir)`                                         | `void`             | delete a store's files (no open handle)                                         |
-| `put(key, value, ix?)`                                        | `void`             | `value`: object\|string\|Buffer (object → JSON); `ix`: `{name: string\|number}` |
-| `putMany(items)`                                              | `Promise<number>`  | one batch off the event loop; in-order; all-or-nothing validation               |
-| `get(key)`                                                    | value \| `null`    | the stored JSON parsed (a Buffer for binary/non-JSON)                           |
-| `getMany(keys)`                                               | `(value\|null)[]`  | batched get, one crossing; aligned to `keys`                                    |
-| `has(key)` / `delete(key)`                                    | `boolean` / `void` |                                                                                 |
-| `prefixScan(prefix)`                                          | `string[]`         | sorted keys                                                                     |
-| `secIndex / secIndexPrefix / secIndexRange`                   | `string[]`         | primary keys                                                                    |
-| `secIndexHas(name, val)`                                      | `boolean`          | any record has `val` in the index (no keys materialized)                        |
-| `secIndexRecords / secIndexPrefixRecords / prefixScanRecords` | `{key, value}[]`   | keys + parsed content                                                           |
-| `secIndexDropped / secIndexProspective`                       | `string[]`         | schema state                                                                    |
-| `compact()` / `reindex()`                                     | `Promise<void>`    | run off the event loop                                                          |
-| `close()` / `drop()`                                          | `void`             |                                                                                 |
+| Method                                                        | Returns                           | Notes                                                                           |
+| ------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------- |
+| `NteeDB.open(dir, opts?)`                                     | `NteeDB`                          | creates if missing                                                              |
+| `NteeDB.destroy(dir)`                                         | `void`                            | delete a store's files (no open handle)                                         |
+| `put(key, value, ix?)`                                        | `void`                            | `value`: object\|string\|Buffer (object → JSON); `ix`: `{name: string\|number}` |
+| `putMany(items)`                                              | `Promise<number>`                 | one batch off the event loop; in-order; all-or-nothing validation               |
+| `get(key)`                                                    | value \| `null`                   | the stored JSON parsed (a Buffer for binary/non-JSON)                           |
+| `getMany(keys)`                                               | `(value\|null)[]`                 | batched get, one crossing; aligned to `keys`                                    |
+| `has(key)` / `delete(key)`                                    | `boolean` / `void`                |                                                                                 |
+| `stats()`                                                     | `{records, mainBytes, blobBytes}` | cheap in-memory counters (sizes include dead space until `compact()`)           |
+| `prefixScan(prefix)`                                          | `string[]`                        | sorted keys                                                                     |
+| `secIndex / secIndexPrefix / secIndexRange`                   | `string[]`                        | primary keys                                                                    |
+| `secIndexHas(name, val)`                                      | `boolean`                         | any record has `val` in the index (no keys materialized)                        |
+| `secIndexRecords / secIndexPrefixRecords / prefixScanRecords` | `{key, value}[]`                  | keys + parsed content                                                           |
+| `secIndexDropped / secIndexProspective`                       | `string[]`                        | schema state                                                                    |
+| `compact()` / `reindex()`                                     | `Promise<void>`                   | run off the event loop                                                          |
+| `close()` / `drop()`                                          | `void`                            |                                                                                 |
 
 ## Notes / limitations
 
