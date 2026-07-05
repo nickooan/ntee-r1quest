@@ -151,12 +151,12 @@ const db = NteeDB.open("/path/to/store", {
 db.put("call:1", { kind: "request" }, { traceId: "T1" })
 
 // read content back — ntee-db is a JSON store, so reads return the parsed value
-const rec = db.get("call:1") // { kind: "request" } | null
-db.getMany(["call:1", "call:2"]) // values aligned to keys, in one call
+const rec = db.get("call:1") // { kind: "request" } | null  (sync)
+await db.getMany(["call:1", "call:2"]) // aligned to keys (async — off the loop)
 
-// search → keys, then get; or secIndexRecords → records in one call
+// search → keys (sync); record-returning searches are async (off the loop)
 db.secIndex("traceId", "T1") // ['call:1', ...]
-db.secIndexRecords("kind", "request") // [{ key, value }, ...]
+await db.secIndexRecords("kind", "request") // [{ key, value }, ...]
 db.prefixScan("call:") // sorted keys
 db.secIndexRange("status", 200, 299) // numeric range
 
@@ -208,13 +208,13 @@ if (Buffer.isBuffer(v)) {
 | `put(key, value, ix?)`                                        | `void`                            | `value`: object\|string\|Buffer (object → JSON); `ix`: `{name: string\|number}` |
 | `putMany(items)`                                              | `Promise<number>`                 | one batch off the event loop; in-order; all-or-nothing validation               |
 | `get(key)`                                                    | value \| `null`                   | the stored JSON parsed (a Buffer for binary/non-JSON)                           |
-| `getMany(keys)`                                               | `(value\|null)[]`                 | batched get, one crossing; aligned to `keys`                                    |
+| `getMany(keys)`                                               | `Promise<(value\|null)[]>`        | batched get, one crossing, aligned to `keys`; **async** (off the event loop)    |
 | `has(key)` / `delete(key)`                                    | `boolean` / `void`                |                                                                                 |
 | `stats()`                                                     | `{records, mainBytes, blobBytes}` | cheap in-memory counters (sizes include dead space until `compact()`)           |
 | `prefixScan(prefix)`                                          | `string[]`                        | sorted keys                                                                     |
 | `secIndex / secIndexPrefix / secIndexRange`                   | `string[]`                        | primary keys                                                                    |
 | `secIndexHas(name, val)`                                      | `boolean`                         | any record has `val` in the index (no keys materialized)                        |
-| `secIndexRecords / secIndexPrefixRecords / prefixScanRecords` | `{key, value}[]`                  | keys + parsed content                                                           |
+| `secIndexRecords / secIndexPrefixRecords / prefixScanRecords` | `Promise<{key, value}[]>`         | keys + parsed content; **async** (record fetch off the event loop)              |
 | `secIndexDropped / secIndexProspective`                       | `string[]`                        | schema state                                                                    |
 | `compact()` / `reindex()`                                     | `Promise<void>`                   | run off the event loop                                                          |
 | `close()` / `drop()`                                          | `void`                            |                                                                                 |

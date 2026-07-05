@@ -97,9 +97,10 @@ export declare class NteeDB {
   get(key: string): ReadValue | null
   /**
    * Get the values for many keys in one FFI call, aligned to `keys`: each entry
-   * is the parsed value (see ReadValue), or null if that key is absent.
+   * is the parsed value (see ReadValue), or null if that key is absent. Async:
+   * the unbounded read runs off the event loop.
    */
-  getMany(keys: string[]): (ReadValue | null)[]
+  getMany(keys: string[]): Promise<(ReadValue | null)[]>
   /** Whether `key` exists. */
   has(key: string): boolean
   /** Point-in-time store size (cheap, in-memory counters). */
@@ -159,17 +160,26 @@ export declare class NteeDB {
 
   /**
    * Search a secondary index, returning records {key, value} in one call (keys
-   * query + one batched getMany). limit as secIndex.
+   * query + one batched getMany). limit as secIndex. Async: the record fetch
+   * runs off the event loop.
    */
-  secIndexRecords(name: string, val: string | number, limit?: number): Record[]
+  secIndexRecords(
+    name: string,
+    val: string | number,
+    limit?: number,
+  ): Promise<Record[]>
   /**
    * Search by secondary-index prefix (string index), returning records
    * {key, value} ordered by (index value, then primary key). limit as
-   * secIndexPrefix (grouped).
+   * secIndexPrefix (grouped). Async.
    */
-  secIndexPrefixRecords(name: string, prefix: string, limit?: number): Record[]
-  /** Search by primary-key prefix, returning records {key, value}. */
-  prefixScanRecords(prefix: string): Record[]
+  secIndexPrefixRecords(
+    name: string,
+    prefix: string,
+    limit?: number,
+  ): Promise<Record[]>
+  /** Search by primary-key prefix, returning records {key, value}. Async. */
+  prefixScanRecords(prefix: string): Promise<Record[]>
 }
 
 export default NteeDB

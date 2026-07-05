@@ -126,11 +126,16 @@ export class NteeDB {
    * is the parsed value (or a Buffer for binary/non-JSON), or null if the key is
    * absent. The batched counterpart to get() — used by the *Records searches so
    * fetching N values is one crossing.
+   *
+   * Async: the result set is unbounded, so the native read runs off the event
+   * loop (a libuv worker) rather than blocking the JS thread. Resolves to the
+   * aligned value array. (The envelope JSON.parse still runs on-loop.)
    */
   getMany(keys) {
     this.#assertOpen()
-    const res = readEnvelope(fns.getManyJson(this.#h, JSON.stringify(keys)))
-    return (res ?? []).map(decodeJson)
+    return callAsync(fns.getManyJson, this.#h, JSON.stringify(keys)).then(
+      (res) => (res ?? []).map(decodeJson),
+    )
   }
 
   /** Whether key exists. */
@@ -268,10 +273,13 @@ export class NteeDB {
    * keys query plus a single batched getMany, not one get per key. value is
    * the parsed JSON (a Buffer for binary/non-JSON), like get().
    * limit: 0 = all; N>0 = first N ascending; N<0 = last |N| descending.
+   *
+   * Async (via getMany): resolves to the records; the record fetch runs off the
+   * event loop.
    */
-  secIndexRecords(name, val, limit = 0) {
+  async secIndexRecords(name, val, limit = 0) {
     const keys = this.secIndex(name, val, limit)
-    const vals = this.getMany(keys)
+    const vals = await this.getMany(keys)
     return keys.map((key, i) => ({ key, value: vals[i] }))
   }
 
@@ -281,16 +289,19 @@ export class NteeDB {
    * per distinct value); records come back ordered by (index value, then
    * selected primary key).
    */
-  secIndexPrefixRecords(name, prefix, limit = 0) {
+  async secIndexPrefixRecords(name, prefix, limit = 0) {
     const keys = this.secIndexPrefix(name, prefix, limit)
-    const vals = this.getMany(keys)
+    const vals = await this.getMany(keys)
     return keys.map((key, i) => ({ key, value: vals[i] }))
   }
 
-  /** Search by primary-key prefix, returning records {key, value} (value parsed as in get()). */
-  prefixScanRecords(prefix) {
+  /**
+   * Search by primary-key prefix, returning records {key, value} (value parsed
+   * as in get()). Async (via getMany): resolves to the records.
+   */
+  async prefixScanRecords(prefix) {
     const keys = this.prefixScan(prefix)
-    const vals = this.getMany(keys)
+    const vals = await this.getMany(keys)
     return keys.map((key, i) => ({ key, value: vals[i] }))
   }
 }

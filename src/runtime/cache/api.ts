@@ -112,7 +112,7 @@ export const recordApiCall = async (
  * the History list. Derived by deduping the per-call records to the most recent
  * per endpoint.
  */
-export const listApiEndpoints = (): ApiCallRecord[] => {
+export const listApiEndpoints = async (): Promise<ApiCallRecord[]> => {
   const cache = openCache()
 
   if (!cache) {
@@ -124,7 +124,7 @@ export const listApiEndpoints = (): ApiCallRecord[] => {
     // endpoint is the latest.
     const latest = new Map<string, ApiCallRecord>()
 
-    for (const { value } of cache.prefixScanRecords(NS.api)) {
+    for (const { value } of await cache.prefixScanRecords(NS.api)) {
       // JSON store: value is the parsed record; skip corrupt/absent.
       if (value == null || Buffer.isBuffer(value)) {
         continue
@@ -153,7 +153,9 @@ export const listApiEndpoints = (): ApiCallRecord[] => {
  * returns exactly the most-recent record for each matching endpoint (a
  * binary-search-bounded walk) instead of scanning every `api:` record.
  */
-export const listApiEndpointsByPrefix = (prefix: string): ApiCallRecord[] => {
+export const listApiEndpointsByPrefix = async (
+  prefix: string,
+): Promise<ApiCallRecord[]> => {
   const cache = openCache()
 
   if (!cache) {
@@ -165,7 +167,7 @@ export const listApiEndpointsByPrefix = (prefix: string): ApiCallRecord[] => {
 
     // -1 → the single most-recent record of each endpoint under the prefix,
     // already grouped and ordered by endpoint label.
-    for (const { value } of cache.secIndexPrefixRecords(
+    for (const { value } of await cache.secIndexPrefixRecords(
       ENDPOINT_INDEX,
       prefix,
       -1,

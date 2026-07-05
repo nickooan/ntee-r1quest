@@ -144,21 +144,21 @@ test("binary values survive (blob path)", async () => {
 })
 
 test("getMany: order preserved, missing → null, text/binary/blob values", async () => {
-  await withDB({ blobThreshold: 32 }, (db) => {
+  await withDB({ blobThreshold: 32 }, async (db) => {
     const binary = Buffer.from([0xff, 0xfe, 0x00, 0x01])
     const big = Buffer.alloc(4096, 0xcd) // over blobThreshold → blob path
     db.put("text", "hello")
     db.put("bin", binary)
     db.put("blob", big)
 
-    const got = db.getMany(["blob", "missing", "text", "bin"])
+    const got = await db.getMany(["blob", "missing", "text", "bin"])
     assert.equal(got.length, 4)
     assert.ok(got[0].equals(big)) // aligned to input order
     assert.equal(got[1], null) // absent key → null
     assert.equal(got[2].toString(), "hello")
     assert.deepEqual(got[3], binary)
 
-    assert.deepEqual(db.getMany([]), []) // empty input
+    assert.deepEqual(await db.getMany([]), []) // empty input
   })
 })
 
@@ -186,33 +186,36 @@ test("put/putMany accept an object directly (JSON-serialized)", async () => {
 })
 
 test("JSON store: reads return parsed values, Buffer for non-JSON", async () => {
-  await withDB({ indexes: [{ name: "traceId", kind: "string" }] }, (db) => {
-    const obj = { endpoint: "/api/users", status: 200, tags: ["a", "b"] }
-    db.put("rec", JSON.stringify(obj), { traceId: "T1" })
-    db.put("rec2", JSON.stringify({ n: 2 }), { traceId: "T1" })
-    db.put("text", "hello") // not valid JSON → Buffer fallback
-    db.put("bin", Buffer.from([0xff, 0x00, 0x01])) // binary → Buffer
+  await withDB(
+    { indexes: [{ name: "traceId", kind: "string" }] },
+    async (db) => {
+      const obj = { endpoint: "/api/users", status: 200, tags: ["a", "b"] }
+      db.put("rec", JSON.stringify(obj), { traceId: "T1" })
+      db.put("rec2", JSON.stringify({ n: 2 }), { traceId: "T1" })
+      db.put("text", "hello") // not valid JSON → Buffer fallback
+      db.put("bin", Buffer.from([0xff, 0x00, 0x01])) // binary → Buffer
 
-    // get: parsed value, not a Buffer.
-    assert.deepEqual(db.get("rec"), obj)
-    assert.equal(db.get("missing"), null)
-    // Non-JSON and binary fall back to Buffer.
-    assert.ok(Buffer.isBuffer(db.get("text")))
-    assert.equal(db.get("text").toString(), "hello")
-    assert.deepEqual(db.get("bin"), Buffer.from([0xff, 0x00, 0x01]))
+      // get: parsed value, not a Buffer.
+      assert.deepEqual(db.get("rec"), obj)
+      assert.equal(db.get("missing"), null)
+      // Non-JSON and binary fall back to Buffer.
+      assert.ok(Buffer.isBuffer(db.get("text")))
+      assert.equal(db.get("text").toString(), "hello")
+      assert.deepEqual(db.get("bin"), Buffer.from([0xff, 0x00, 0x01]))
 
-    // getMany + secIndexRecords return parsed values too.
-    assert.deepEqual(db.getMany(["rec", "missing"]), [obj, null])
-    const recs = db.secIndexRecords("traceId", "T1")
-    assert.deepEqual(
-      recs.map((r) => r.value),
-      [obj, { n: 2 }],
-    )
+      // getMany + secIndexRecords return parsed values too.
+      assert.deepEqual(await db.getMany(["rec", "missing"]), [obj, null])
+      const recs = await db.secIndexRecords("traceId", "T1")
+      assert.deepEqual(
+        recs.map((r) => r.value),
+        [obj, { n: 2 }],
+      )
 
-    // Documented JSON parse semantics: a stored scalar coerces.
-    db.put("num", "123")
-    assert.equal(db.get("num"), 123)
-  })
+      // Documented JSON parse semantics: a stored scalar coerces.
+      db.put("num", "123")
+      assert.equal(db.get("num"), 123)
+    },
+  )
 })
 
 test("secondary indexes: explicit values, multi-value, range, prefix", async () => {
@@ -256,39 +259,42 @@ test("secondary indexes: explicit values, multi-value, range, prefix", async () 
 })
 
 test("secIndexPrefix grouped +/-N limit + secIndexPrefixRecords records", async () => {
-  await withDB({ indexes: [{ name: "endpoint", kind: "string" }] }, (db) => {
-    // Two records under GetXXXMutation, one under GetXXXMumu. Sorted by
-    // (value, pk): GetXXXMumu < GetXXXMutation ('m' < 't').
-    db.put("call:1", "a", { endpoint: "GetXXXMutation" })
-    db.put("call:2", "b", { endpoint: "GetXXXMutation" })
-    db.put("call:3", "c", { endpoint: "GetXXXMumu" })
+  await withDB(
+    { indexes: [{ name: "endpoint", kind: "string" }] },
+    async (db) => {
+      // Two records under GetXXXMutation, one under GetXXXMumu. Sorted by
+      // (value, pk): GetXXXMumu < GetXXXMutation ('m' < 't').
+      db.put("call:1", "a", { endpoint: "GetXXXMutation" })
+      db.put("call:2", "b", { endpoint: "GetXXXMutation" })
+      db.put("call:3", "c", { endpoint: "GetXXXMumu" })
 
-    // limit 0 (default) is unchanged: all matches, flat, in (value, pk) order.
-    assert.deepEqual(db.secIndexPrefix("endpoint", "GetXXXM"), [
-      "call:3",
-      "call:1",
-      "call:2",
-    ])
-    // -1: last record of each endpoint (groups ascending by value).
-    assert.deepEqual(db.secIndexPrefix("endpoint", "GetXXXM", -1), [
-      "call:3",
-      "call:2",
-    ])
-    // +1: first record of each endpoint.
-    assert.deepEqual(db.secIndexPrefix("endpoint", "GetXXXM", 1), [
-      "call:3",
-      "call:1",
-    ])
+      // limit 0 (default) is unchanged: all matches, flat, in (value, pk) order.
+      assert.deepEqual(db.secIndexPrefix("endpoint", "GetXXXM"), [
+        "call:3",
+        "call:1",
+        "call:2",
+      ])
+      // -1: last record of each endpoint (groups ascending by value).
+      assert.deepEqual(db.secIndexPrefix("endpoint", "GetXXXM", -1), [
+        "call:3",
+        "call:2",
+      ])
+      // +1: first record of each endpoint.
+      assert.deepEqual(db.secIndexPrefix("endpoint", "GetXXXM", 1), [
+        "call:3",
+        "call:1",
+      ])
 
-    // secIndexPrefixRecords returns full records in the same order.
-    const recs = db.secIndexPrefixRecords("endpoint", "GetXXXM", -1)
-    assert.deepEqual(
-      recs.map((r) => r.key),
-      ["call:3", "call:2"],
-    )
-    assert.equal(recs[0].value.toString(), "c")
-    assert.equal(recs[1].value.toString(), "b")
-  })
+      // secIndexPrefixRecords returns full records in the same order.
+      const recs = await db.secIndexPrefixRecords("endpoint", "GetXXXM", -1)
+      assert.deepEqual(
+        recs.map((r) => r.key),
+        ["call:3", "call:2"],
+      )
+      assert.equal(recs[0].value.toString(), "c")
+      assert.equal(recs[1].value.toString(), "b")
+    },
+  )
 })
 
 test("removeByPkLess / removeByPkGreater (range delete, count, secondary sweep)", async () => {
@@ -340,48 +346,51 @@ test("maxPerValue caps records per index value (oldest evicted)", async () => {
 })
 
 test("secIndex limit + direction (first N asc / last N desc)", async () => {
-  await withDB({ indexes: [{ name: "traceId", kind: "string" }] }, (db) => {
-    for (let i = 1; i <= 6; i++) db.put(`call:${i}`, "{}", { traceId: "T" })
-    assert.deepEqual(db.secIndex("traceId", "T"), [
-      "call:1",
-      "call:2",
-      "call:3",
-      "call:4",
-      "call:5",
-      "call:6",
-    ])
-    assert.deepEqual(db.secIndex("traceId", "T", 3), [
-      "call:1",
-      "call:2",
-      "call:3",
-    ]) // first 3 asc
-    assert.deepEqual(db.secIndex("traceId", "T", -2), ["call:6", "call:5"]) // last 2 desc
-    assert.deepEqual(db.secIndex("traceId", "T", 100), [
-      "call:1",
-      "call:2",
-      "call:3",
-      "call:4",
-      "call:5",
-      "call:6",
-    ]) // clamps
-    assert.deepEqual(db.secIndex("traceId", "missing", -5), [])
-    const recent = db.secIndexRecords("traceId", "T", -2)
-    assert.deepEqual(
-      recent.map((r) => r.key),
-      ["call:6", "call:5"],
-    )
-  })
+  await withDB(
+    { indexes: [{ name: "traceId", kind: "string" }] },
+    async (db) => {
+      for (let i = 1; i <= 6; i++) db.put(`call:${i}`, "{}", { traceId: "T" })
+      assert.deepEqual(db.secIndex("traceId", "T"), [
+        "call:1",
+        "call:2",
+        "call:3",
+        "call:4",
+        "call:5",
+        "call:6",
+      ])
+      assert.deepEqual(db.secIndex("traceId", "T", 3), [
+        "call:1",
+        "call:2",
+        "call:3",
+      ]) // first 3 asc
+      assert.deepEqual(db.secIndex("traceId", "T", -2), ["call:6", "call:5"]) // last 2 desc
+      assert.deepEqual(db.secIndex("traceId", "T", 100), [
+        "call:1",
+        "call:2",
+        "call:3",
+        "call:4",
+        "call:5",
+        "call:6",
+      ]) // clamps
+      assert.deepEqual(db.secIndex("traceId", "missing", -5), [])
+      const recent = await db.secIndexRecords("traceId", "T", -2)
+      assert.deepEqual(
+        recent.map((r) => r.key),
+        ["call:6", "call:5"],
+      )
+    },
+  )
 })
 
 test("jsonPath extractor + secIndexRecords returns records", async () => {
   await withDB(
     { indexes: [{ name: "kind", kind: "string", jsonPath: "kind" }] },
-    (db) => {
+    async (db) => {
       db.put("r1", JSON.stringify({ kind: "request", n: 1 }))
       db.put("r2", JSON.stringify({ kind: "history", n: 2 }))
       db.put("r3", JSON.stringify({ kind: "request", n: 3 }))
 
-      const recs = db.secIndexRecords("kind", "request")
+      const recs = await db.secIndexRecords("kind", "request")
       assert.deepEqual(
         recs.map((r) => r.key),
         ["r1", "r3"],

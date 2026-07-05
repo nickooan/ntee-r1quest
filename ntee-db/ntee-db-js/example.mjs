@@ -21,10 +21,11 @@ db.put("call:3", { kind: "history", url: "/x" }, { traceId: "T2" })
 
 console.log("by traceId T1:", db.secIndex("traceId", "T1"))
 console.log("by kind=request:", db.secIndex("kind", "request"))
-// Default valueFormat is "json", so record values come back already parsed.
+// Record-returning searches are async (the value fetch runs off the event
+// loop); values come back already parsed.
 console.log(
   "secIndexRecords kind=request:",
-  db.secIndexRecords("kind", "request"),
+  await db.secIndexRecords("kind", "request"),
 )
 
 db.close()
