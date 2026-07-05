@@ -20,7 +20,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"unicode/utf8"
 	"unsafe"
 
 	nteedb "codeberg.org/nickoan/ntee-r1quest/ntee-db"
@@ -95,58 +94,6 @@ func nteedb_put(h C.uint, key *C.char, val *C.uchar, valLen C.int, ixJSON *C.cha
 		return reply(nil, err)
 	}
 	return reply(nil, db.PutIndexed(C.GoString(key), value, ix))
-}
-
-//export nteedb_get
-func nteedb_get(h C.uint, key *C.char) *C.char {
-	db := regGet(uint32(h))
-	if db == nil {
-		return reply(nil, errInvalidHandle)
-	}
-	v, ok, err := db.Get(C.GoString(key))
-	if err != nil {
-		return reply(nil, err)
-	}
-	res := map[string]any{"found": ok}
-	if ok {
-		if utf8.Valid(v) {
-			res["s"] = string(v)
-		} else {
-			res["v"] = base64.StdEncoding.EncodeToString(v)
-		}
-	}
-	return reply(res, nil)
-}
-
-//export nteedb_get_many
-func nteedb_get_many(h C.uint, keysJSON *C.char) *C.char {
-	db := regGet(uint32(h))
-	if db == nil {
-		return reply(nil, errInvalidHandle)
-	}
-	var keys []string
-	if err := json.Unmarshal([]byte(C.GoString(keysJSON)), &keys); err != nil {
-		return reply(nil, err)
-	}
-	values, found, err := db.GetMany(keys)
-	if err != nil {
-		return reply(nil, err)
-	}
-	// One element per key, in order, using the get envelope convention: a found
-	// value is a UTF-8 string ("s") or base64 binary ("v"); a miss is {found:false}.
-	out := make([]map[string]any, len(keys))
-	for i := range keys {
-		rec := map[string]any{"found": found[i]}
-		if found[i] {
-			if utf8.Valid(values[i]) {
-				rec["s"] = string(values[i])
-			} else {
-				rec["v"] = base64.StdEncoding.EncodeToString(values[i])
-			}
-		}
-		out[i] = rec
-	}
-	return reply(out, nil)
 }
 
 // valJSON is one value on the inline-JSON read path. A value that is valid JSON

@@ -20,7 +20,7 @@ export const listTraceCalls = (traceId: string): ApiCallRecord[] => {
     const records: ApiCallRecord[] = []
 
     for (const { value } of cache.secIndexRecords(TRACE_INDEX, traceId)) {
-      // json valueFormat: value is the parsed record; a Buffer/null means
+      // JSON store: value is the parsed record; a Buffer/null means
       // corrupt or absent → skip.
       if (value == null || Buffer.isBuffer(value)) {
         continue

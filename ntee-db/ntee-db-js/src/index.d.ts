@@ -28,13 +28,6 @@ export interface OpenOptions {
   syncEveryWrite?: boolean
   /** Rewrite the index hint after this many writes (also on close/compact). 0 disables periodic rewrites. */
   hintEveryN?: number
-  /**
-   * How value-returning reads decode values. 'json' (default) parses JSON values
-   * into objects/arrays/scalars, with a Buffer fallback for binary/non-JSON;
-   * 'buffer' returns byte-exact Buffers for everything. Governs get / getMany /
-   * the *Records searches; key-only queries are unaffected.
-   */
-  valueFormat?: "json" | "buffer"
   /** Secondary indexes to maintain. */
   indexes?: IndexDef[]
 }
@@ -43,9 +36,9 @@ export interface OpenOptions {
 export type Value = Buffer | string
 
 /**
- * A read value: under valueFormat 'json' a parsed JSON value (or a Buffer for
- * binary/non-JSON); under 'buffer' a Buffer. `unknown` because the concrete type
- * depends on the store's valueFormat — narrow or cast at the call site.
+ * A read value: the stored JSON parsed (object/array/scalar), or a `Buffer` for
+ * a binary/non-JSON value. `unknown` because the store is value-agnostic on
+ * write — narrow or cast at the call site.
  */
 export type ReadValue = unknown
 
@@ -82,11 +75,11 @@ export declare class NteeDB {
     }[],
   ): Promise<number>
 
-  /** Get the value for `key`, or null if absent. Type per valueFormat (see ReadValue). */
+  /** Get the value for `key`, or null if absent (parsed; see ReadValue). */
   get(key: string): ReadValue | null
   /**
    * Get the values for many keys in one FFI call, aligned to `keys`: each entry
-   * is a value (per valueFormat), or null if that key is absent.
+   * is the parsed value (see ReadValue), or null if that key is absent.
    */
   getMany(keys: string[]): (ReadValue | null)[]
   /** Whether `key` exists. */

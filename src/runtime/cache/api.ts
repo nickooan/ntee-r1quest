@@ -125,7 +125,7 @@ export const listApiEndpoints = (): ApiCallRecord[] => {
     const latest = new Map<string, ApiCallRecord>()
 
     for (const { value } of cache.prefixScanRecords(NS.api)) {
-      // json valueFormat: value is the parsed record; skip corrupt/absent.
+      // JSON store: value is the parsed record; skip corrupt/absent.
       if (value == null || Buffer.isBuffer(value)) {
         continue
       }
@@ -170,7 +170,7 @@ export const listApiEndpointsByPrefix = (prefix: string): ApiCallRecord[] => {
       prefix,
       -1,
     )) {
-      // json valueFormat: value is the parsed record; skip corrupt/absent.
+      // JSON store: value is the parsed record; skip corrupt/absent.
       if (value == null || Buffer.isBuffer(value)) {
         continue
       }

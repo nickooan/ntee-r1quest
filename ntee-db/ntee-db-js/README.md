@@ -93,8 +93,8 @@ How to read this honestly:
   Looking up an index value's _keys_ is competitive (3–5 µs), but fetching the
   values adds the cost. `secIndexRecords` now uses a batched native `getMany`
   (one crossing, not N+1 — down from ~116 µs) and returns parsed objects
-  directly under the default `json` valueFormat, so it's ~85 µs for a 20-match
-  value vs SQLite's 11 µs. The residual gap is **not** crossing count anymore —
+  directly, so it's ~85 µs for a 20-match value vs SQLite's 11 µs. The residual
+  gap is **not** crossing count anymore —
   it's the koffi string boundary itself (Go marshals one JSON document, JS
   parses it), which only a native N-API addon would remove. Still sub-ms for the
   app's ~50-record renders.
@@ -140,18 +140,17 @@ import { NteeDB } from "@ntee/ntee-db"
 
 const db = NteeDB.open("/path/to/store", {
   blobThreshold: 64 * 1024, // values >= this go to the blob side file
-  valueFormat: "json", // default: reads return parsed JSON ("buffer" = byte-exact Buffers)
   indexes: [
     { name: "traceId", kind: "string" }, // explicit values
     { name: "kind", kind: "string", jsonPath: "kind" }, // auto-derived from JSON
   ],
 })
 
-// write (value is a Buffer or string; 3rd arg = explicit index values)
+// write (value is a Buffer or JSON string; 3rd arg = explicit index values)
 db.put("call:1", JSON.stringify({ kind: "request" }), { traceId: "T1" })
 
-// read content back — parsed under the default json valueFormat
-const rec = db.get("call:1") // { kind: "request" } | null  (Buffer under "buffer")
+// read content back — ntee-db is a JSON store, so reads return the parsed value
+const rec = db.get("call:1") // { kind: "request" } | null
 db.getMany(["call:1", "call:2"]) // values aligned to keys, in one call
 
 // search → keys, then get; or secIndexRecords → records in one call
@@ -167,6 +166,38 @@ await db.reindex() // back-fill jsonPath indexes over history; purge dropped
 db.close() // or db.drop() to delete the store
 ```
 
+### Values are JSON
+
+ntee-db is a JSON store: reads return the value **parsed**. Whether you `put` a
+string or a Buffer doesn't matter — what matters is whether the bytes are valid
+JSON. Valid JSON comes back parsed; anything else comes back as a `Buffer`.
+
+```js
+// Store JSON → read it back parsed.
+db.put("obj", JSON.stringify({ ok: true }))
+db.get("obj") // → { ok: true }
+
+// A stored scalar coerces per JSON parse rules.
+db.put("n", "123")
+db.get("n") // → 123  (the number, not the string "123")
+
+// Want to store NON-JSON content? Put a Buffer. It reads back as a Buffer,
+// byte-exact. (If you pass a non-JSON string, ntee-db stores it fine and still
+// hands it back as a Buffer — but a Buffer makes the intent explicit.)
+db.put("blob", Buffer.from([0xff, 0x00, 0x01]))
+db.put("text", "hello") // not valid JSON
+db.get("blob") // → <Buffer ff 00 01>
+db.get("text") // → <Buffer 68 65 6c 6c 6f>
+
+// So: a Buffer coming out means the value was NOT JSON. Guard with Buffer.isBuffer.
+const v = db.get("some-key")
+if (Buffer.isBuffer(v)) {
+  // raw/binary value (or a corrupt record) — handle as bytes
+} else {
+  // parsed JSON: object / array / scalar (or null if the key is absent)
+}
+```
+
 ## API
 
 | Method                                                        | Returns            | Notes                                                             |
@@ -175,13 +206,13 @@ db.close() // or db.drop() to delete the store
 | `NteeDB.destroy(dir)`                                         | `void`             | delete a store's files (no open handle)                           |
 | `put(key, value, ix?)`                                        | `void`             | `value`: Buffer\|string; `ix`: `{name: string\|number}`           |
 | `putMany(items)`                                              | `Promise<number>`  | one batch off the event loop; in-order; all-or-nothing validation |
-| `get(key)`                                                    | value \| `null`    | parsed JSON (`json`) or Buffer (`buffer`), per `valueFormat`      |
+| `get(key)`                                                    | value \| `null`    | the stored JSON parsed (a Buffer for binary/non-JSON)             |
 | `getMany(keys)`                                               | `(value\|null)[]`  | batched get, one crossing; aligned to `keys`                      |
 | `has(key)` / `delete(key)`                                    | `boolean` / `void` |                                                                   |
 | `prefixScan(prefix)`                                          | `string[]`         | sorted keys                                                       |
 | `secIndex / secIndexPrefix / secIndexRange`                   | `string[]`         | primary keys                                                      |
 | `secIndexHas(name, val)`                                      | `boolean`          | any record has `val` in the index (no keys materialized)          |
-| `secIndexRecords / secIndexPrefixRecords / prefixScanRecords` | `{key, value}[]`   | keys + content (value per `valueFormat`)                          |
+| `secIndexRecords / secIndexPrefixRecords / prefixScanRecords` | `{key, value}[]`   | keys + parsed content                                             |
 | `secIndexDropped / secIndexProspective`                       | `string[]`         | schema state                                                      |
 | `compact()` / `reindex()`                                     | `Promise<void>`    | run off the event loop                                            |
 | `close()` / `drop()`                                          | `void`             |                                                                   |
@@ -191,13 +222,11 @@ db.close() // or db.drop() to delete the store
 - **Index values from JS**: pass them explicitly via `put(..., ix)`, or declare a
   `jsonPath` so the value is derived from the record (the only form `reindex()`
   can back-fill). JS-function extractors are not supported.
-- **Marshaling**: `put` takes a Buffer or string. Reads depend on `valueFormat`:
-  `"json"` (default) returns the value parsed (a Buffer for binary / non-JSON
-  values), `"buffer"` returns a byte-exact Buffer for everything. On disk and
-  the wire, valid-UTF-8 values travel as plain JSON and only binary as base64.
-- **Value coercion under `json`**: a stored scalar that is valid JSON is parsed —
-  `put("k", "123")` reads back as the number `123`. Use `valueFormat: "buffer"`
-  if you need bytes back exactly as written.
+- **JSON store**: `put` takes a Buffer or string; **store JSON**. Reads return
+  the value **parsed** — a stored scalar coerces (`put("k", "123")` reads back as
+  the number `123`). A binary or non-JSON value (or a corrupt record) comes back
+  as a `Buffer`, so callers can guard with `Buffer.isBuffer`. On disk, valid-UTF-8
+  values are stored as plain JSON and only binary as base64.
 - Errors from the store surface as thrown `Error`s.
 
 ## Building the native lib

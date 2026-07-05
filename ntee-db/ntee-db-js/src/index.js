@@ -8,11 +8,13 @@ const utf8Strict = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
 
 // Decode one element of the inline-JSON read envelope: a parsed JSON value
 // (already an object/array/scalar from the single envelope parse), a Buffer for
-// a binary/non-JSON fallback ("v"), or null when the key is absent.
+// a binary/non-JSON value ("v"), or null when the key is absent. A found value
+// with neither field is an empty (non-JSON) value → an empty Buffer.
 function decodeJson(rec) {
   if (!rec || !rec.found) return null
+  if (rec.json !== undefined) return rec.json
   if (rec.v !== undefined) return Buffer.from(rec.v, "base64")
-  return rec.json
+  return Buffer.alloc(0)
 }
 
 /**
@@ -21,24 +23,21 @@ function decodeJson(rec) {
 export class NteeDB {
   #h
   #closed = false
-  #valueFormat // "json" (default) | "buffer"
 
-  constructor(handle, valueFormat = "json") {
+  constructor(handle) {
     this.#h = handle
-    this.#valueFormat = valueFormat
   }
 
   /**
    * Open (creating if needed) a store at `dir`.
-   * opts: { blobThreshold?, syncEveryWrite?, hintEveryN?, valueFormat?: 'json'|'buffer',
+   * opts: { blobThreshold?, syncEveryWrite?, hintEveryN?,
    *         indexes?: [{name, kind:'string'|'number', jsonPath?, maxPerValue?}] }
-   * valueFormat governs value-returning reads: 'json' (default) parses JSON
-   * values into objects (binary/non-JSON fall back to a Buffer); 'buffer'
-   * returns byte-exact Buffers for everything.
+   * ntee-db is a JSON store: value-returning reads return the value parsed (a
+   * binary/non-JSON value comes back as a Buffer).
    */
   static open(dir, opts = {}) {
     const handle = readEnvelope(fns.open(dir, JSON.stringify({ ...opts, dir })))
-    return new NteeDB(handle, opts.valueFormat ?? "json")
+    return new NteeDB(handle)
   }
 
   /** Delete every file of the store at `dir` (no DB need be open). */
@@ -91,40 +90,25 @@ export class NteeDB {
   }
 
   /**
-   * Get the value for key, or null if absent. Under valueFormat 'json' (default)
-   * a JSON value is returned parsed and a binary/non-JSON value as a Buffer;
-   * under 'buffer' it is always a byte-exact Buffer.
+   * Get the value for key, parsed, or null if absent. Values are returned via
+   * JSON parse semantics (a stored `"123"` reads back as `123`); a binary or
+   * non-JSON value comes back as a Buffer.
    */
   get(key) {
     this.#assertOpen()
-    if (this.#valueFormat === "json") {
-      return decodeJson(readEnvelope(fns.getJson(this.#h, key)))
-    }
-    const res = readEnvelope(fns.get(this.#h, key))
-    if (!res || !res.found) return null
-    // Text values arrive as a plain JSON string ("s"), binary as base64 ("v").
-    if (res.v !== undefined) return Buffer.from(res.v, "base64")
-    return Buffer.from(res.s ?? "", "utf8")
+    return decodeJson(readEnvelope(fns.getJson(this.#h, key)))
   }
 
   /**
    * Get the values for many keys in one FFI call, aligned to `keys`: each entry
-   * is a value (parsed or Buffer per valueFormat) or null if the key is absent.
-   * The batched counterpart to get() — used by the *Records searches so fetching
-   * N values is one crossing.
+   * is the parsed value (or a Buffer for binary/non-JSON), or null if the key is
+   * absent. The batched counterpart to get() — used by the *Records searches so
+   * fetching N values is one crossing.
    */
   getMany(keys) {
     this.#assertOpen()
-    if (this.#valueFormat === "json") {
-      const res = readEnvelope(fns.getManyJson(this.#h, JSON.stringify(keys)))
-      return (res ?? []).map(decodeJson)
-    }
-    const res = readEnvelope(fns.getMany(this.#h, JSON.stringify(keys)))
-    return (res ?? []).map((rec) => {
-      if (!rec || !rec.found) return null
-      if (rec.v !== undefined) return Buffer.from(rec.v, "base64")
-      return Buffer.from(rec.s ?? "", "utf8")
-    })
+    const res = readEnvelope(fns.getManyJson(this.#h, JSON.stringify(keys)))
+    return (res ?? []).map(decodeJson)
   }
 
   /** Whether key exists. */
