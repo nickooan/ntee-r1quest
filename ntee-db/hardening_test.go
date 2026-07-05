@@ -158,27 +158,6 @@ func TestCrashRecoveryDanglingBlobRef(t *testing.T) {
 	}
 }
 
-// prefixUpperBound edge bytes: 0xFF handling and the no-upper-bound cases.
-func TestPrefixUpperBoundEdgeBytes(t *testing.T) {
-	cases := []struct {
-		in, want string
-		ok       bool
-	}{
-		{"Get", "Geu", true},
-		{"a\xff", "b", true},         // trailing 0xFF: bump the byte before it
-		{"a\xff\xff", "b", true},     // multiple trailing 0xFF
-		{"\xff\xff", "", false},      // all 0xFF: no upper bound
-		{"", "", false},              // empty prefix: no upper bound
-		{"a\xfeb", "a\xfec", true},   // high but bumpable last byte
-	}
-	for _, c := range cases {
-		got, ok := prefixUpperBound(c.in)
-		if ok != c.ok || (ok && got != c.want) {
-			t.Errorf("prefixUpperBound(%q) = %q %v, want %q %v", c.in, got, ok, c.want, c.ok)
-		}
-	}
-}
-
 // ByIndexRange boundary semantics: inclusive [lo, hi], lo==hi, and lo>hi.
 func TestByIndexRangeEdges(t *testing.T) {
 	db, err := Open(Options{Dir: t.TempDir(), Indexes: []IndexDef{{Name: "n", Kind: KindNumber}}})

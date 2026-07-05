@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
+
+	"github.com/tidwall/btree"
 )
 
 // ValueKind is the type of values held by a secondary index.
@@ -57,26 +60,32 @@ type secEntry struct {
 	pk string
 }
 
-// secIndex is one named secondary index: a slice of entries kept sorted by
-// (value, primary key). It mirrors the primary index's sorted-slice approach, so
-// exact (multi-value), prefix, and range queries are all bounded binary-search
-// walks.
-//
-// Scaling note: insert/remove memmove the tail — O(n) per write. Unlike the
-// primary index (ascending keys append), a secondary insert lands wherever its
-// VALUE sorts, so a hot value that isn't lexically last memmoves every entry
-// after its group on every write — O(N²) to build a large low-cardinality
-// index. Fine at maxPerValue-capped sizes; the contemplated upgrade is an
-// order-preserving btree. BenchmarkPutIndexedHotValue guards this cliff.
+// secIndex is one named secondary index: a counted B-tree of entries ordered
+// by (value, primary key). Insert/remove are O(log n) wherever the value sorts
+// (the sorted-slice predecessor memmoved the tail — O(N²) to build a hot
+// low-cardinality index; BenchmarkPutIndexedHotValue guards the regression).
+// The query walks keep their positional shape via rank/GetAt over the counted
+// tree: a position lookup is O(log n), a bound search O(log² n).
 type secIndex struct {
-	name    string
-	kind    ValueKind
-	max     int // cap on records per distinct value; <= 0 = unlimited
-	entries []secEntry
+	name string
+	kind ValueKind
+	max  int // cap on records per distinct value; <= 0 = unlimited
+	tree *btree.BTreeG[secEntry]
 }
 
 func newSecIndex(def IndexDef) *secIndex {
-	return &secIndex{name: def.Name, kind: def.Kind, max: def.MaxPerValue}
+	si := &secIndex{name: def.Name, kind: def.Kind, max: def.MaxPerValue}
+	si.tree = btree.NewBTreeG(si.less) // less reads si.kind, set above
+	return si
+}
+
+// count returns the number of entries.
+func (si *secIndex) count() int { return si.tree.Len() }
+
+// at returns the i-th entry in (value, pk) order; i must be in [0, count).
+func (si *secIndex) at(i int) secEntry {
+	e, _ := si.tree.GetAt(i)
+	return e
 }
 
 // makeEntry converts a value (string, or any numeric/json.Number) into a typed
@@ -148,49 +157,44 @@ func (si *secIndex) valueGreater(a, b secEntry) bool {
 	return a.s > b.s
 }
 
+// lowerBound returns the rank of the first entry >= e (or count if none) — a
+// binary search over positions, O(log² n) on the counted tree.
 func (si *secIndex) lowerBound(e secEntry) int {
-	return sort.Search(len(si.entries), func(i int) bool {
-		return !si.less(si.entries[i], e)
+	return sort.Search(si.count(), func(i int) bool {
+		return !si.less(si.at(i), e)
 	})
 }
 
-// upperBoundValue returns the first index whose value is strictly greater than
-// the probe's value — i.e. one past the last entry with that value.
+// upperBoundValue returns the rank of the first entry whose value is strictly
+// greater than the probe's value — i.e. one past the last entry with that value.
 func (si *secIndex) upperBoundValue(e secEntry) int {
-	return sort.Search(len(si.entries), func(i int) bool {
-		return si.valueGreater(si.entries[i], e)
+	return sort.Search(si.count(), func(i int) bool {
+		return si.valueGreater(si.at(i), e)
 	})
 }
 
 func (si *secIndex) insert(e secEntry) {
-	i := si.lowerBound(e)
-	if i < len(si.entries) && si.entries[i] == e {
-		return // exact duplicate (same value + pk)
-	}
-	si.entries = append(si.entries, secEntry{})
-	copy(si.entries[i+1:], si.entries[i:])
-	si.entries[i] = e
+	si.tree.Set(e) // an exact duplicate (same value + pk) replaces itself
 }
 
 func (si *secIndex) remove(e secEntry) {
-	i := si.lowerBound(e)
-	if i < len(si.entries) && si.entries[i] == e {
-		si.entries = append(si.entries[:i], si.entries[i+1:]...)
-	}
+	si.tree.Delete(e)
 }
 
-// removePKs drops, in a single O(len) pass, every entry whose primary key is in
-// pks — the bulk counterpart to remove, used by a range delete so retracting m
-// keys costs one sweep instead of m binary-search-and-shift removals. Filtering
-// in place preserves the (value, pk) sort order.
+// removePKs drops every entry whose primary key is in pks — the bulk
+// counterpart to remove, used by a range delete: one ordered sweep to collect
+// (O(n)), then O(m log n) deletes.
 func (si *secIndex) removePKs(pks map[string]struct{}) {
-	out := si.entries[:0]
-	for _, e := range si.entries {
-		if _, gone := pks[e.pk]; !gone {
-			out = append(out, e)
+	var doomed []secEntry
+	si.tree.Scan(func(e secEntry) bool {
+		if _, gone := pks[e.pk]; gone {
+			doomed = append(doomed, e)
 		}
+		return true
+	})
+	for _, e := range doomed {
+		si.tree.Delete(e)
 	}
-	si.entries = out
 }
 
 // exact returns the primary keys whose index value equals val (multi-value).
@@ -204,72 +208,64 @@ func (si *secIndex) exact(val any, limit int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	lo := si.lowerBound(probe)      // first entry with value == val
-	hi := si.upperBoundValue(probe) // one past the last entry with value == val
-	if lo >= hi {
+	it := si.tree.Iter()
+	defer it.Release()
+	if !it.Seek(probe) { // first entry >= (val, "") — the group's first, if any
 		return nil, nil
 	}
 
-	if limit < 0 {
-		start := hi + limit // limit is negative
-		if start < lo {
-			start = lo
-		}
-		out := make([]string, 0, hi-start)
-		for i := hi - 1; i >= start; i-- { // descending
-			out = append(out, si.entries[i].pk)
+	if limit >= 0 { // ascending; stop at limit (0 = all)
+		var out []string
+		for {
+			e := it.Item()
+			if !si.valueEqual(e, probe) {
+				break
+			}
+			out = append(out, e.pk)
+			if limit > 0 && len(out) == limit {
+				break
+			}
+			if !it.Next() {
+				break
+			}
 		}
 		return out, nil
 	}
 
-	end := hi
-	if limit > 0 && lo+limit < hi {
-		end = lo + limit
+	// limit < 0: the last |limit| of the group, descending. Collect the group
+	// forward, then emit its tail reversed.
+	var grp []string
+	for {
+		e := it.Item()
+		if !si.valueEqual(e, probe) {
+			break
+		}
+		grp = append(grp, e.pk)
+		if !it.Next() {
+			break
+		}
 	}
-	out := make([]string, 0, end-lo)
-	for i := lo; i < end; i++ { // ascending
-		out = append(out, si.entries[i].pk)
+	n := -limit
+	if n > len(grp) {
+		n = len(grp)
+	}
+	out := make([]string, 0, n)
+	for i := len(grp) - 1; i >= len(grp)-n; i-- {
+		out = append(out, grp[i])
 	}
 	return out, nil
 }
 
 // exists reports whether any entry has index value == val, without collecting
-// the matching primary keys — the cheap (O(log n), allocation-free) counterpart
-// of exact for a presence check.
+// the matching primary keys — the cheap (O(log n)) counterpart of exact.
 func (si *secIndex) exists(val any) (bool, error) {
 	probe, err := si.makeEntry(val, "")
 	if err != nil {
 		return false, err
 	}
-	return si.lowerBound(probe) < si.upperBoundValue(probe), nil
-}
-
-// prefixUpperBound returns the smallest string strictly greater than every
-// string that begins with p — the exclusive end of p's prefix range. It clones
-// p, increments the last byte that isn't 0xFF, and drops everything after it
-// (e.g. "Get" -> "Geu"). ok is false when no such bound exists — p is empty, or
-// every byte is 0xFF — meaning the prefix range has no upper limit and runs to
-// the end of the index.
-func prefixUpperBound(p string) (string, bool) {
-	b := []byte(p)
-	for i := len(b) - 1; i >= 0; i-- {
-		if b[i] != 0xFF {
-			b[i]++
-			return string(b[:i+1]), true
-		}
-	}
-	return "", false
-}
-
-// groupEnd returns the first index in [i, hi) whose value differs from the
-// value at i. Because entries are sorted by value, a single value's rows are
-// contiguous, so its end is found with a binary search over the window instead
-// of a linear walk — an O(log group) boundary jump.
-func (si *secIndex) groupEnd(i, hi int) int {
-	v := si.entries[i].s
-	return i + sort.Search(hi-i, func(k int) bool {
-		return si.entries[i+k].s > v
-	})
+	it := si.tree.Iter()
+	defer it.Release()
+	return it.Seek(probe) && si.valueEqual(it.Item(), probe), nil
 }
 
 // prefix returns the primary keys whose (string) index value starts with p.
@@ -282,53 +278,53 @@ func (si *secIndex) groupEnd(i, hi int) int {
 //   - limit < 0:  the last `|limit|` of each value, descending (newest-first
 //     when the primary key encodes order), matching exact's direction.
 //
-// The match window [lo, hi) is located with two binary searches rather than a
-// linear prefix scan: entries are sorted by (value, pk), so every value that
-// starts with p occupies one contiguous run. lo is the first entry >= p; hi is
-// the first entry >= p's upper bound (the first value that no longer starts with
-// p). Combined with the O(log group) boundary jumps below, a query that matches
-// few groups stays cheap even over a huge index — total O(log n + g·log m + out)
-// rather than O(log n + m).
+// A forward iterator from the first entry >= p walks the matching run one group
+// at a time. When limit != 0 it emits each value's first/last N and then Seeks
+// past the group's interior to the next distinct value (v+"\x00" is v's
+// immediate successor in value space), so a grouped query stays sublinear in
+// group size — O(groups · (|limit| + log n)) — instead of touching every entry.
 func (si *secIndex) prefix(p string, limit int) ([]string, error) {
 	if si.kind != KindString {
 		return nil, fmt.Errorf("nteedb: prefix query requires a string index, %q is %s", si.name, si.kind)
 	}
-	lo := si.lowerBound(secEntry{s: p})
-	hi := len(si.entries)
-	if succ, ok := prefixUpperBound(p); ok {
-		hi = si.lowerBound(secEntry{s: succ})
-	}
-
-	if limit == 0 {
-		out := make([]string, 0, hi-lo)
-		for i := lo; i < hi; i++ {
-			out = append(out, si.entries[i].pk)
-		}
-		return out, nil
-	}
+	it := si.tree.Iter()
+	defer it.Release()
 
 	var out []string
-	for i := lo; i < hi; {
-		// [i, j) is the contiguous run of entries sharing one value.
-		j := si.groupEnd(i, hi)
-		if limit > 0 {
-			end := i + limit
-			if end > j {
-				end = j
-			}
-			for k := i; k < end; k++ {
-				out = append(out, si.entries[k].pk)
-			}
-		} else { // limit < 0: last |limit| of the group, descending
-			start := j + limit // limit is negative
-			if start < i {
-				start = i
-			}
-			for k := j - 1; k >= start; k-- {
-				out = append(out, si.entries[k].pk)
-			}
+	for ok := it.Seek(secEntry{s: p}); ok; {
+		v := it.Item().s
+		if !strings.HasPrefix(v, p) {
+			break
 		}
-		i = j
+		next := secEntry{s: v + "\x00"} // first entry whose value is > v
+		switch {
+		case limit == 0: // all of the group, flat, ascending
+			for ok && it.Item().s == v {
+				out = append(out, it.Item().pk)
+				ok = it.Next()
+			}
+		case limit > 0: // first `limit` of the group, ascending
+			for cnt := 0; ok && it.Item().s == v && cnt < limit; cnt++ {
+				out = append(out, it.Item().pk)
+				ok = it.Next()
+			}
+			if ok && it.Item().s == v { // skip the group's tail
+				ok = it.Seek(next)
+			}
+		default: // limit < 0: last |limit| of the group, descending
+			// Jump past the group, then step back into it.
+			var back bool
+			if it.Seek(next) {
+				back = it.Prev()
+			} else {
+				back = it.Last() // no next value: the group runs to the end
+			}
+			for cnt := 0; back && it.Item().s == v && cnt < -limit; cnt++ {
+				out = append(out, it.Item().pk)
+				back = it.Prev()
+			}
+			ok = it.Seek(next) // reposition to the next group for the outer loop
+		}
 	}
 	return out, nil
 }
@@ -343,11 +339,12 @@ func (si *secIndex) rangeQuery(lo, hi any) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	it := si.tree.Iter()
+	defer it.Release()
 	var out []string
-	for i := si.lowerBound(loE); i < len(si.entries); i++ {
-		e := si.entries[i]
-		// stop once the value exceeds hi
-		if si.kind == KindNumber {
+	for ok := it.Seek(loE); ok; ok = it.Next() {
+		e := it.Item()
+		if si.kind == KindNumber { // stop once the value exceeds hi
 			if e.f > hiE.f {
 				break
 			}
@@ -441,17 +438,19 @@ func (db *DB) enforceMaxPerValueLocked(ix map[string]any) error {
 			continue
 		}
 		// Snapshot the victim pks (the group's lowest) before retraction below
-		// mutates the entries slice we are reading.
+		// mutates the tree we are reading.
 		victims := make([]string, 0, excess)
 		for i := lo; i < lo+excess; i++ {
-			victims = append(victims, si.entries[i].pk)
+			victims = append(victims, si.at(i).pk)
 		}
 		for _, pk := range victims {
 			if _, _, err := db.main.append(record{Key: pk, Deleted: true}); err != nil {
 				return err
 			}
-			db.pk.remove(pk)
+			// Retract BEFORE removing the primary entry — the retraction reads
+			// the victim's ix values off that entry.
 			db.retractSecLocked(pk)
+			db.pk.remove(pk)
 			db.writes++
 		}
 	}
@@ -507,12 +506,12 @@ func (si *secIndex) wouldSelfEvict(val any, key string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if i := si.lowerBound(self); i < hi && si.entries[i].pk == key {
+	if i := si.lowerBound(self); i < hi && si.at(i).pk == key {
 		return false, nil
 	}
 	// The new entry is among the victims iff it sorts at or below the
 	// excess-th smallest existing member of the group.
-	return key <= si.entries[lo+excess-1].pk, nil
+	return key <= si.at(lo+excess-1).pk, nil
 }
 
 // buildIndexValues merges explicit values with values derived from index
@@ -553,19 +552,10 @@ func (db *DB) buildIndexValues(key string, value []byte, explicit IndexValues) (
 	return out, nil
 }
 
-// refreshSecLocked retracts a key's previous secondary entries and applies its
-// new ones. It is best-effort (skips unknown indexes / invalid values) so it is
-// safe to call during boot replay where the declared index set may differ.
-//
-// Invariant: the ix map stored into db.pkSec is owned by it from here on and is
-// never mutated in place (every writer allocates a fresh map and replaces
-// wholesale). The background hint writer relies on this to snapshot pkSec with
-// a shallow copy of the outer map only.
-func (db *DB) refreshSecLocked(key string, ix map[string]any) {
-	db.retractSecLocked(key)
-	if len(ix) == 0 {
-		return
-	}
+// insertSecLocked applies a key's index values to the secondary indexes. It is
+// best-effort (skips unknown indexes / invalid values) so it is safe during
+// boot replay where the declared index set may differ. Callers must hold db.mu.
+func (db *DB) insertSecLocked(key string, ix map[string]any) {
 	for name, val := range ix {
 		si := db.secIndexes[name]
 		if si == nil {
@@ -575,51 +565,54 @@ func (db *DB) refreshSecLocked(key string, ix map[string]any) {
 			si.insert(e)
 		}
 	}
-	db.pkSec[key] = ix
+}
+
+// refreshSecLocked retracts a key's previous secondary entries, applies its new
+// ones, and records ix on the key's primary entry (the single home of "this
+// key's current index values"; there is no separate map). The stored ix map is
+// owned from here on and never mutated in place — every writer allocates a
+// fresh map — which is what lets the background hint writer iterate a COW
+// clone of the primary tree without copying the maps. Callers must hold db.mu.
+func (db *DB) refreshSecLocked(key string, ix map[string]any) {
+	db.retractSecLocked(key)
+	if len(ix) == 0 {
+		return
+	}
+	db.insertSecLocked(key, ix)
+	db.pk.setIX(key, ix)
 }
 
 // retractSecLocked removes a key's current secondary entries (used on overwrite
-// and delete). Callers must hold db.mu.
+// and delete). The values are read from the key's primary entry, so this MUST
+// run before pk.remove when a key is being deleted. Callers must hold db.mu.
 func (db *DB) retractSecLocked(key string) {
-	old, ok := db.pkSec[key]
-	if !ok {
+	e, ok := db.pk.get(key)
+	if !ok || len(e.ix) == 0 {
 		return
 	}
-	for name, val := range old {
+	for name, val := range e.ix {
 		si := db.secIndexes[name]
 		if si == nil {
 			continue
 		}
-		if e, err := si.makeEntry(val, key); err == nil {
-			si.remove(e)
+		if se, err := si.makeEntry(val, key); err == nil {
+			si.remove(se)
 		}
 	}
-	delete(db.pkSec, key)
+	db.pk.setIX(key, nil)
 }
 
-// rebuildSecFromPkSec rebuilds all secondary indexes and db.pkSec from the given
-// per-key index values (used after a rewrite/compaction/reindex). Builds each
-// index's entries then sorts once. Callers must hold db.mu.
-func (db *DB) rebuildSecFromPkSec(pkSec map[string]map[string]any) {
+// rebuildSecLocked rebuilds all secondary indexes from the ix values carried on
+// the primary entries (used after a rewrite/compaction/reindex, when db.pk has
+// been replaced wholesale). Callers must hold db.mu.
+func (db *DB) rebuildSecLocked() {
 	for _, si := range db.secIndexes {
-		si.entries = si.entries[:0]
+		si.tree.Clear()
 	}
-	db.pkSec = make(map[string]map[string]any, len(pkSec))
-	for pk, ix := range pkSec {
-		db.pkSec[pk] = ix
-		for name, val := range ix {
-			si := db.secIndexes[name]
-			if si == nil {
-				continue
-			}
-			if e, err := si.makeEntry(val, pk); err == nil {
-				si.entries = append(si.entries, e)
-			}
-		}
-	}
-	for _, si := range db.secIndexes {
-		sort.Slice(si.entries, func(i, j int) bool { return si.less(si.entries[i], si.entries[j]) })
-	}
+	db.pk.scan(func(e pkEntry) bool {
+		db.insertSecLocked(e.key, e.ix)
+		return true
+	})
 }
 
 // ByIndex returns the primary keys whose value in the named index equals val

@@ -113,7 +113,7 @@ func (db *DB) rewriteLocked(transform func(record) (record, error)) error {
 	newMain := db.mainPath + ".compact"
 	_ = os.Remove(newMain)
 
-	newIdx, newPkSec, err := db.buildRewrite(newMain, transform)
+	newIdx, err := db.buildRewrite(newMain, transform)
 	if err != nil {
 		_ = os.Remove(newMain)
 		return err
@@ -142,7 +142,7 @@ func (db *DB) rewriteLocked(transform func(record) (record, error)) error {
 	db.main = lg
 	db.rf = rf
 	db.pk = newIdx
-	db.rebuildSecFromPkSec(newPkSec)
+	db.rebuildSecLocked()
 	db.writes = 0
 
 	return db.writeHintLocked()
@@ -150,53 +150,54 @@ func (db *DB) rewriteLocked(transform func(record) (record, error)) error {
 
 // buildRewrite writes a new main log at path containing only the current live
 // records (in sorted key order), applying transform to each. It returns the new
-// primary index and the final ix values per key (for rebuilding secondary state).
-func (db *DB) buildRewrite(path string, transform func(record) (record, error)) (*pkIndex, map[string]map[string]any, error) {
+// primary index; each entry carries its final ix values, from which the
+// secondary indexes are rebuilt.
+func (db *DB) buildRewrite(path string, transform func(record) (record, error)) (*pkIndex, error) {
 	mf, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	w := bufio.NewWriter(mf)
 
 	newIdx := newPkIndex()
-	newPkSec := make(map[string]map[string]any)
 	var off int64
-	for _, e := range db.pk.entries { // already sorted by key
+	var scanErr error
+	db.pk.scan(func(e pkEntry) bool { // ascending key order → newIdx.load bulk path
 		rec, err := db.readRecord(e)
 		if err != nil {
-			_ = mf.Close()
-			return nil, nil, err
+			scanErr = err
+			return false
 		}
-		rec, err = transform(rec)
-		if err != nil {
-			_ = mf.Close()
-			return nil, nil, err
+		if rec, scanErr = transform(rec); scanErr != nil {
+			return false
 		}
 		line, err := marshalRecord(rec)
 		if err != nil {
-			_ = mf.Close()
-			return nil, nil, err
+			scanErr = err
+			return false
 		}
 		line = append(line, '\n')
 		if _, err := w.Write(line); err != nil {
-			_ = mf.Close()
-			return nil, nil, err
+			scanErr = err
+			return false
 		}
 		n := int32(len(line))
-		newIdx.entries = append(newIdx.entries, pkEntry{key: e.key, off: off, n: n})
-		if len(rec.IX) > 0 {
-			newPkSec[e.key] = rec.IX
-		}
+		newIdx.load(pkEntry{key: e.key, off: off, n: n, ix: rec.IX})
 		off += int64(n)
+		return true
+	})
+	if scanErr != nil {
+		_ = mf.Close()
+		return nil, scanErr
 	}
 
 	if err := w.Flush(); err != nil {
 		_ = mf.Close()
-		return nil, nil, err
+		return nil, err
 	}
 	if err := mf.Sync(); err != nil {
 		_ = mf.Close()
-		return nil, nil, err
+		return nil, err
 	}
-	return newIdx, newPkSec, mf.Close()
+	return newIdx, mf.Close()
 }

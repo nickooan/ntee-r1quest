@@ -46,6 +46,31 @@ func BenchmarkPutHintEveryN(b *testing.B) {
 	}
 }
 
+// BenchmarkPutHintEveryNSeeded runs the HintEveryN write path on a store already
+// holding `seed` records. With the COW clone the every-Nth-write snapshot is
+// O(1), so per-op cost must stay flat as `seed` grows (the old full-slice+map
+// copy scaled O(seed/N) per write). Compare the 10k and 100k rows.
+func BenchmarkPutHintEveryNSeeded(b *testing.B) {
+	for _, seed := range []int{10_000, 100_000} {
+		b.Run(fmt.Sprintf("seed=%d", seed), func(b *testing.B) {
+			db, err := Open(Options{Dir: b.TempDir(), HintEveryN: 5})
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer db.Close()
+			for i := 0; i < seed; i++ {
+				if err := db.Put(fmt.Sprintf("key%09d", i), []byte("value")); err != nil {
+					b.Fatal(err)
+				}
+			}
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_ = db.Put(fmt.Sprintf("key%09d", seed+i), []byte("value"))
+			}
+		})
+	}
+}
+
 // BenchmarkPutIndexedHotValue guards the sorted-slice insert cliff: 50k seeded
 // entries share index value "zzz", and every benchmarked write carries value
 // "aaa" — sorting BEFORE the whole zzz block, so each insert memmoves all 50k

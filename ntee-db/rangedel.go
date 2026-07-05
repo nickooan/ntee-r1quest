@@ -18,7 +18,15 @@ func (db *DB) RemoveByPkLess(cutoff string) (int, error) {
 	if db.closed {
 		return 0, ErrClosed
 	}
-	return db.removePkRangeLocked(0, db.pk.lowerBound(cutoff))
+	var doomed []pkEntry
+	db.pk.scan(func(e pkEntry) bool {
+		if e.key >= cutoff {
+			return false
+		}
+		doomed = append(doomed, e)
+		return true
+	})
+	return db.removePkEntriesLocked(doomed)
 }
 
 // RemoveByPkGreater deletes every key strictly greater than cutoff (the cutoff
@@ -29,53 +37,53 @@ func (db *DB) RemoveByPkGreater(cutoff string) (int, error) {
 	if db.closed {
 		return 0, ErrClosed
 	}
-	return db.removePkRangeLocked(db.pk.upperBound(cutoff), db.pk.len())
+	var doomed []pkEntry
+	db.pk.ascendFrom(cutoff, func(e pkEntry) bool {
+		if e.key > cutoff {
+			doomed = append(doomed, e)
+		}
+		return true
+	})
+	return db.removePkEntriesLocked(doomed)
 }
 
-// removePkRangeLocked removes the primary-index entries in the half-open span
-// [i, j), retracting their secondary entries and appending a tombstone per key.
-// Callers must hold db.mu.
-func (db *DB) removePkRangeLocked(i, j int) (int, error) {
-	if i >= j {
+// removePkEntriesLocked removes the given primary entries (snapshotted by the
+// caller — they must not alias live tree state), retracting their secondary
+// entries in one sweep per index and appending a tombstone per key. Callers
+// must hold db.mu.
+func (db *DB) removePkEntriesLocked(doomed []pkEntry) (int, error) {
+	if len(doomed) == 0 {
 		return 0, nil
-	}
-
-	// Snapshot the doomed keys before mutating anything: the index slice is
-	// rewritten below, so we must not alias it.
-	keys := make([]string, 0, j-i)
-	for k := i; k < j; k++ {
-		keys = append(keys, db.pk.entries[k].key)
 	}
 
 	// Append all tombstones first, before any in-memory change. A mid-loop
 	// append failure then leaves the in-memory indexes untouched, and the log
 	// (the source of truth) still converges on the next replay — matching
 	// Delete's append-then-mutate ordering.
-	for _, key := range keys {
-		if _, _, err := db.main.append(record{Key: key, Deleted: true}); err != nil {
+	for _, e := range doomed {
+		if _, _, err := db.main.append(record{Key: e.key, Deleted: true}); err != nil {
 			return 0, err
 		}
 	}
 
-	// Retract secondary entries in one sweep per index, and drop each key's
-	// reverse-map entry.
-	doomed := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
-		doomed[key] = struct{}{}
-		delete(db.pkSec, key)
+	// Retract secondary entries in one sweep per index, then drop the primary
+	// entries (each carries its ix, so retraction needs no separate map).
+	doomedSet := make(map[string]struct{}, len(doomed))
+	for _, e := range doomed {
+		doomedSet[e.key] = struct{}{}
 	}
 	for _, si := range db.secIndexes {
-		si.removePKs(doomed)
+		si.removePKs(doomedSet)
 	}
-
-	// Remove the contiguous [i, j) span from the primary index in one splice.
-	db.pk.entries = append(db.pk.entries[:i], db.pk.entries[j:]...)
+	for _, e := range doomed {
+		db.pk.remove(e.key)
+	}
 
 	// Force a hint rewrite so the trimmed state is the fast-boot snapshot and
 	// covers advances past the tombstones we just appended.
-	db.writes += len(keys)
+	db.writes += len(doomed)
 	if err := db.writeHintLocked(); err != nil {
 		return 0, err
 	}
-	return len(keys), nil
+	return len(doomed), nil
 }
