@@ -141,8 +141,8 @@ import { NteeDB } from "@ntee/ntee-db"
 const db = NteeDB.open("/path/to/store", {
   blobThreshold: 64 * 1024, // values >= this go to the blob side file
   indexes: [
-    { name: "traceId", kind: "string" }, // explicit values
-    { name: "kind", kind: "string", jsonPath: "kind" }, // auto-derived from JSON
+    { name: "traceId", kind: "string" }, // explicit values (passed per write)
+    { name: "kind", kind: "string", jsonPath: "kind" }, // derived from the record — runs on every write, see Notes
   ],
 })
 
@@ -219,9 +219,20 @@ if (Buffer.isBuffer(v)) {
 
 ## Notes / limitations
 
-- **Index values from JS**: pass them explicitly via `put(..., ix)`, or declare a
-  `jsonPath` so the value is derived from the record (the only form `reindex()`
-  can back-fill). JS-function extractors are not supported.
+- **Index values from JS — explicit `ix` vs `jsonPath`**: supply them per write
+  via `put(..., ix)`, or declare a `jsonPath` so the store derives the value from
+  the record. They trade off:
+  - **`jsonPath`** keeps the value in the record (no per-write `ix`) and is the
+    only form `reindex()` can back-fill. Cost: the extractor runs on **every**
+    write to the store, parsing each value to look for the field — so in a store
+    with mixed record shapes, records that don't carry the field are parsed
+    anyway (then skipped). Best when _all_ records share the indexed field.
+  - **explicit `ix`** indexes only the records you pass it to and never parses
+    the value — the better fit when only some record kinds carry the field. It
+    cannot be back-filled by `reindex()` (past values were never recorded).
+  - JS-function extractors aren't supported (a function can't cross the FFI
+    boundary); `jsonPath` (a dotted path into the JSON value) is the declarative
+    stand-in.
 - **JSON store**: `put` takes a Buffer or string; **store JSON**. Reads return
   the value **parsed** — a stored scalar coerces (`put("k", "123")` reads back as
   the number `123`). A binary or non-JSON value (or a corrupt record) comes back
