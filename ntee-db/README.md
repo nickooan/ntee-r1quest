@@ -1,8 +1,10 @@
 # ntee-db (`nteedb`)
 
-A small, pure-Go (stdlib-only, no external dependencies) embedded key-value
-store for local CLI/TUI apps. **Log-structured**: an append-only JSONL file is
-the source of truth, with in-memory indexes for fast lookups.
+A small, pure-Go embedded key-value store for local CLI/TUI apps.
+**Log-structured**: an append-only JSONL file is the source of truth, with
+in-memory indexes for fast lookups. Its only dependency is
+[`tidwall/btree`](https://github.com/tidwall/btree) (MIT), the ordered index
+structure behind the primary and secondary indexes.
 
 Beyond plain get/put, it supports **secondary indexes** (string/number, multi-
 value) with exact, **prefix**, and range queries — exact and prefix take a `±N`
@@ -27,9 +29,12 @@ capping** (`MaxPerValue`, keep only the newest N records per index value) and
   losslessly" predicate, so no corruption is possible in either direction.
   (Logs from older versions read fine; older binaries see new-format values as
   empty — acceptable for a best-effort store.)
-- **In-memory index** is a single slice kept sorted by key. It serves both exact
-  lookups and prefix scans in O(log n) via binary search. (A hash map is avoided
-  because prefix scans on a hash map require a full O(n) scan.)
+- **In-memory index** is an ordered B-tree keyed by primary key
+  (`tidwall/btree`). It serves exact lookups, prefix scans, and secondary-index
+  range/prefix walks in O(log n) via seek + in-order iteration. (A hash map is
+  avoided because prefix/range scans on a hash map require a full O(n) scan.) The
+  B-tree's O(1) copy-on-write clone is also what makes the periodic hint snapshot
+  cheap — see `HintEveryN`.
 - **Hybrid memory.** Only the index (keys + offsets) is resident; record bodies
   and large values stay on disk and are read on demand. Values at or above
   `BlobThreshold` go to `blobs.dat` so the main log stays small.
@@ -102,8 +107,9 @@ matching the prefix (e.g. the latest call per endpoint).
 
 Index values are persisted in each record (and in the hint), so indexes are
 rebuilt at boot from the small main-log lines / hint alone — no value or blob
-reads. An in-memory map of each key's current values retracts stale entries on
-overwrite/delete. Compaction preserves all secondary lookups.
+reads. Each primary-index entry carries its record's current index values, so an
+overwrite/delete retracts the stale secondary entries directly (no side map).
+Compaction preserves all secondary lookups.
 
 Simpler grouping (without declaring an index) can also be done by **namespacing
 keys** (e.g. `input:`, `api:`) and prefix-scanning the primary key.
