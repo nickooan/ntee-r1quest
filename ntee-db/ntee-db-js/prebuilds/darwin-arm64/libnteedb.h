@@ -88,6 +88,11 @@ extern "C" {
 #endif
 
 extern char* nteedb_open(char* dir, char* optsJSON);
+
+// nteedb_close and nteedb_drop are deliberately idempotent: an unknown or
+// already-released handle succeeds silently (unlike data ops, which return
+// errInvalidHandle) so teardown paths can never fail on a double close.
+//
 extern char* nteedb_close(unsigned int h);
 extern char* nteedb_drop(unsigned int h);
 extern char* nteedb_destroy(char* dir);
@@ -95,8 +100,10 @@ extern char* nteedb_put(unsigned int h, char* key, unsigned char* val, int valLe
 extern char* nteedb_get_json(unsigned int h, char* key);
 extern char* nteedb_get_many_json(unsigned int h, char* keysJSON);
 extern char* nteedb_has(unsigned int h, char* key);
+extern char* nteedb_stats(unsigned int h);
 extern char* nteedb_delete(unsigned int h, char* key);
 extern char* nteedb_put_batch(unsigned int h, char* itemsJSON);
+extern char* nteedb_put_batch_bin(unsigned int h, char* metaJSON, unsigned char* blob, int blobLen);
 extern char* nteedb_prefix_scan(unsigned int h, char* prefix);
 extern char* nteedb_by_index(unsigned int h, char* name, char* valJSON, int limit);
 extern char* nteedb_by_index_has(unsigned int h, char* name, char* valJSON);

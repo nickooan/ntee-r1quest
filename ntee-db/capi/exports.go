@@ -57,6 +57,10 @@ func nteedb_open(dir *C.char, optsJSON *C.char) *C.char {
 	return reply(regPut(db), nil)
 }
 
+// nteedb_close and nteedb_drop are deliberately idempotent: an unknown or
+// already-released handle succeeds silently (unlike data ops, which return
+// errInvalidHandle) so teardown paths can never fail on a double close.
+//
 //export nteedb_close
 func nteedb_close(h C.uint) *C.char {
 	if db := regDelete(uint32(h)); db != nil {
@@ -160,6 +164,15 @@ func nteedb_has(h C.uint, key *C.char) *C.char {
 	return reply(db.Has(C.GoString(key)), nil)
 }
 
+//export nteedb_stats
+func nteedb_stats(h C.uint) *C.char {
+	db := regGet(uint32(h))
+	if db == nil {
+		return reply(nil, errInvalidHandle)
+	}
+	return reply(db.Stats(), nil)
+}
+
 //export nteedb_delete
 func nteedb_delete(h C.uint, key *C.char) *C.char {
 	db := regGet(uint32(h))
@@ -201,6 +214,46 @@ func nteedb_put_batch(h C.uint, itemsJSON *C.char) *C.char {
 			}
 		}
 		items[i] = nteedb.PutItem{Key: ji.K, Value: v, IX: ji.IX}
+	}
+	if err := db.PutBatch(items); err != nil {
+		return reply(nil, err)
+	}
+	return reply(len(items), nil)
+}
+
+// binBatchItem is one PutBatch record on the binary-batch boundary: only the
+// key, the value's byte LENGTH, and optional index values travel as JSON — the
+// value bytes ride a single concatenated blob, so text is never escaped and
+// binary is never base64'd.
+type binBatchItem struct {
+	K  string         `json:"k"`
+	N  int            `json:"n"` // value length in bytes within the blob
+	IX map[string]any `json:"ix,omitempty"`
+}
+
+//export nteedb_put_batch_bin
+func nteedb_put_batch_bin(h C.uint, metaJSON *C.char, blob *C.uchar, blobLen C.int) *C.char {
+	db := regGet(uint32(h))
+	if db == nil {
+		return reply(nil, errInvalidHandle)
+	}
+	var metas []binBatchItem
+	if err := json.Unmarshal([]byte(C.GoString(metaJSON)), &metas); err != nil {
+		return reply(nil, err)
+	}
+	// One copy of the whole value blob; each item's value is a subslice of it.
+	buf := C.GoBytes(unsafe.Pointer(blob), blobLen)
+	items := make([]nteedb.PutItem, len(metas))
+	off := 0
+	for i, m := range metas {
+		if m.N < 0 || off+m.N > len(buf) {
+			return reply(nil, errors.New("nteedb: batch blob length mismatch"))
+		}
+		items[i] = nteedb.PutItem{Key: m.K, Value: buf[off : off+m.N], IX: m.IX}
+		off += m.N
+	}
+	if off != len(buf) {
+		return reply(nil, errors.New("nteedb: batch blob length mismatch"))
 	}
 	if err := db.PutBatch(items); err != nil {
 		return reply(nil, err)

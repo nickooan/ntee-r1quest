@@ -49,9 +49,11 @@ type Options struct {
 	// values stored inline).
 	BlobThreshold int
 
-	// SyncEveryWrite fsyncs the main log on every write (durable but slower).
-	// When false, durability follows the OS flush schedule and a crash may lose
-	// the most recent writes.
+	// SyncEveryWrite fsyncs the main log on every write (power-loss durable,
+	// but each write pays the hardware fsync, ~ms). When false, appends still
+	// go straight to the OS via write(2) — there is no in-process buffer — so
+	// a PROCESS crash (panic, kill -9, exit without Close) loses nothing; only
+	// an OS crash / power loss can drop the most recent writes.
 	SyncEveryWrite bool
 
 	// HintEveryN rewrites the index hint file after this many writes (in
@@ -97,10 +99,9 @@ type DB struct {
 
 	// Secondary indexes (declared via Options.Indexes).
 	indexDefs   []IndexDef
-	secIndexes  map[string]*secIndex      // name -> index
-	pkSec       map[string]map[string]any // primary key -> its current index values (for retraction)
-	prospective map[string]bool           // indexes not yet back-filled over pre-existing records
-	dropped     map[string]ValueKind      // soft-dropped indexes still lingering in records
+	secIndexes  map[string]*secIndex // name -> index
+	prospective map[string]bool      // indexes not yet back-filled over pre-existing records
+	dropped     map[string]ValueKind // soft-dropped indexes still lingering in records
 }
 
 // Open opens (creating if necessary) the store in opts.Dir.
@@ -139,7 +140,6 @@ func Open(opts Options) (*DB, error) {
 		pk:          newPkIndex(),
 		indexDefs:   opts.Indexes,
 		secIndexes:  make(map[string]*secIndex, len(opts.Indexes)),
-		pkSec:       make(map[string]map[string]any),
 		prospective: make(map[string]bool),
 		dropped:     make(map[string]ValueKind),
 	}
@@ -197,12 +197,13 @@ func (db *DB) load() error {
 	if entries, covers, ok := loadIndexHint(db.hintPath); ok {
 		if info, err := os.Stat(db.mainPath); err == nil && covers <= info.Size() {
 			// Rebuild both the primary index and the secondary indexes from the
-			// hint snapshot (entries are already sorted by key).
-			db.pk.entries = db.pk.entries[:0]
+			// hint snapshot (entries are already sorted by key, so pk.load takes
+			// the btree's fast bulk path).
+			db.pk = newPkIndex()
 			for _, he := range entries {
-				db.pk.entries = append(db.pk.entries, pkEntry{key: he.Key, off: he.Off, n: he.N})
+				db.pk.load(pkEntry{key: he.Key, off: he.Off, n: he.N, ix: he.IX})
 				if len(he.IX) > 0 {
-					db.refreshSecLocked(he.Key, he.IX)
+					db.insertSecLocked(he.Key, he.IX)
 				}
 			}
 			from = covers
@@ -214,11 +215,25 @@ func (db *DB) load() error {
 
 // replayTail scans the main log from byte offset `from`, applying each record to
 // the index, then truncates any torn final line left by a crash mid-append.
+//
+// A record whose blob ref points past the end of blobs.dat is treated the same
+// as a torn line: writes fsync the blob before appending the referencing main
+// record, so a dangling ref can only mean a power loss persisted main-log pages
+// that were never acknowledged durable — the record (and everything after it)
+// is part of the lost tail.
 func (db *DB) replayTail(from int64) error {
+	blobSize := int64(0)
+	if info, err := os.Stat(db.blobPath); err == nil {
+		blobSize = info.Size()
+	}
 	end, err := scanMainLog(db.mainPath, from, func(r record, off int64, n int32) error {
+		if r.Blob != nil && r.Blob.Off+int64(r.Blob.Size) > blobSize {
+			return errStopScan // dangling blob ref → start of the torn tail
+		}
 		if r.isTombstone() {
-			db.pk.remove(r.Key)
+			// Retract first: the retraction reads ix off the primary entry.
 			db.retractSecLocked(r.Key)
+			db.pk.remove(r.Key)
 		} else {
 			db.pk.upsert(pkEntry{key: r.Key, off: off, n: n})
 			db.refreshSecLocked(r.Key, r.IX)
@@ -300,25 +315,24 @@ func (db *DB) writeHintLocked() error {
 	if err := db.main.flush(); err != nil {
 		return err
 	}
-	if err := writeIndexHint(db.hintPath, db.pk.entries, db.pkSec, db.main.size); err != nil {
+	if err := writeIndexHint(db.hintPath, db.pk, db.main.size); err != nil {
 		return err
 	}
 	db.writes = 0
 	return nil
 }
 
-// hintSnapshot is a consistent copy of everything the background hint writer
-// needs, taken under db.mu. entries is a fresh slice; pkSec is a shallow copy
-// of the outer map only — safe because stored inner maps are never mutated in
-// place (see refreshSecLocked).
+// hintSnapshot is a consistent view of everything the background hint writer
+// needs, taken under db.mu. pk is an O(1) copy-on-write clone of the primary
+// tree — safe to iterate lock-free while the live tree keeps mutating — and
+// the ix maps it references are never mutated in place (see refreshSecLocked).
 type hintSnapshot struct {
-	entries []pkEntry
-	pkSec   map[string]map[string]any
-	covers  int64
-	gen     uint64
-	main    *mainLog
-	blobs   *blobStore
-	path    string
+	pk     *pkIndex
+	covers int64
+	gen    uint64
+	main   *mainLog
+	blobs  *blobStore
+	path   string
 }
 
 // maybeWriteHintLocked spawns a background hint rewrite once HintEveryN writes
@@ -336,16 +350,12 @@ func (db *DB) maybeWriteHintLocked() {
 		return // one rewrite already in flight; coalesce
 	}
 	snap := hintSnapshot{
-		entries: append([]pkEntry(nil), db.pk.entries...),
-		pkSec:   make(map[string]map[string]any, len(db.pkSec)),
-		covers:  db.main.size,
-		gen:     db.hintGen.Load(),
-		main:    db.main,
-		blobs:   db.blobs,
-		path:    db.hintPath,
-	}
-	for k, v := range db.pkSec {
-		snap.pkSec[k] = v
+		pk:     db.pk.copy(), // O(1) COW clone — no per-entry copying under the lock
+		covers: db.main.size,
+		gen:    db.hintGen.Load(),
+		main:   db.main,
+		blobs:  db.blobs,
+		path:   db.hintPath,
 	}
 	db.writes = 0
 	db.hintWG.Add(1)
@@ -380,7 +390,7 @@ func (db *DB) writeHintAsync(snap hintSnapshot) {
 	if db.hintGen.Load() != snap.gen {
 		return
 	}
-	_ = writeIndexHint(snap.path, snap.entries, snap.pkSec, snap.covers)
+	_ = writeIndexHint(snap.path, snap.pk, snap.covers)
 }
 
 // Put stores value under key. Any secondary indexes with an Extract function
@@ -408,6 +418,13 @@ func (db *DB) PutIndexed(key string, value []byte, idx IndexValues) error {
 }
 
 // Get returns the value stored under key. ok is false if the key is absent.
+//
+// Note: this holds db.mu.RLock across the pread, and Compact holds the exclusive
+// Lock for its whole duration — so a read that arrives during a Compact stalls
+// until it finishes. Fine when Compact is occasional (its whole point is to run
+// rarely); a compaction-heavy workload would want online compaction (do the
+// expensive buildRewrite off the exclusive lock via a COW index clone, take the
+// lock only to replay the tail and swap). See BenchmarkGetContention.
 func (db *DB) Get(key string) (value []byte, ok bool, err error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
@@ -473,6 +490,31 @@ func (db *DB) useBlobFor(size int) bool {
 	return db.opts.BlobThreshold > 0 && size >= db.opts.BlobThreshold
 }
 
+// Stats is a point-in-time snapshot of store size.
+type Stats struct {
+	Records   int   `json:"records"`   // live records (primary keys)
+	MainBytes int64 `json:"mainBytes"` // main.jsonl size — includes dead records until Compact
+	BlobBytes int64 `json:"blobBytes"` // blobs.dat size — includes orphaned blobs
+}
+
+// Stats returns the store's live record count and on-disk file sizes. Cheap:
+// every value is already tracked in memory (no I/O, no scans).
+func (db *DB) Stats() Stats {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	if db.closed {
+		return Stats{}
+	}
+	s := Stats{Records: db.pk.len()}
+	if db.main != nil {
+		s.MainBytes = db.main.size
+	}
+	if db.blobs != nil {
+		s.BlobBytes = db.blobs.size
+	}
+	return s
+}
+
 // Has reports whether key is present without reading its value.
 func (db *DB) Has(key string) bool {
 	db.mu.RLock()
@@ -497,8 +539,9 @@ func (db *DB) Delete(key string) error {
 	if _, _, err := db.main.append(record{Key: key, Deleted: true}); err != nil {
 		return err
 	}
-	db.pk.remove(key)
+	// Retract first: the retraction reads ix off the primary entry.
 	db.retractSecLocked(key)
+	db.pk.remove(key)
 	db.writes++
 	db.maybeWriteHintLocked()
 	return nil

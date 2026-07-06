@@ -28,10 +28,10 @@ type indexHintLine struct {
 
 // writeIndexHint atomically writes the index entries (in sorted order) plus
 // the covers watermark to path, via a temp file + rename so a crash never
-// leaves a half-written hint. It takes a plain entries slice (not *pkIndex) so
-// the background hint writer can pass a snapshot. pkSec supplies each key's
-// secondary index values (may be nil).
-func writeIndexHint(path string, entries []pkEntry, pkSec map[string]map[string]any, covers int64) (err error) {
+// leaves a half-written hint. The pk index passed in is either the live tree
+// (sync checkpoints, under db.mu) or the background writer's COW clone; each
+// entry carries its own ix values.
+func writeIndexHint(path string, pk *pkIndex, covers int64) (err error) {
 	tmp := path + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {
@@ -48,14 +48,12 @@ func writeIndexHint(path string, entries []pkEntry, pkSec map[string]map[string]
 	if err = encodeJSONLine(w, indexHintMeta{Version: indexHintFormatVersion, Covers: covers}); err != nil {
 		return err
 	}
-	for _, e := range entries { // already sorted by key
-		var sv map[string]any
-		if pkSec != nil {
-			sv = pkSec[e.key]
-		}
-		if err = encodeJSONLine(w, indexHintLine{Key: e.key, Off: e.off, N: e.n, IX: sv}); err != nil {
-			return err
-		}
+	pk.scan(func(e pkEntry) bool { // ascending key order
+		err = encodeJSONLine(w, indexHintLine{Key: e.key, Off: e.off, N: e.n, IX: e.ix})
+		return err == nil
+	})
+	if err != nil {
+		return err
 	}
 	if err = w.Flush(); err != nil {
 		return err

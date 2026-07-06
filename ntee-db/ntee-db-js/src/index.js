@@ -1,17 +1,19 @@
 // Ergonomic Node.js wrapper around the nteedb C-shared library.
 import { fns, readEnvelope, callAsync } from "./native.js"
 
-// Exact UTF-8 validity check for batch payloads — the JS counterpart of Go's
-// utf8.Valid. fatal makes invalid input throw instead of substituting U+FFFD;
-// ignoreBOM keeps a leading BOM instead of silently stripping it.
-const utf8Strict = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
-
 // Normalize a put value: a Buffer or string passes through unchanged (raw bytes
 // / verbatim text — no double-encoding), and anything else (object, array,
 // number, boolean, null) is JSON-serialized. Lets callers store objects
 // directly without a manual JSON.stringify.
 function toStorable(value) {
   if (Buffer.isBuffer(value) || typeof value === "string") return value
+  if (value === undefined) {
+    // JSON.stringify(undefined) is undefined, which would surface later as a
+    // cryptic Buffer.from error (put) or silently store empty (putMany).
+    throw new TypeError(
+      "nteedb: value is undefined (store null explicitly if intended)",
+    )
+  }
   return JSON.stringify(value)
 }
 
@@ -82,26 +84,30 @@ export class NteeDB {
    *
    * items: [{ key, value: object|string|Buffer, ix? }] — a value is JSON-
    * serialized unless it is already a string or Buffer (as in put()).
+   *
+   * Wire format: only keys, value byte-lengths, and index values travel as JSON;
+   * the value bytes ride a single concatenated buffer (no per-value escaping or
+   * base64). Runs off the event loop.
    */
   putMany(items) {
     this.#assertOpen()
-    // Values travel like the get envelope: valid-UTF-8 as a plain string
-    // ("s"), binary as base64 ("v").
-    const payload = items.map(({ key, value, ix }) => {
+    const metas = new Array(items.length)
+    const bufs = new Array(items.length)
+    for (let i = 0; i < items.length; i++) {
+      const { key, value, ix } = items[i]
       const val = toStorable(value)
-      let item
-      if (typeof val === "string") {
-        item = { k: key, s: val }
-      } else {
-        try {
-          item = { k: key, s: utf8Strict.decode(val) }
-        } catch {
-          item = { k: key, v: val.toString("base64") }
-        }
-      }
-      return ix ? { ...item, ix } : item
-    })
-    return callAsync(fns.putBatch, this.#h, JSON.stringify(payload))
+      const buf = Buffer.isBuffer(val) ? val : Buffer.from(val, "utf8")
+      bufs[i] = buf
+      metas[i] = ix ? { k: key, n: buf.length, ix } : { k: key, n: buf.length }
+    }
+    const blob = Buffer.concat(bufs)
+    return callAsync(
+      fns.putBatchBin,
+      this.#h,
+      JSON.stringify(metas),
+      blob,
+      blob.length,
+    )
   }
 
   /**
@@ -119,17 +125,32 @@ export class NteeDB {
    * is the parsed value (or a Buffer for binary/non-JSON), or null if the key is
    * absent. The batched counterpart to get() — used by the *Records searches so
    * fetching N values is one crossing.
+   *
+   * Async: the result set is unbounded, so the native read runs off the event
+   * loop (a libuv worker) rather than blocking the JS thread. Resolves to the
+   * aligned value array. (The envelope JSON.parse still runs on-loop.)
    */
   getMany(keys) {
     this.#assertOpen()
-    const res = readEnvelope(fns.getManyJson(this.#h, JSON.stringify(keys)))
-    return (res ?? []).map(decodeJson)
+    return callAsync(fns.getManyJson, this.#h, JSON.stringify(keys)).then(
+      (res) => (res ?? []).map(decodeJson),
+    )
   }
 
   /** Whether key exists. */
   has(key) {
     this.#assertOpen()
     return readEnvelope(fns.has(this.#h, key)) === true
+  }
+
+  /**
+   * Point-in-time store size: { records, mainBytes, blobBytes }. Cheap — all
+   * values are in-memory counters (no I/O). mainBytes/blobBytes include dead
+   * records / orphaned blobs until compact().
+   */
+  stats() {
+    this.#assertOpen()
+    return readEnvelope(fns.stats(this.#h))
   }
 
   /** Delete key (no-op if absent). */
@@ -247,31 +268,39 @@ export class NteeDB {
   }
 
   /**
-   * Search a secondary index and return records {key, value: Buffer} in one
-   * call — the keys query plus a single batched getMany, not one get per key.
+   * Search a secondary index and return records {key, value} in one call — the
+   * keys query plus a single batched getMany, not one get per key. value is
+   * the parsed JSON (a Buffer for binary/non-JSON), like get().
    * limit: 0 = all; N>0 = first N ascending; N<0 = last |N| descending.
+   *
+   * Async (via getMany): resolves to the records; the record fetch runs off the
+   * event loop.
    */
-  secIndexRecords(name, val, limit = 0) {
+  async secIndexRecords(name, val, limit = 0) {
     const keys = this.secIndex(name, val, limit)
-    const vals = this.getMany(keys)
+    const vals = await this.getMany(keys)
     return keys.map((key, i) => ({ key, value: vals[i] }))
   }
 
   /**
    * Search by secondary-index prefix (string index) and return records
-   * {key, value: Buffer}. limit as secIndexPrefix (grouped per distinct value);
-   * records come back ordered by (index value, then selected primary key).
+   * {key, value} (value parsed as in get()). limit as secIndexPrefix (grouped
+   * per distinct value); records come back ordered by (index value, then
+   * selected primary key).
    */
-  secIndexPrefixRecords(name, prefix, limit = 0) {
+  async secIndexPrefixRecords(name, prefix, limit = 0) {
     const keys = this.secIndexPrefix(name, prefix, limit)
-    const vals = this.getMany(keys)
+    const vals = await this.getMany(keys)
     return keys.map((key, i) => ({ key, value: vals[i] }))
   }
 
-  /** Search by primary-key prefix and return records {key, value: Buffer}. */
-  prefixScanRecords(prefix) {
+  /**
+   * Search by primary-key prefix, returning records {key, value} (value parsed
+   * as in get()). Async (via getMany): resolves to the records.
+   */
+  async prefixScanRecords(prefix) {
     const keys = this.prefixScan(prefix)
-    const vals = this.getMany(keys)
+    const vals = await this.getMany(keys)
     return keys.map((key, i) => ({ key, value: vals[i] }))
   }
 }

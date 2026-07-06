@@ -59,7 +59,7 @@ describe("listApiEndpointsByPrefix", () => {
     await recordApiCall(call("/api/users", 30)) // newer /api/users
     await recordApiCall(call("/other", 40))
 
-    const matches = listApiEndpointsByPrefix("/api")
+    const matches = await listApiEndpointsByPrefix("/api")
 
     // One row per endpoint, ordered by label ("/api/orders" < "/api/users").
     expect(matches.map((r) => r.endpoint)).toEqual([
@@ -74,6 +74,6 @@ describe("listApiEndpointsByPrefix", () => {
   test("returns empty when nothing matches the prefix", async () => {
     await recordApiCall(call("/api/users", 1))
 
-    expect(listApiEndpointsByPrefix("/nope")).toEqual([])
+    expect(await listApiEndpointsByPrefix("/nope")).toEqual([])
   })
 })

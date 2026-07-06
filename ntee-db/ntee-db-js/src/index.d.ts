@@ -8,7 +8,8 @@ export interface IndexDef {
   /**
    * Optional dotted JSON path; when set, the index value is derived
    * automatically from each record's JSON value (the "scan itself" mode), and
-   * reindex() can back-fill it over historical records.
+   * reindex() can back-fill it over historical records. Objects only — the
+   * path cannot traverse arrays.
    */
   jsonPath?: string
   /**
@@ -24,7 +25,11 @@ export interface IndexDef {
 export interface OpenOptions {
   /** Values >= this many bytes are stored in the blob side file. 0 = 64 KiB default; negative disables blobs. */
   blobThreshold?: number
-  /** fsync on every write (durable but slower) vs. periodic flush. */
+  /**
+   * fsync every write (power-loss durable; each write pays ~ms). When false
+   * (default), writes still reach the OS immediately (no in-process buffer):
+   * a process crash loses nothing; only power loss can drop recent writes.
+   */
   syncEveryWrite?: boolean
   /** Rewrite the index hint after this many writes (also on close/compact). 0 disables periodic rewrites. */
   hintEveryN?: number
@@ -48,6 +53,16 @@ export type ReadValue = unknown
 export interface Record {
   key: string
   value: ReadValue
+}
+
+/** Point-in-time store size. Sizes include dead records / orphaned blobs until compact(). */
+export interface StoreStats {
+  /** Live records (primary keys). */
+  records: number
+  /** main.jsonl bytes. */
+  mainBytes: number
+  /** blobs.dat bytes. */
+  blobBytes: number
 }
 
 export declare class NteeDB {
@@ -82,11 +97,14 @@ export declare class NteeDB {
   get(key: string): ReadValue | null
   /**
    * Get the values for many keys in one FFI call, aligned to `keys`: each entry
-   * is the parsed value (see ReadValue), or null if that key is absent.
+   * is the parsed value (see ReadValue), or null if that key is absent. Async:
+   * the unbounded read runs off the event loop.
    */
-  getMany(keys: string[]): (ReadValue | null)[]
+  getMany(keys: string[]): Promise<(ReadValue | null)[]>
   /** Whether `key` exists. */
   has(key: string): boolean
+  /** Point-in-time store size (cheap, in-memory counters). */
+  stats(): StoreStats
   /** Delete `key` (no-op if absent). */
   delete(key: string): void
 
@@ -142,17 +160,26 @@ export declare class NteeDB {
 
   /**
    * Search a secondary index, returning records {key, value} in one call (keys
-   * query + one batched getMany). limit as secIndex.
+   * query + one batched getMany). limit as secIndex. Async: the record fetch
+   * runs off the event loop.
    */
-  secIndexRecords(name: string, val: string | number, limit?: number): Record[]
+  secIndexRecords(
+    name: string,
+    val: string | number,
+    limit?: number,
+  ): Promise<Record[]>
   /**
    * Search by secondary-index prefix (string index), returning records
    * {key, value} ordered by (index value, then primary key). limit as
-   * secIndexPrefix (grouped).
+   * secIndexPrefix (grouped). Async.
    */
-  secIndexPrefixRecords(name: string, prefix: string, limit?: number): Record[]
-  /** Search by primary-key prefix, returning records {key, value}. */
-  prefixScanRecords(prefix: string): Record[]
+  secIndexPrefixRecords(
+    name: string,
+    prefix: string,
+    limit?: number,
+  ): Promise<Record[]>
+  /** Search by primary-key prefix, returning records {key, value}. Async. */
+  prefixScanRecords(prefix: string): Promise<Record[]>
 }
 
 export default NteeDB

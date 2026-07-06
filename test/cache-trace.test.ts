@@ -56,7 +56,7 @@ describe("trace index", () => {
     // A repeat of an endpoint is kept as its own entry in the trace.
     await recordApiCall(call("/a", "GET", "batch-1"))
 
-    const trace = listTraceCalls("batch-1")
+    const trace = await listTraceCalls("batch-1")
 
     expect(trace.map((entry) => entry.endpoint)).toEqual([
       "/a [get]",
@@ -71,18 +71,22 @@ describe("trace index", () => {
     await recordApiCall(call("/b", "GET", "two"))
     await recordApiCall(call("/c", "GET")) // no trace id
 
-    expect(listTraceCalls("one").map((entry) => entry.path)).toEqual(["/a"])
-    expect(listTraceCalls("two").map((entry) => entry.path)).toEqual(["/b"])
-    expect(listTraceCalls("missing")).toEqual([])
+    expect((await listTraceCalls("one")).map((entry) => entry.path)).toEqual([
+      "/a",
+    ])
+    expect((await listTraceCalls("two")).map((entry) => entry.path)).toEqual([
+      "/b",
+    ])
+    expect(await listTraceCalls("missing")).toEqual([])
 
     // Untraced and traced calls alike still land in the endpoint index.
-    expect(listApiEndpoints()).toHaveLength(3)
+    expect(await listApiEndpoints()).toHaveLength(3)
   })
 
   test("clearCache empties the trace index", async () => {
     await recordApiCall(call("/a", "GET", "gone"))
     await clearCache()
 
-    expect(listTraceCalls("gone")).toEqual([])
+    expect(await listTraceCalls("gone")).toEqual([])
   })
 })

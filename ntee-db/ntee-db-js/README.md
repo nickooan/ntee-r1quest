@@ -47,12 +47,12 @@ full scan + parse + dedup in JS.
 
 | Operation                           | @ntee/ntee-db | lmdb                   | better-sqlite3      |
 | ----------------------------------- | ------------- | ---------------------- | ------------------- |
-| put carrying 2 index values         | **16.7 µs**   | 1.2 µs (no indexes\*)  | 25.2 µs             |
-| put, full app config\*\*            | 68 µs         | —                      | —                   |
-| search a value → keys (~20 matches) | 3.5 µs        | —§                     | **2.9 µs**          |
-| search a value → records (~20)      | ~85 µs        | —§                     | **11 µs**           |
-| latest call of one endpoint         | 2.5 µs        | —                      | **1.5 µs**          |
-| latest call of every endpoint (500) | **0.1 ms**    | 17.8 ms (scan + dedup) | 1.5 ms (`GROUP BY`) |
+| put carrying 2 index values         | **9.0 µs**    | 1.2 µs (no indexes\*)  | 25.2 µs             |
+| put, full app config\*\*            | 62 µs         | —                      | —                   |
+| search a value → keys (~20 matches) | 4.5 µs        | —§                     | **2.9 µs**          |
+| search a value → records (~20)      | ~93 µs        | —§                     | **11 µs**           |
+| latest call of one endpoint         | 3.4 µs        | —                      | **1.5 µs**          |
+| latest call of every endpoint (500) | **0.2 ms**    | 17.8 ms (scan + dedup) | 1.5 ms (`GROUP BY`) |
 
 \* not equivalent work: lmdb's put maintains no indexes — that cost lands on
 every query instead (the 17.8 ms row). ntee-db and SQLite both maintain the two
@@ -85,15 +85,16 @@ How to read this honestly:
   load), not a per-op one.
 - **Scans: ntee-db wins (~2×).** Keys live in a RAM-resident sorted index; a
   full-prefix scan is a bounded native traversal.
-- **Grouped "newest per value": ntee-db wins even vs SQLite (~15×; ~180× vs
+- **Grouped "newest per value": ntee-db wins even vs SQLite (~8×; ~90× vs
   lmdb).** `secIndexPrefix(name, prefix, -1)` returns one key per distinct value
-  in a single cache-resident traversal, vs SQLite's `GROUP BY` over the index or
-  lmdb's scan-and-dedup in JS. This is the app's History-list query.
+  by seeking group-to-group through the index (skipping each group's interior),
+  vs SQLite's `GROUP BY` or lmdb's scan-and-dedup in JS. This is the app's
+  History-list query.
 - **Record-returning index search is ntee-db's soft spot (~7× vs SQLite).**
   Looking up an index value's _keys_ is competitive (3–5 µs), but fetching the
   values adds the cost. `secIndexRecords` now uses a batched native `getMany`
   (one crossing, not N+1 — down from ~116 µs) and returns parsed objects
-  directly, so it's ~85 µs for a 20-match value vs SQLite's 11 µs. The residual
+  directly, so it's ~93 µs for a 20-match value vs SQLite's 11 µs. The residual
   gap is **not** crossing count anymore —
   it's the koffi string boundary itself (Go marshals one JSON document, JS
   parses it), which only a native N-API addon would remove. Still sub-ms for the
@@ -111,8 +112,8 @@ tables above:
 
 | the app needs…                                    | ntee-db  | vs the field                                 |
 | ------------------------------------------------- | -------- | -------------------------------------------- |
-| persist before a one-shot CLI exits (sync write)  | ~17 µs   | ~2.4× faster than SQLite's caller-sync write |
-| the History list — latest call per endpoint       | 0.1 ms   | ~15× SQLite `GROUP BY`, ~180× an lmdb scan   |
+| persist before a one-shot CLI exits (sync write)  | ~9 µs    | ~2.8× faster than SQLite's caller-sync write |
+| the History list — latest call per endpoint       | 0.2 ms   | ~8× SQLite `GROUP BY`, ~90× an lmdb scan     |
 | a cache that can't grow (`maxPerValue` retention) | built-in | no native equivalent in SQLite or lmdb       |
 
 Point reads are ~3× behind SQLite but sub-ms and rare per interaction. SQLite
@@ -150,12 +151,12 @@ const db = NteeDB.open("/path/to/store", {
 db.put("call:1", { kind: "request" }, { traceId: "T1" })
 
 // read content back — ntee-db is a JSON store, so reads return the parsed value
-const rec = db.get("call:1") // { kind: "request" } | null
-db.getMany(["call:1", "call:2"]) // values aligned to keys, in one call
+const rec = db.get("call:1") // { kind: "request" } | null  (sync)
+await db.getMany(["call:1", "call:2"]) // aligned to keys (async — off the loop)
 
-// search → keys, then get; or secIndexRecords → records in one call
+// search → keys (sync); record-returning searches are async (off the loop)
 db.secIndex("traceId", "T1") // ['call:1', ...]
-db.secIndexRecords("kind", "request") // [{ key, value }, ...]
+await db.secIndexRecords("kind", "request") // [{ key, value }, ...]
 db.prefixScan("call:") // sorted keys
 db.secIndexRange("status", 200, 299) // numeric range
 
@@ -200,22 +201,23 @@ if (Buffer.isBuffer(v)) {
 
 ## API
 
-| Method                                                        | Returns            | Notes                                                                           |
-| ------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------- |
-| `NteeDB.open(dir, opts?)`                                     | `NteeDB`           | creates if missing                                                              |
-| `NteeDB.destroy(dir)`                                         | `void`             | delete a store's files (no open handle)                                         |
-| `put(key, value, ix?)`                                        | `void`             | `value`: object\|string\|Buffer (object → JSON); `ix`: `{name: string\|number}` |
-| `putMany(items)`                                              | `Promise<number>`  | one batch off the event loop; in-order; all-or-nothing validation               |
-| `get(key)`                                                    | value \| `null`    | the stored JSON parsed (a Buffer for binary/non-JSON)                           |
-| `getMany(keys)`                                               | `(value\|null)[]`  | batched get, one crossing; aligned to `keys`                                    |
-| `has(key)` / `delete(key)`                                    | `boolean` / `void` |                                                                                 |
-| `prefixScan(prefix)`                                          | `string[]`         | sorted keys                                                                     |
-| `secIndex / secIndexPrefix / secIndexRange`                   | `string[]`         | primary keys                                                                    |
-| `secIndexHas(name, val)`                                      | `boolean`          | any record has `val` in the index (no keys materialized)                        |
-| `secIndexRecords / secIndexPrefixRecords / prefixScanRecords` | `{key, value}[]`   | keys + parsed content                                                           |
-| `secIndexDropped / secIndexProspective`                       | `string[]`         | schema state                                                                    |
-| `compact()` / `reindex()`                                     | `Promise<void>`    | run off the event loop                                                          |
-| `close()` / `drop()`                                          | `void`             |                                                                                 |
+| Method                                                        | Returns                           | Notes                                                                           |
+| ------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------- |
+| `NteeDB.open(dir, opts?)`                                     | `NteeDB`                          | creates if missing                                                              |
+| `NteeDB.destroy(dir)`                                         | `void`                            | delete a store's files (no open handle)                                         |
+| `put(key, value, ix?)`                                        | `void`                            | `value`: object\|string\|Buffer (object → JSON); `ix`: `{name: string\|number}` |
+| `putMany(items)`                                              | `Promise<number>`                 | one batch off the event loop; in-order; all-or-nothing validation               |
+| `get(key)`                                                    | value \| `null`                   | the stored JSON parsed (a Buffer for binary/non-JSON)                           |
+| `getMany(keys)`                                               | `Promise<(value\|null)[]>`        | batched get, one crossing, aligned to `keys`; **async** (off the event loop)    |
+| `has(key)` / `delete(key)`                                    | `boolean` / `void`                |                                                                                 |
+| `stats()`                                                     | `{records, mainBytes, blobBytes}` | cheap in-memory counters (sizes include dead space until `compact()`)           |
+| `prefixScan(prefix)`                                          | `string[]`                        | sorted keys                                                                     |
+| `secIndex / secIndexPrefix / secIndexRange`                   | `string[]`                        | primary keys                                                                    |
+| `secIndexHas(name, val)`                                      | `boolean`                         | any record has `val` in the index (no keys materialized)                        |
+| `secIndexRecords / secIndexPrefixRecords / prefixScanRecords` | `Promise<{key, value}[]>`         | keys + parsed content; **async** (record fetch off the event loop)              |
+| `secIndexDropped / secIndexProspective`                       | `string[]`                        | schema state                                                                    |
+| `compact()` / `reindex()`                                     | `Promise<void>`                   | run off the event loop                                                          |
+| `close()` / `drop()`                                          | `void`                            |                                                                                 |
 
 ## Notes / limitations
 

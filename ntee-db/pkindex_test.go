@@ -13,6 +13,16 @@ func keysOf(es []pkEntry) []string {
 	return out
 }
 
+// pkKeys returns every key in the index in ascending order.
+func pkKeys(ix *pkIndex) []string {
+	var out []string
+	ix.scan(func(e pkEntry) bool {
+		out = append(out, e.key)
+		return true
+	})
+	return out
+}
+
 func eqStrs(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -31,7 +41,7 @@ func TestIndexExactAndUpsert(t *testing.T) {
 	ix.upsert(pkEntry{key: "a", off: 0, n: 4})
 	ix.upsert(pkEntry{key: "c", off: 20, n: 6})
 
-	if keys := keysOf(ix.entries); !eqStrs(keys, []string{"a", "b", "c"}) {
+	if keys := pkKeys(ix); !eqStrs(keys, []string{"a", "b", "c"}) {
 		t.Fatalf("not sorted: %v", keys)
 	}
 
@@ -65,7 +75,7 @@ func TestIndexRemove(t *testing.T) {
 	if ix.remove("b") {
 		t.Error("second remove(b) should report false")
 	}
-	if keys := keysOf(ix.entries); !eqStrs(keys, []string{"a", "c"}) {
+	if keys := pkKeys(ix); !eqStrs(keys, []string{"a", "c"}) {
 		t.Fatalf("after remove: %v", keys)
 	}
 }
@@ -99,7 +109,7 @@ func TestIndexStaysSortedRandomInserts(t *testing.T) {
 	// Insert in a scrambled order; the slice must remain sorted throughout.
 	for _, k := range []string{"m", "a", "z", "q", "b", "y", "c", "n", "a", "z"} {
 		ix.upsert(pkEntry{key: k})
-		keys := keysOf(ix.entries)
+		keys := pkKeys(ix)
 		if !sort.StringsAreSorted(keys) {
 			t.Fatalf("not sorted after inserting %q: %v", k, keys)
 		}

@@ -94,7 +94,7 @@ func TestHintAheadOfLogIgnored(t *testing.T) {
 	// Forge a hint whose covers watermark is past the end of the log.
 	ix := newPkIndex()
 	ix.upsert(pkEntry{key: "ghost", off: 0, n: 5})
-	if err := writeIndexHint(filepath.Join(dir, hintFile), ix.entries, nil, 1<<30); err != nil {
+	if err := writeIndexHint(filepath.Join(dir, hintFile), ix, 1<<30); err != nil {
 		t.Fatal(err)
 	}
 
