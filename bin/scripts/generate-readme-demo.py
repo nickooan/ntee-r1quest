@@ -10,13 +10,17 @@ def app_version():
         return ""
 
 
-WIDTH = 620
-HEIGHT = 340
+# The generator hand-builds an animated GIF from a 5x7 bitmap font: no image
+# libraries, so it runs anywhere Python does. It renders a *stylised* (uppercase,
+# blocky) view of the real Bubble Tea TUI — the layout, labels, tree markers,
+# section rules, status-line prompts and modes mirror what the app actually draws
+# (see tui/internal/app/render.go and tui/internal/view/response.go).
+
+WIDTH = 700
+HEIGHT = 420
 SCALE = 2
 CHAR_WIDTH = 6 * SCALE
 LINE_HEIGHT = 10 * SCALE
-LEFT = 24
-TOP = 22
 
 COLORS = {
     "bg": 0,
@@ -37,7 +41,7 @@ PALETTE = [
     (94, 200, 255),
     (255, 221, 87),
     (10, 12, 14),
-    (31, 31, 31),
+    (24, 27, 31),
 ]
 
 FONT = {
@@ -81,6 +85,11 @@ FONT = {
     "{": ["00010", "00100", "00100", "01000", "00100", "00100", "00010"],
     "|": ["00100", "00100", "00100", "00100", "00100", "00100", "00100"],
     "}": ["01000", "00100", "00100", "00010", "00100", "00100", "01000"],
+    # TUI glyphs: tree markers, separators and scroll hints.
+    "→": ["00000", "00100", "00010", "11111", "00010", "00100", "00000"],
+    "↓": ["00100", "00100", "00100", "10101", "01110", "00100", "00000"],
+    "↑": ["00100", "01110", "10101", "00100", "00100", "00100", "00000"],
+    "·": ["00000", "00000", "00000", "01100", "01100", "00000", "00000"],
 }
 
 LETTERS = {
@@ -129,7 +138,13 @@ def rect(frame, x, y, w, h, color):
 def draw_text(frame, x, y, text, color=COLORS["fg"], background=None):
     cursor = x
     for char in text:
-        glyph = FONT.get(char.upper(), FONT["?"])
+        # A box-drawing horizontal fills the whole cell so runs of it join into a
+        # continuous rule (── Request ──), matching view.SectionRule.
+        if char == "─":
+            rect(frame, cursor, y + 3 * SCALE, CHAR_WIDTH, SCALE, color)
+            cursor += CHAR_WIDTH
+            continue
+        glyph = FONT.get(char if char in FONT else char.upper(), FONT["?"])
         if background is not None:
             rect(frame, cursor - 2, y - 2, CHAR_WIDTH, LINE_HEIGHT, background)
         for row_index, row in enumerate(glyph):
@@ -170,105 +185,66 @@ def draw_rows(frame, x, y, rows, width_chars):
         cursor_y += LINE_HEIGHT
 
 
-def draw_modal(frame, modal):
-    x = 96
-    y = 70
-    w = 430
-    h = 210
+def rule(label, total=30):
+    """Section divider like view.SectionRule: '── label ─────'."""
+    body = f"── {label} "
+    return body + "─" * max(0, total - len(body))
+
+
+def sel(text, width):
+    """A reverse-video (selected) row: dark text on a light bar, padded to width."""
+    return (text.ljust(width), COLORS["black"], COLORS["fg"])
+
+
+HEADER_Y = 14
+PANE_Y = 44
+PANE_H = 318
+LEFT_X = 14
+LEFT_W = 210
+RIGHT_X = 238
+RIGHT_W = 448
+STATUS_Y = 392
+SIDEBAR_CHARS = 16
+RESULT_CHARS = 35
+
+
+def draw_ai_overlay(frame, scene):
+    x, y, w, h = 118, 78, 464, 252
     rect(frame, x - 6, y - 6, w + 12, h + 12, COLORS["bg"])
-    draw_box(frame, x, y, w, h, color=COLORS["fg"])
+    draw_box(frame, x, y, w, h, color=COLORS["yellow"])
     draw_text(frame, x - 10, y - 8, "ESC", COLORS["fg"], COLORS["dim"])
-    title = modal["title"]
-    title_x = x + max(40, (w // 2) - (len(title) * CHAR_WIDTH // 2))
-    draw_text(frame, title_x, y - 8, title, COLORS["fg"], COLORS["bg"])
-    draw_rows(frame, x + 12, y + 22, modal["lines"], 32)
-
-    if modal.get("save"):
-        sx = x + 142
-        sy = y + 74
-        sw = 150
-        sh = 70
-        rect(frame, sx - 4, sy - 4, sw + 8, sh + 8, COLORS["bg"])
-        draw_box(frame, sx, sy, sw, sh, color=COLORS["fg"])
-        draw_text(frame, sx + 28, sy + 18, "SAVE IT?", COLORS["fg"])
-        draw_text(frame, sx + 30, sy + 42, "YES", COLORS["black"], COLORS["fg"])
-        draw_text(frame, sx + 88, sy + 42, "NO", COLORS["fg"])
-
-
-def draw_save_prompt(frame, x, y):
-    w = 150
-    h = 70
-    rect(frame, x - 4, y - 4, w + 8, h + 8, COLORS["bg"])
-    draw_box(frame, x, y, w, h, color=COLORS["fg"])
-    draw_text(frame, x + 36, y + 18, "SAVE IT?", COLORS["fg"])
-    draw_text(frame, x + 30, y + 42, "YES", COLORS["black"], COLORS["fg"])
-    draw_text(frame, x + 88, y + 42, "NO", COLORS["fg"])
-
-
-def draw_ai_overlay(frame):
-    x = 78
-    y = 62
-    w = 470
-    h = 220
-    rect(frame, x - 6, y - 6, w + 12, h + 12, COLORS["bg"])
-    draw_box(frame, x, y, w, h, color=COLORS["dim"])
-    draw_text(frame, x - 10, y - 8, "ESC", COLORS["fg"], COLORS["dim"])
-    draw_text(frame, x + 156, y - 8, " CLAUDE CHAT ", COLORS["fg"], COLORS["bg"])
-    draw_rows(
-        frame,
-        x + 16,
-        y + 24,
-        [
-            "USER: ADD ACCEPT HEADER + RUN",
-            "",
-            "------- CLAUDE RESPONSE -------",
-            "EDITED FOLDER-1/GET-POST.NTS",
-            "+ HEADER ACCEPT, APPLICATION/JSON",
-            "RAN IT: 200 OK, SHOWN IN RESULT",
-            "",
-            "ESC HIDES CHAT; SESSION CONTINUES.",
-            ("> APPLY CHANGE_", COLORS["cyan"], None),
-        ],
-        34,
-    )
+    draw_text(frame, x + (w // 2) - 42, y - 8, " CLAUDE ", COLORS["yellow"], COLORS["bg"])
+    draw_rows(frame, x + 16, y + 22, scene["ai"], 38)
 
 
 def draw_app(scene):
     frame = blank_frame()
     rect(frame, 0, 0, WIDTH, HEIGHT, COLORS["bg"])
-    rect(frame, 0, 0, WIDTH, 28, COLORS["bar"])
-    draw_text(frame, 18, 9, "NTEE R1QUEST", COLORS["green"])
-    draw_text(frame, 18, 42, ">_ NTEE R1QUEST", COLORS["fg"])
-    draw_text(frame, 18, 62, f"VER: {app_version()}", COLORS["green"])
-    draw_text(frame, 18, 82, "TIME SPEND 183 MS,", COLORS["dim"])
 
-    left_x = 18
-    pane_y = 104
-    left_w = 168
-    right_x = 202
-    right_w = 400
-    pane_h = 172
-    draw_box(frame, left_x, pane_y, left_w, pane_h, "COLLECTIONS")
-    draw_box(frame, right_x, pane_y, right_w, pane_h, scene.get("title", "RESULT"))
-    draw_rows(frame, left_x + 10, pane_y + 18, scene["collections"], 12)
-    draw_rows(frame, right_x + 10, pane_y + 18, scene["result"], 30)
+    # Header — one line: "ntee-r1quest {version}  ·  root: {root}" (render.go:22).
+    header = f"ntee-r1quest v{app_version()}  ·  root: example/request"
+    draw_text(frame, LEFT_X + 2, HEADER_Y, header, COLORS["green"])
 
-    if scene.get("save"):
-        draw_save_prompt(frame, right_x + 126, pane_y + 58)
+    # Two untitled bordered panes: sidebar (request tree) + result/detail.
+    draw_box(frame, LEFT_X, PANE_Y, LEFT_W, PANE_H, color=COLORS["dim"])
+    draw_box(frame, RIGHT_X, PANE_Y, RIGHT_W, PANE_H, color=COLORS["dim"])
+    draw_rows(frame, LEFT_X + 12, PANE_Y + 16, scene["sidebar"], SIDEBAR_CHARS)
+    draw_rows(frame, RIGHT_X + 14, PANE_Y + 16, scene["result"], RESULT_CHARS)
 
-    rect(frame, 0, HEIGHT - 28, WIDTH, 28, COLORS["bar"])
-    draw_text(frame, 18, HEIGHT - 20, scene["prompt"], COLORS["green"])
+    # Status line (mode-dependent prompt), render.go:renderStatusLine.
+    draw_text(frame, LEFT_X + 2, STATUS_Y, scene["status"], COLORS["cyan"])
 
     if scene.get("ai"):
-        draw_ai_overlay(frame)
-
-    if scene.get("modal"):
-        draw_modal(frame, scene["modal"])
+        draw_ai_overlay(frame, scene)
 
     return frame
 
 
 def lzw_image_data(pixels):
+    # Standard GIF LZW with a growing dictionary. Real compression matters here:
+    # the frames are mostly one flat background colour, so runs collapse to a
+    # handful of codes (a naive clear-before-every-pixel encoder would balloon
+    # the file to megabytes). min_code_size is 3 for our 8-colour palette.
     min_code_size = 3
     clear = 1 << min_code_size
     end = clear + 1
@@ -286,10 +262,40 @@ def lzw_image_data(pixels):
             bit_buffer >>= 8
             bit_count -= 8
 
-    for pixel in pixels:
-        write_code(clear)
-        write_code(pixel)
+    def new_table():
+        return {(pixel,): pixel for pixel in range(clear)}
 
+    table = new_table()
+    next_code = end + 1
+    write_code(clear)
+
+    buffer = ()
+    for pixel in pixels:
+        candidate = buffer + (pixel,)
+        if candidate in table:
+            buffer = candidate
+            continue
+        write_code(table[buffer])
+        if next_code < 4096:
+            table[candidate] = next_code
+            next_code += 1
+            # GIF "early change": widen the code one step AFTER the table grows
+            # past the current width (next_code > 1<<code_size), so the decoder —
+            # which lags by one entry — stays in lockstep. Using == desyncs and
+            # yields a "broken data stream".
+            if next_code > (1 << code_size) and code_size < 12:
+                code_size += 1
+        else:
+            # Dictionary full: reset so decoding stays bounded (rare — the demo
+            # frames use far fewer codes than 4096).
+            write_code(clear)
+            table = new_table()
+            next_code = end + 1
+            code_size = min_code_size + 1
+        buffer = (pixel,)
+
+    if buffer:
+        write_code(table[buffer])
     write_code(end)
 
     if bit_count:
@@ -304,7 +310,7 @@ def lzw_image_data(pixels):
     return blocks
 
 
-def write_gif(path, frames, delay=90):
+def write_gif(path, frames, delay=140):
     data = bytearray()
     data.extend(b"GIF89a")
     data.extend(WIDTH.to_bytes(2, "little"))
@@ -331,139 +337,124 @@ def write_gif(path, frames, delay=90):
     path.write_bytes(data)
 
 
+# The example/request tree (folder-1 expanded, get-post highlighted). Directory
+# markers are → collapsed / ↓ expanded; files are indented two spaces per depth
+# (filetree.go:FormatFileTreeEntryLabel).
+TREE_SIDEBAR = [
+    ("↓ folder-1", COLORS["cyan"], None),
+    "    create-post",
+    sel("    get-post", SIDEBAR_CHARS),
+    ("→ folder-2", COLORS["cyan"], None),
+    ("→ mutations", COLORS["cyan"], None),
+    ("→ queries", COLORS["cyan"], None),
+    "  example",
+    "  example-upload",
+]
+
+# A run response, exactly as view.FormatResponse lays it out.
+RESPONSE_RESULT = [
+    "posts/1 [GET]",
+    ("200 OK  ·  128 ms", COLORS["green"], None),
+    "",
+    (rule("Request"), COLORS["dim"], None),
+    "URL     @i(host)/posts/1",
+    "Method  GET",
+    "",
+    (rule("Response"), COLORS["dim"], None),
+    "Status  200 OK",
+    "",
+    "Headers",
+    "  content-type: application/json",
+    "",
+    "Body",
+    '  { "title": "delectus aut..." }',
+]
+
+# The .nts source in edit/search mode (line-numbered gutter).
+SOURCE_RESULT = [
+    "1 | ref ../../data/example.ntd",
+    "2 |",
+    ('3 | url "@i(host)/posts/1"', COLORS["yellow"], None),
+    ("4 | type get", COLORS["cyan"], None),
+    "5 |",
+    "6 | header accept, @i(content-type)",
+    "7 | header content-type,",
+    "8 |   @i(content-type)",
+]
+
+
+def search_result():
+    rows = list(SOURCE_RESULT)
+    # Highlight the matched "content-type" line (row index 5).
+    rows[5] = sel("6 | header accept, @i(content-type)", RESULT_CHARS)
+    return rows
+
+
 SCENES = [
+    # 1. Query mode: browse the tree, Enter runs the selected request.
     {
-        "collections": [
-            "> DATA",
-            "> FILES",
-            ("V REQUEST", COLORS["black"], COLORS["yellow"]),
-            "    EXAMPLE",
-            "  > FOLDER-1",
-            "  > FOLDER-2",
+        "sidebar": TREE_SIDEBAR,
+        "result": RESPONSE_RESULT,
+        "status": "@query >  ·  ↑/↓ browse · enter run",
+    },
+    # 2. View mode: read-only response, hotkeys to edit/search.
+    {
+        "sidebar": TREE_SIDEBAR,
+        "result": RESPONSE_RESULT,
+        "status": "@view get-post   e edit · s search · esc back",
+    },
+    # 3. Edit mode: the * marks unsaved changes; ^S saves, esc discards.
+    {
+        "sidebar": TREE_SIDEBAR,
+        "result": SOURCE_RESULT,
+        "status": "@edit get-post*   ^S save · esc discard",
+    },
+    # 4. Search mode: step through matches inside the open buffer.
+    {
+        "sidebar": TREE_SIDEBAR,
+        "result": search_result(),
+        "status": "@search /content-type/   1/2   ↑/↓ next · esc back",
+    },
+    # 5. History mode: sidebar becomes cached endpoints; detail adds a Trace id.
+    {
+        "sidebar": [
+            sel("GET /posts/1", SIDEBAR_CHARS),
+            "POST /posts",
+            "GET /todos/1",
+            "GET /users/1",
         ],
         "result": [
-            "READY.",
-            "SELECT A REQUEST FROM COLLECTIONS.",
+            "posts/1 [GET]",
+            ("200 OK  ·  128 ms", COLORS["green"], None),
+            ("Trace: 5f3ac91b", COLORS["dim"], None),
             "",
-            "SHIFT+UP/DOWN SELECTS FILES.",
-            "ENTER EXPANDS A DIRECTORY.",
-        ],
-        "prompt": "@QUERY >REQUEST/FOLDER-2/_",
-    },
-    {
-        "collections": [
-            "> DATA",
-            "> FILES",
-            "V REQUEST",
-            ("    EXAMPLE", COLORS["black"], COLORS["yellow"]),
-            "  > FOLDER-1",
-            "  > FOLDER-2",
-        ],
-        "result": [
-            "/TODOS/1 [GET]",
-            ("200 OK", COLORS["green"], None),
-            "-- REQUEST ---------",
-            "URL     @I(HOST)/TODOS/1",
-            "METHOD  GET",
-            "-- RESPONSE --------",
-            "STATUS  200 OK",
-            "HEADERS",
-        ],
-        "prompt": "@QUERY >EXAMPLE_",
-    },
-    {
-        "collections": [
-            "> DATA",
-            "> FILES",
-            "V REQUEST",
-            "    EXAMPLE",
-            ("  V FOLDER-1", COLORS["black"], COLORS["yellow"]),
-            "      GET-POST",
-        ],
-        "title": "SEARCHING",
-        "result": [
-            "/TODOS/1 [GET]",
-            "200 OK",
-            "-- RESPONSE --------",
-            "STATUS  200 OK",
-            "HEADERS",
-            (
-                "  CONTENT-TYPE: APPLICATION/JSON",
-                COLORS["black"],
-                COLORS["yellow"],
-            ),
-            "BODY",
-            '  { "TITLE": "DELECTUS AUT AUTEM" }',
-        ],
-        "prompt": "@SEARCH >CONTENT-TYPE_",
-    },
-    {
-        "collections": [
-            "> DATA",
-            "> FILES",
-            "V REQUEST",
-            "    EXAMPLE",
-            "  V FOLDER-1",
-            ("      GET-POST", COLORS["black"], COLORS["yellow"]),
-        ],
-        "title": "REVIEWING",
-        "result": [
-            "1 | REF ../../DATA/EXAMPLE.NTD",
-            "2 |",
-            ("3 | URL \"@I(HOST)/POSTS/1\"", COLORS["yellow"], None),
-            ("4 | TYPE GET", COLORS["cyan"], None),
-            "5 |",
-            "6 | HEADER ACCEPT, @I(CONTENT)",
+            (rule("Request"), COLORS["dim"], None),
+            "URL     @i(host)/posts/1",
+            "Method  GET",
             "",
-            "ESC FOLDS TO PARENT DIRECTORY.",
-        ],
-        "prompt": "@VIEW >FOLDER-1/GET-POST_",
-    },
-    {
-        "collections": [
-            "> DATA",
-            "> FILES",
-            "V REQUEST",
-            "    EXAMPLE",
-            "  V FOLDER-1",
-            ("      GET-POST", COLORS["black"], COLORS["yellow"]),
-        ],
-        "title": "EDITING",
-        "result": [
-            "1 | REF ../../DATA/EXAMPLE.NTD",
-            "2 |",
-            ("3 | URL \"@I(HOST)/POSTS/1\"", COLORS["yellow"], None),
-            ("4 | TYPE GET", COLORS["cyan"], None),
-            "5 |",
-            "6 | HEADER ACCEPT, @I(CONTENT)",
+            (rule("Response"), COLORS["dim"], None),
+            "Status  200 OK",
             "",
-            "ESC OPENS SAVE PROMPT.",
+            "Body",
+            '  { "title": "delectus aut..." }',
         ],
-        "prompt": "@EDIT >POSTS_",
-        "save": True,
+        "status": "@history 1/4   ↑/↓ scroll · s search · esc back",
     },
+    # 6. AI mode: a Claude chat overlay that can edit and run requests for you.
     {
-        "collections": [
-            "> DATA",
-            "> FILES",
-            "V REQUEST",
-            "    EXAMPLE",
-            "  V FOLDER-1",
-            ("      GET-POST", COLORS["black"], COLORS["yellow"]),
-        ],
-        "title": "EDITING",
-        "result": [
-            "1 | REF ../../DATA/EXAMPLE.NTD",
-            "2 |",
-            ("3 | URL \"@I(HOST)/POSTS/1\"", COLORS["yellow"], None),
-            ("4 | TYPE GET", COLORS["cyan"], None),
-            "5 |",
-            "6 | HEADER ACCEPT, @I(CONTENT)",
+        "sidebar": TREE_SIDEBAR,
+        "result": RESPONSE_RESULT,
+        "status": "@ai >  ·  shift+tab cycles modes",
+        "ai": [
+            "USER: add an accept header and run it",
             "",
-            "AI CAN WRITE AND RUN REQUESTS.",
+            "CLAUDE: edited folder-1/get-post.nts",
+            "+ header accept, application/json",
+            ("ran it → 200 OK (shown in result)", COLORS["green"], None),
+            "",
+            ("──────── above is history ────────", COLORS["dim"], None),
+            ("Ask the agent something, press enter.", COLORS["dim"], None),
         ],
-        "prompt": "@AI >APPLY CHANGE_",
-        "ai": True,
     },
 ]
 
