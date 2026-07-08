@@ -48,12 +48,13 @@ const ndb = NteeDB.open("./ntee-ix", {
 }
 {
   const t0 = performance.now()
-  for (let i = 0; i < ENDPOINTS; i++) ndb.secIndex("endpoint", endpoint(i), -1)
+  for (let i = 0; i < ENDPOINTS; i++)
+    await ndb.secIndex("endpoint", endpoint(i), -1)
   report("ntee-db secIndex exact latest", performance.now() - t0, ENDPOINTS)
 }
 {
   const t0 = performance.now()
-  const keys = ndb.secIndexPrefix("endpoint", "/api/", -1)
+  const keys = await ndb.secIndexPrefix("endpoint", "/api/", -1)
   console.log(
     `ntee-db secIndexPrefix('/api/', -1) → latest of all ${keys.length} endpoints: ${(performance.now() - t0).toFixed(1)} ms`,
   )
@@ -61,13 +62,13 @@ const ndb = NteeDB.open("./ntee-ix", {
 {
   // Secondary-index equality search: all keys for a value (traceId → ~20 each).
   const t0 = performance.now()
-  for (let i = 0; i < 1000; i++) ndb.secIndex("traceId", `T${i}`)
+  for (let i = 0; i < 1000; i++) await ndb.secIndex("traceId", `T${i}`)
   report("ntee-db secIndex all (search, keys)", performance.now() - t0, 1000)
 }
 {
   // Same search, returning records (keys + values) in one call.
   const t0 = performance.now()
-  for (let i = 0; i < 1000; i++) ndb.secIndexRecords("traceId", `T${i}`)
+  for (let i = 0; i < 1000; i++) await ndb.secIndexRecords("traceId", `T${i}`)
   report(
     "ntee-db secIndexRecords (search, records)",
     performance.now() - t0,

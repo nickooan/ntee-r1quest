@@ -73,14 +73,17 @@ async function round(warmup) {
   await time("ntee-db put (fast, no fsync)", () => {
     for (let i = 0; i < N; i++) ndb.put(key(i), value)
   })
-  await time("ntee-db get", () => {
-    for (let i = 0; i < N; i++) ndb.get(key(i))
+  // Reads are async now (off the event loop). This loop awaits each call
+  // serially — honest single-caller latency, including the libuv thread hop.
+  // The parallel upside (Promise.all across worker threads) is in bench/parallel.mjs.
+  await time("ntee-db get", async () => {
+    for (let i = 0; i < N; i++) await ndb.get(key(i))
   })
-  await time("ntee-db has", () => {
-    for (let i = 0; i < N; i++) ndb.has(key(i))
+  await time("ntee-db has", async () => {
+    for (let i = 0; i < N; i++) await ndb.has(key(i))
   })
-  await time("ntee-db prefixScan all [total]", () => {
-    ndb.prefixScan("api:")
+  await time("ntee-db prefixScan all [total]", async () => {
+    await ndb.prefixScan("api:")
   })
   ndb.close()
 

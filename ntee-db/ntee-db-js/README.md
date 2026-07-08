@@ -150,15 +150,21 @@ const db = NteeDB.open("/path/to/store", {
 // write — an object is JSON-serialized for you (3rd arg = explicit index values)
 db.put("call:1", { kind: "request" }, { traceId: "T1" })
 
-// read content back — ntee-db is a JSON store, so reads return the parsed value
-const rec = db.get("call:1") // { kind: "request" } | null  (sync)
-await db.getMany(["call:1", "call:2"]) // aligned to keys (async — off the loop)
+// read content back — ntee-db is a JSON store, so reads return the parsed value.
+// Reads run off the event loop (a libuv worker), so they're async and concurrent
+// reads run in parallel — await, or Promise.all to fan out.
+const rec = await db.get("call:1") // { kind: "request" } | null
+await db.getMany(["call:1", "call:2"]) // aligned to keys
 
-// search → keys (sync); record-returning searches are async (off the loop)
-db.secIndex("traceId", "T1") // ['call:1', ...]
+// search → keys (async, off the loop); record-returning searches too
+await db.secIndex("traceId", "T1") // ['call:1', ...]
 await db.secIndexRecords("kind", "request") // [{ key, value }, ...]
-db.prefixScan("call:") // sorted keys
-db.secIndexRange("status", 200, 299) // numeric range
+await db.prefixScan("call:") // sorted keys
+await db.secIndexRange("status", 200, 299) // numeric range
+
+// concurrent scans run in parallel on libuv worker threads (RLock admits many
+// readers); raise UV_THREADPOOL_SIZE (default 4) to use more cores.
+const [a, b] = await Promise.all([db.prefixScan("a:"), db.prefixScan("b:")])
 
 // maintenance (off the event loop)
 await db.compact() // reclaim dead records
@@ -176,22 +182,22 @@ JSON. Valid JSON comes back parsed; anything else comes back as a `Buffer`.
 ```js
 // Store an object (JSON-serialized for you) → read it back parsed.
 db.put("obj", { ok: true })
-db.get("obj") // → { ok: true }
+await db.get("obj") // → { ok: true }
 
 // A stored scalar coerces per JSON parse rules.
 db.put("n", "123")
-db.get("n") // → 123  (the number, not the string "123")
+await db.get("n") // → 123  (the number, not the string "123")
 
 // Want to store NON-JSON content? Put a Buffer. It reads back as a Buffer,
 // byte-exact. (If you pass a non-JSON string, ntee-db stores it fine and still
 // hands it back as a Buffer — but a Buffer makes the intent explicit.)
 db.put("blob", Buffer.from([0xff, 0x00, 0x01]))
 db.put("text", "hello") // not valid JSON
-db.get("blob") // → <Buffer ff 00 01>
-db.get("text") // → <Buffer 68 65 6c 6c 6f>
+await db.get("blob") // → <Buffer ff 00 01>
+await db.get("text") // → <Buffer 68 65 6c 6c 6f>
 
 // So: a Buffer coming out means the value was NOT JSON. Guard with Buffer.isBuffer.
-const v = db.get("some-key")
+const v = await db.get("some-key")
 if (Buffer.isBuffer(v)) {
   // raw/binary value (or a corrupt record) — handle as bytes
 } else {
@@ -207,15 +213,16 @@ if (Buffer.isBuffer(v)) {
 | `NteeDB.destroy(dir)`                                         | `void`                            | delete a store's files (no open handle)                                         |
 | `put(key, value, ix?)`                                        | `void`                            | `value`: object\|string\|Buffer (object → JSON); `ix`: `{name: string\|number}` |
 | `putMany(items)`                                              | `Promise<number>`                 | one batch off the event loop; in-order; all-or-nothing validation               |
-| `get(key)`                                                    | value \| `null`                   | the stored JSON parsed (a Buffer for binary/non-JSON)                           |
+| `get(key)`                                                    | `Promise<value \| null>`          | the stored JSON parsed (a Buffer for binary/non-JSON); **async** (off the loop)  |
 | `getMany(keys)`                                               | `Promise<(value\|null)[]>`        | batched get, one crossing, aligned to `keys`; **async** (off the event loop)    |
-| `has(key)` / `delete(key)`                                    | `boolean` / `void`                |                                                                                 |
-| `stats()`                                                     | `{records, mainBytes, blobBytes}` | cheap in-memory counters (sizes include dead space until `compact()`)           |
-| `prefixScan(prefix)`                                          | `string[]`                        | sorted keys                                                                     |
-| `secIndex / secIndexPrefix / secIndexRange`                   | `string[]`                        | primary keys                                                                    |
-| `secIndexHas(name, val)`                                      | `boolean`                         | any record has `val` in the index (no keys materialized)                        |
+| `has(key)`                                                    | `Promise<boolean>`                | **async** (off the loop)                                                        |
+| `delete(key)`                                                 | `void`                            |                                                                                 |
+| `stats()`                                                     | `Promise<{records, mainBytes, blobBytes}>` | cheap in-memory counters (sizes include dead space until `compact()`); **async** |
+| `prefixScan(prefix)`                                          | `Promise<string[]>`               | sorted keys; **async** — concurrent scans run in parallel (off the loop)         |
+| `secIndex / secIndexPrefix / secIndexRange`                   | `Promise<string[]>`               | primary keys; **async** (off the loop)                                          |
+| `secIndexHas(name, val)`                                      | `Promise<boolean>`                | any record has `val` in the index (no keys materialized); **async**             |
 | `secIndexRecords / secIndexPrefixRecords / prefixScanRecords` | `Promise<{key, value}[]>`         | keys + parsed content; **async** (record fetch off the event loop)              |
-| `secIndexDropped / secIndexProspective`                       | `string[]`                        | schema state                                                                    |
+| `secIndexDropped / secIndexProspective`                       | `Promise<string[]>`               | schema state; **async**                                                         |
 | `compact()` / `reindex()`                                     | `Promise<void>`                   | run off the event loop                                                          |
 | `close()` / `drop()`                                          | `void`                            |                                                                                 |
 
@@ -240,7 +247,14 @@ if (Buffer.isBuffer(v)) {
   the number `123`). A binary or non-JSON value (or a corrupt record) comes back
   as a `Buffer`, so callers can guard with `Buffer.isBuffer`. On disk, valid-UTF-8
   values are stored as plain JSON and only binary as base64.
-- Errors from the store surface as thrown `Error`s.
+- Errors from the store surface as `Error`s: synchronous methods (`put`, `delete`)
+  throw; async methods (`get`, `has`, scans, `getMany`, `compact`, …) reject the
+  returned promise. A call on a closed handle throws synchronously either way (the
+  guard runs before the async hop).
+- **Reads run off the event loop** (koffi async → a libuv worker thread), so the JS
+  thread stays free and concurrent reads run in parallel — the Go store takes only a
+  read lock, which admits many readers at once. Parallelism is capped by the libuv
+  pool (`UV_THREADPOOL_SIZE`, default 4); raise it to use more cores.
 
 ## Building the native lib
 

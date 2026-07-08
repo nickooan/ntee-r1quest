@@ -114,10 +114,13 @@ export class NteeDB {
    * Get the value for key, parsed, or null if absent. Values are returned via
    * JSON parse semantics (a stored `"123"` reads back as `123`); a binary or
    * non-JSON value comes back as a Buffer.
+   *
+   * Async: the native read runs off the event loop (a libuv worker), so the JS
+   * thread stays free and concurrent reads run in parallel. Resolves to the value.
    */
   get(key) {
     this.#assertOpen()
-    return decodeJson(readEnvelope(fns.getJson(this.#h, key)))
+    return callAsync(fns.getJson, this.#h, key).then(decodeJson)
   }
 
   /**
@@ -137,20 +140,21 @@ export class NteeDB {
     )
   }
 
-  /** Whether key exists. */
+  /** Whether key exists. Async — runs off the event loop; resolves to a boolean. */
   has(key) {
     this.#assertOpen()
-    return readEnvelope(fns.has(this.#h, key)) === true
+    return callAsync(fns.has, this.#h, key).then((r) => r === true)
   }
 
   /**
    * Point-in-time store size: { records, mainBytes, blobBytes }. Cheap — all
    * values are in-memory counters (no I/O). mainBytes/blobBytes include dead
-   * records / orphaned blobs until compact().
+   * records / orphaned blobs until compact(). Async for a uniform read surface;
+   * resolves to the stats object.
    */
   stats() {
     this.#assertOpen()
-    return readEnvelope(fns.stats(this.#h))
+    return callAsync(fns.stats, this.#h)
   }
 
   /** Delete key (no-op if absent). */
@@ -159,32 +163,38 @@ export class NteeDB {
     readEnvelope(fns.delete(this.#h, key))
   }
 
-  /** Sorted keys with the given primary-key prefix. */
+  /**
+   * Sorted keys with the given primary-key prefix. Async — the traversal runs
+   * off the event loop (a libuv worker), so concurrent scans (e.g. via
+   * Promise.all) run in parallel. Resolves to the key array.
+   */
   prefixScan(prefix) {
     this.#assertOpen()
-    return readEnvelope(fns.prefixScan(this.#h, prefix)) ?? []
+    return callAsync(fns.prefixScan, this.#h, prefix).then((r) => r ?? [])
   }
 
   /**
    * Primary keys whose value in the secondary index `name` equals `val`
    * (multi-value).
    * limit: 0 = all (ascending); N>0 = first N ascending; N<0 = last |N| descending.
+   * Async — runs off the event loop; resolves to the key array.
    */
   secIndex(name, val, limit = 0) {
     this.#assertOpen()
-    return (
-      readEnvelope(fns.byIndex(this.#h, name, JSON.stringify(val), limit)) ?? []
+    return callAsync(fns.byIndex, this.#h, name, JSON.stringify(val), limit).then(
+      (r) => r ?? [],
     )
   }
 
   /**
    * Whether any record has `val` in the secondary index `name` — the
    * secondary-index counterpart of has(), without materializing the keys.
+   * Async — runs off the event loop; resolves to a boolean.
    */
   secIndexHas(name, val) {
     this.#assertOpen()
-    return (
-      readEnvelope(fns.byIndexHas(this.#h, name, JSON.stringify(val))) === true
+    return callAsync(fns.byIndexHas, this.#h, name, JSON.stringify(val)).then(
+      (r) => r === true,
     )
   }
 
@@ -193,32 +203,40 @@ export class NteeDB {
    * `prefix`.
    * limit is applied per distinct index value (grouped): 0 = all matches flat;
    * N>0 = first N of each value ascending; N<0 = last |N| of each value descending.
+   * Async — runs off the event loop; resolves to the key array.
    */
   secIndexPrefix(name, prefix, limit = 0) {
     this.#assertOpen()
-    return readEnvelope(fns.byIndexPrefix(this.#h, name, prefix, limit)) ?? []
-  }
-
-  /** Primary keys whose value in the secondary index `name` is within [lo, hi]. */
-  secIndexRange(name, lo, hi) {
-    this.#assertOpen()
-    return (
-      readEnvelope(
-        fns.byIndexRange(this.#h, name, JSON.stringify(lo), JSON.stringify(hi)),
-      ) ?? []
+    return callAsync(fns.byIndexPrefix, this.#h, name, prefix, limit).then(
+      (r) => r ?? [],
     )
   }
 
-  /** Indexes lingering in records after a soft-drop (until Reindex). */
-  secIndexDropped() {
+  /**
+   * Primary keys whose value in the secondary index `name` is within [lo, hi].
+   * Async — runs off the event loop; resolves to the key array.
+   */
+  secIndexRange(name, lo, hi) {
     this.#assertOpen()
-    return readEnvelope(fns.droppedIndexes(this.#h)) ?? []
+    return callAsync(
+      fns.byIndexRange,
+      this.#h,
+      name,
+      JSON.stringify(lo),
+      JSON.stringify(hi),
+    ).then((r) => r ?? [])
   }
 
-  /** Indexes not yet back-filled over pre-existing records. */
+  /** Indexes lingering in records after a soft-drop (until Reindex). Async. */
+  secIndexDropped() {
+    this.#assertOpen()
+    return callAsync(fns.droppedIndexes, this.#h).then((r) => r ?? [])
+  }
+
+  /** Indexes not yet back-filled over pre-existing records. Async. */
   secIndexProspective() {
     this.#assertOpen()
-    return readEnvelope(fns.prospectiveIndexes(this.#h)) ?? []
+    return callAsync(fns.prospectiveIndexes, this.#h).then((r) => r ?? [])
   }
 
   /**
@@ -277,7 +295,7 @@ export class NteeDB {
    * event loop.
    */
   async secIndexRecords(name, val, limit = 0) {
-    const keys = this.secIndex(name, val, limit)
+    const keys = await this.secIndex(name, val, limit)
     const vals = await this.getMany(keys)
     return keys.map((key, i) => ({ key, value: vals[i] }))
   }
@@ -289,7 +307,7 @@ export class NteeDB {
    * selected primary key).
    */
   async secIndexPrefixRecords(name, prefix, limit = 0) {
-    const keys = this.secIndexPrefix(name, prefix, limit)
+    const keys = await this.secIndexPrefix(name, prefix, limit)
     const vals = await this.getMany(keys)
     return keys.map((key, i) => ({ key, value: vals[i] }))
   }
@@ -299,7 +317,7 @@ export class NteeDB {
    * as in get()). Async (via getMany): resolves to the records.
    */
   async prefixScanRecords(prefix) {
-    const keys = this.prefixScan(prefix)
+    const keys = await this.prefixScan(prefix)
     const vals = await this.getMany(keys)
     return keys.map((key, i) => ({ key, value: vals[i] }))
   }
