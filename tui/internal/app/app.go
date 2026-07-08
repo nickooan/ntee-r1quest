@@ -413,6 +413,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.ok && m.mode == modeEdit {
 			m.edit = newEditor(msg.content)
 			m.edit.clampCursor()
+			// The restored content is "editing" unless it matches what's on disk.
+			if m.openFile != nil {
+				m.edit.dirty = msg.content != m.openFile.Content
+			}
 			m.snapDirty = false
 		}
 		return m, nil
@@ -1575,10 +1579,10 @@ func (m Model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if err := filetree.WriteViewFile(m.openFile.Path, m.edit.content()); err != nil {
 				m.errText = err.Error()
 			} else {
-				// Keep the view's content in sync with what was saved.
+				// Keep the view's content in sync with what was saved. The green
+				// "saved" badge (dirty=false) now conveys success in the footer.
 				m.openFile.Content = m.edit.content()
 				m.edit.dirty = false
-				m.notice = "saved"
 				var cmd tea.Cmd
 				m, cmd = m.pushSnapshot("save")
 				return m, cmd

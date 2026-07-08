@@ -95,15 +95,15 @@ func (m Model) renderStatusLine() string {
 		if m.openFile != nil {
 			name = m.openFile.FileName
 		}
-		dirty := ""
+		// State badge: yellow "editing" while there are unsaved changes, green
+		// "saved" once the buffer matches disk (right after Ctrl+S). Any edit
+		// flips it back to "editing".
+		state := savedStyle.Render("saved")
 		if m.edit.dirty {
-			dirty = "*"
+			state = editingStyle.Render("editing")
 		}
-		status := promptStyle.Render("@edit") + " " + name + dirty + "   Ctrl+S save · Ctrl+F find · Ctrl+Z undo · esc discard"
-		if m.notice != "" {
-			status += "   " + m.notice
-		}
-		return status
+		return promptStyle.Render("@edit") + " " + name + "   " + state +
+			"   Ctrl+S save · Ctrl+F find · Ctrl+Z undo · esc discard"
 	case modeHistory:
 		count := fmt.Sprintf("%d/%d", min(m.historyIndex+1, len(m.history)), len(m.history))
 		return withNotice(promptStyle.Render("@history")+" "+count+"   ↑/↓ scroll · shift+↑/↓ select · s search · esc back", m.notice)
@@ -806,6 +806,8 @@ var (
 	suggestionCacheStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 	previewStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
 	noticeStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	editingStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Bold(true) // yellow: unsaved edits
+	savedStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true) // green: in sync with disk
 	aiModalStyle         = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("11"))
 
 	sessionTitleStyle    = lipgloss.NewStyle().Bold(true)

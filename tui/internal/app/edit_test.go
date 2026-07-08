@@ -2,7 +2,11 @@ package app
 
 import (
 	"regexp"
+	"strings"
 	"testing"
+
+	"codeberg.org/nickoan/ntee-r1quest/tui/internal/filetree"
+	"codeberg.org/nickoan/ntee-r1quest/tui/internal/runtime"
 )
 
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
@@ -91,6 +95,27 @@ func TestMoveClearsSelection(t *testing.T) {
 	e.move(-1, 0)
 	if e.sel != nil {
 		t.Fatalf("move did not clear selection: %v", e.sel)
+	}
+}
+
+// The edit status line shows a yellow "editing" badge while dirty and a green
+// "saved" badge once the buffer matches disk.
+func TestEditStatusBadge(t *testing.T) {
+	m := New(&fakeClient{}, runtime.ConfigDTO{Root: "/root"})
+	m.openFile = &filetree.OpenViewFile{Path: "/root/a.nts", Content: "hi"}
+	m.mode = modeEdit
+	m.edit = newEditor("hi")
+
+	m.edit.dirty = false
+	if got := stripANSI(m.renderStatusLine()); !strings.Contains(got, "saved") ||
+		strings.Contains(got, "editing") {
+		t.Fatalf("clean buffer: want saved badge, got %q", got)
+	}
+
+	m.edit.dirty = true
+	if got := stripANSI(m.renderStatusLine()); !strings.Contains(got, "editing") ||
+		strings.Contains(got, "saved") {
+		t.Fatalf("dirty buffer: want editing badge, got %q", got)
 	}
 }
 
