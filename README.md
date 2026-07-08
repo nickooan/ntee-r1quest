@@ -51,6 +51,7 @@ npx ntee-r1quest -r ./example/request
 - [AI Adapter](#ai-adapter)
 - [AI Debug Log](#ai-debug-log)
 - [Config](#config)
+- [ntee-db](#ntee-db)
 
 **Writing requests**
 
@@ -151,7 +152,7 @@ The status line at the bottom shows the current mode and its keys, for example:
 ```text
 @query >
 @view   ↑/↓ scroll · e edit · s search · esc back
-@edit   ^S save · esc discard
+@edit   a.nts   editing   Ctrl+S save · Ctrl+F find · Ctrl+Z undo · esc discard
 @search /uuid/   3/5   ↑/↓ next · esc back
 @history 2/8   ↑/↓ scroll · shift+↑/↓ select · s search · esc back
 @ai >
@@ -247,22 +248,31 @@ Read a file in the Result pane.
 Edit the open file in place. (The Go front-end is the sole writer of
 `.nts`/`.ntd` files; the runtime only reads them.)
 
-| Key          | Action                                                                   |
-| ------------ | ------------------------------------------------------------------------ |
-| Type text    | Insert at the cursor.                                                    |
-| Enter        | Insert a newline.                                                        |
-| Left / Right | Move the cursor.                                                         |
-| Up / Down    | Move the cursor between lines; navigate the completion popup while open. |
-| Tab          | Accept the highlighted completion.                                       |
-| Backspace    | Delete before the cursor.                                                |
-| Ctrl+S       | Save the file (stays in edit mode).                                      |
-| Esc          | Discard unsaved changes and return to view mode.                         |
+| Key             | Action                                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------------------------ |
+| Type text       | Insert at the cursor (replaces the current selection, if any).                                               |
+| Enter           | Insert a newline.                                                                                            |
+| Left / Right    | Move the cursor; a long line scrolls horizontally to keep the cursor in view.                                |
+| Up / Down       | Move the cursor between lines; navigate the completion popup while open.                                     |
+| Tab             | Accept the highlighted completion.                                                                           |
+| Backspace       | Delete before the cursor, or delete the selection.                                                           |
+| Ctrl+A          | Select the word under the cursor; press again to grow to the `key:` / value segment, then to the whole line. |
+| Ctrl+F          | Search the buffer; Enter in search jumps the cursor to the match (scrolling off-screen matches into view).   |
+| Ctrl+Z / Ctrl+Y | Undo / redo. History is coalesced by edit burst and persisted (up to 50 snapshots per file) via ntee-db.     |
+| Ctrl+S          | Save the file (stays in edit mode).                                                                          |
+| Esc             | Clear the selection; if there is none, discard unsaved changes and return to view mode.                      |
 
-Completions appear while typing request keywords, macros, definition keys, or
-`ref` paths:
+The status line shows a yellow **`editing`** badge while there are unsaved
+changes and a green **`saved`** badge once the buffer matches disk.
+
+Completions appear while typing request keywords, header names and values,
+macros, definition keys, or `ref` paths:
 
 - `hea` suggests `header`.
-- `header cont` suggests headers such as `content-type` (with a trailing `, `).
+- `header cont` suggests header names such as `content-type` (with a trailing `, `).
+- `header content-type, ` suggests common values such as
+  `application/json; charset=utf-8`; `authorization ` schemes such as `Bearer `,
+  `cache-control` values such as `no-store`, and so on.
 - `@` suggests macros such as `@i`, `@f`, `@env`, and `@i(key)` values from
   referenced `.ntd` files.
 - `@i(` suggests referenced `.ntd` keys.
@@ -271,7 +281,9 @@ Completions appear while typing request keywords, macros, definition keys, or
 ### Search Mode
 
 Search the current Result or reviewed file. Pass the query inline (`@s uuid`,
-`@search order id`) or type it after entering.
+`@search order id`) or type it after entering. From edit mode, Ctrl+F opens
+search over the buffer — there, Enter commits: it moves the editor cursor to the
+focused match and returns to editing (instead of stepping to the next match).
 
 | Key          | Action                                   |
 | ------------ | ---------------------------------------- |
@@ -536,6 +548,28 @@ call immediately. The two paths are mutually exclusive by construction:
 - **App open but `sock` not configured** — the one-shot's calls are not added
   to history for that overlap (the store is locked and there is no hand-off
   channel); everything else works normally. Configure `sock` to avoid this.
+
+## ntee-db
+
+r1quest ships with its own embedded storage engine, **ntee-db** — a small, fast,
+pure-Go log-structured key–value store with prefix search and secondary indexes,
+including capped, self-evicting retention (`maxPerValue`). It runs in-process (no
+separate database server or daemon), loaded into the Node runtime through a
+native binding, and is the single store behind everything the app persists
+locally:
+
+- **Request history / response cache** — the latest call per endpoint, plus full
+  trace collections (see [Request History and Cache](#request-history-and-cache)).
+- **Input history** — the query/view suggestions offered while typing.
+- **AI sessions** — resumable agent session ids per adapter.
+- **Edit-mode version snapshots** — the coalesced undo/redo timeline (Ctrl+Z /
+  Ctrl+Y), capped at 50 versions per file.
+
+It's tuned for this workload: caller-synchronous appends (so a one-shot CLI run
+persists before it exits), fast prefix/index scans for the History list, and
+automatic per-key retention with no manual cleanup. For the design, the Node
+binding API, and head-to-head benchmarks against `lmdb` and `better-sqlite3`,
+see [ntee-db/ntee-db-js/README.md](ntee-db/ntee-db-js/README.md).
 
 ## Collection Structure
 
