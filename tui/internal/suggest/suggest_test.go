@@ -28,6 +28,31 @@ func TestBuildEditorSuggestionItemsStatic(t *testing.T) {
 	}
 }
 
+func TestBuildHeaderValueSuggestionItems(t *testing.T) {
+	// Empty fragment lists all values for the header.
+	all := BuildHeaderValueSuggestionItems("content-type", "")
+	if !hasLabel(all, "application/json", "headerValue") ||
+		!hasLabel(all, "application/json; charset=utf-8", "headerValue") {
+		t.Fatalf("content-type values missing: %+v", all)
+	}
+
+	// Case-insensitive header name + prefix filtering on the value.
+	got := BuildHeaderValueSuggestionItems("Content-Type", "application/json;")
+	if len(got) != 1 || got[0].Label != "application/json; charset=utf-8" {
+		t.Fatalf("prefix filter: got %+v", got)
+	}
+
+	// cache-control common values.
+	if !hasLabel(BuildHeaderValueSuggestionItems("cache-control", "no-s"), "no-store", "headerValue") {
+		t.Fatal("cache-control no-store missing")
+	}
+
+	// Unknown header → no suggestions.
+	if got := BuildHeaderValueSuggestionItems("x-nonexistent", ""); got != nil {
+		t.Fatalf("unknown header should yield nil, got %+v", got)
+	}
+}
+
 func TestBuildEditorSuggestionItemsDefinitionKeys(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "data.ntd"), []byte("id: 1\nname: x\n"), 0o644); err != nil {

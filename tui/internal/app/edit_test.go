@@ -119,6 +119,43 @@ func TestEditStatusBadge(t *testing.T) {
 	}
 }
 
+// A header line past the comma suggests common values for that header; before
+// the comma it still suggests header keys (not values).
+func TestEditContextHeaderValues(t *testing.T) {
+	m := New(&fakeClient{}, runtime.ConfigDTO{Root: "/root"})
+	m.openFile = &filetree.OpenViewFile{Path: "/root/a.nts", Content: ""}
+	m.mode = modeEdit
+
+	line := "header content-type, appl"
+	m.edit = newEditor(line)
+	m.edit.cx = len([]rune(line))
+
+	items, start := m.editContext()
+	if start != len([]rune("header content-type, ")) {
+		t.Fatalf("fragStart = %d, want %d", start, len([]rune("header content-type, ")))
+	}
+	found := false
+	for _, it := range items {
+		if it.Kind == "headerValue" && it.Label == "application/json" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("application/json not suggested for content-type value: %+v", items)
+	}
+
+	// Before the comma → header-key context, no value suggestions.
+	before := "header content-ty"
+	m.edit = newEditor(before)
+	m.edit.cx = len([]rune(before))
+	keyItems, _ := m.editContext()
+	for _, it := range keyItems {
+		if it.Kind == "headerValue" {
+			t.Fatal("header-value suggestions leaked before the comma")
+		}
+	}
+}
+
 // The cursor line scrolls horizontally so the cursor stays visible past width.
 func TestRenderEditLineHorizontalScroll(t *testing.T) {
 	line := "0123456789ABCDEFGHIJ" // 20 runes

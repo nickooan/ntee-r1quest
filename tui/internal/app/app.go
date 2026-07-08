@@ -1665,6 +1665,10 @@ func (m Model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 var editRefPattern = regexp.MustCompile(`^\s*ref\s+(\S*)$`)
 
+// editHeaderValuePattern matches a header line up to the cursor once past the
+// name+comma: group 1 is the header name, group 2 is the value typed so far.
+var editHeaderValuePattern = regexp.MustCompile(`^\s*header\s+([A-Za-z][A-Za-z0-9-]*)\s*,\s*(.*)$`)
+
 func (m Model) editOverlayOpen() bool {
 	return !m.editDismissed && len(m.editSuggestions) > 0
 }
@@ -1692,6 +1696,15 @@ func (m Model) editContext() ([]suggest.Item, int) {
 		fragment := rm[1]
 		fragStart := cx - len([]rune(fragment))
 		return suggest.BuildRefSuggestionItems(m.openFile.Path, fragment), fragStart
+	}
+
+	// In a `header <name>, <value>` line past the comma, suggest common values
+	// for that header (the fragment may contain '/', ';', etc., so it can't go
+	// through the word-based path below).
+	if hm := editHeaderValuePattern.FindStringSubmatch(before); hm != nil {
+		fragment := hm[2]
+		fragStart := cx - len([]rune(fragment))
+		return suggest.BuildHeaderValueSuggestionItems(hm[1], fragment), fragStart
 	}
 
 	word, start := trailingWord(line, cx)
