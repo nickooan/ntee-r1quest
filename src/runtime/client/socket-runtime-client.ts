@@ -25,7 +25,13 @@ import type {
   RuntimeConfigDto,
 } from "./types.ts"
 import type { AcpAdaptorName } from "../acp/index.ts"
-import type { AiSessionRecord, ApiCallRecord } from "../cache/index.ts"
+import type {
+  AiSessionRecord,
+  ApiCallRecord,
+  SnapshotKind,
+  SnapshotMeta,
+  SnapshotRecord,
+} from "../cache/index.ts"
 import type { ExternalRequestEvent } from "../external-event/index.ts"
 
 export class SocketRuntimeClient implements RuntimeClient {
@@ -94,6 +100,33 @@ export class SocketRuntimeClient implements RuntimeClient {
 
   async clearCache(): Promise<void> {
     await this.connection.request(RpcMethod.ClearCache)
+  }
+
+  snapshotPut(
+    path: string,
+    seq: number,
+    kind: SnapshotKind,
+    content: string,
+  ): void {
+    this.connection.notify(RpcMethod.SnapshotPut, { path, seq, kind, content })
+  }
+
+  snapshotGet(seq: number): Promise<SnapshotRecord | undefined> {
+    return this.connection.request<SnapshotRecord | undefined>(
+      RpcMethod.SnapshotGet,
+      { seq },
+    )
+  }
+
+  snapshotList(path: string, limit?: number): Promise<SnapshotMeta[]> {
+    return this.connection.request<SnapshotMeta[]>(RpcMethod.SnapshotList, {
+      path,
+      limit,
+    })
+  }
+
+  snapshotDelete(seqs: number[]): void {
+    this.connection.notify(RpcMethod.SnapshotDelete, { seqs })
   }
 
   readonly ai: AiClient = {

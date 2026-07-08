@@ -254,7 +254,7 @@ describe("CLI command runtime", () => {
       ),
     )
     await execute("get", root)
-    expect(getApiCall(endpoint)?.response.status).toBe(200)
+    expect((await getApiCall(endpoint))?.response.status).toBe(200)
 
     // A non-2xx response throws (axios default) but still carries a response,
     // so it is recorded.
@@ -265,7 +265,7 @@ describe("CLI command runtime", () => {
     )
     await expect(execute("get", root)).rejects.toThrow()
 
-    const failed = getApiCall(endpoint)
+    const failed = await getApiCall(endpoint)
     expect(failed?.response.status).toBe(404)
     expect(failed?.response.data).toEqual({ message: "Not found" })
 
@@ -273,7 +273,7 @@ describe("CLI command runtime", () => {
     // recorded: the previous 404 record is left untouched.
     server.use(http.get("https://ntee.io", () => HttpResponse.error()))
     await expect(execute("get", root)).rejects.toThrow()
-    expect(getApiCall(endpoint)?.response.status).toBe(404)
+    expect((await getApiCall(endpoint))?.response.status).toBe(404)
   })
 
   test("uses .r1qconfig.yaml root from the current directory", () => {

@@ -99,7 +99,7 @@ func (m Model) renderStatusLine() string {
 		if m.edit.dirty {
 			dirty = "*"
 		}
-		status := promptStyle.Render("@edit") + " " + name + dirty + "   ^S save · esc discard"
+		status := promptStyle.Render("@edit") + " " + name + dirty + "   Ctrl+S save · Ctrl+F find · Ctrl+Z undo · esc discard"
 		if m.notice != "" {
 			status += "   " + m.notice
 		}
@@ -223,8 +223,16 @@ func (m Model) renderSearch(width, height int) string {
 
 	maxScrollY := max(0, len(lines)-height)
 	start := 0
+	off := 0
 	if len(matches) > 0 && m.searchFocused < len(matches) {
-		start = input.Clamp(matches[m.searchFocused].LineIndex-2, 0, maxScrollY)
+		fm := matches[m.searchFocused]
+		start = input.Clamp(fm.LineIndex-2, 0, maxScrollY)
+		// Scroll horizontally so a focused match past the width is visible.
+		fline := lines[fm.LineIndex]
+		fcol := utf8.RuneCountInString(fline[:clampByte(fm.Start, len(fline))])
+		if fcol >= width {
+			off = max(0, fcol-width/2)
+		}
 	}
 
 	rows := make([]string, 0, height)
@@ -233,59 +241,74 @@ func (m Model) renderSearch(width, height int) string {
 			rows = append(rows, "")
 			continue
 		}
-		rows = append(rows, renderSearchLine(lines[i], byLine[i], m.searchFocused, width))
+		rows = append(rows, renderSearchLine(lines[i], byLine[i], m.searchFocused, off, width))
 	}
 	return strings.Join(rows, "\n")
 }
 
-func renderSearchLine(line string, matches []view.LineMatch, focused, width int) string {
-	// Truncate by runes, never bytes: content lines carry multi-byte runes
-	// (e.g. the ─ box-drawing chars in section dividers), and a byte cut can
-	// split one mid-sequence, rendering as �. Match offsets stay valid — they
-	// are byte positions into the original line, and the rune truncation point
-	// is always a rune boundary at or after any clipped match.
-	display := truncateRunes(line, width)
-	if len(matches) == 0 {
-		return padTo(display, width)
+// renderSearchLine draws one content line for the search view, slicing a
+// width-wide window starting at rune column off (so a horizontally-scrolled
+// focused match stays visible) and highlighting matches within it. Works in
+// rune space throughout — content lines carry multi-byte runes (e.g. the ─
+// box-drawing chars in dividers) and a byte cut would split one, rendering as �.
+// Match offsets are byte positions into the original line, converted to rune
+// columns here.
+func renderSearchLine(line string, matches []view.LineMatch, focused, off, width int) string {
+	if width < 1 {
+		width = 1
+	}
+	runes := []rune(line)
+	n := len(runes)
+	end := min(off+width, n)
+
+	type mrange struct {
+		start, end int
+		focused    bool
+	}
+	mr := make([]mrange, 0, len(matches))
+	for _, lm := range matches {
+		s := utf8.RuneCountInString(line[:clampByte(lm.Start, len(line))])
+		e := utf8.RuneCountInString(line[:clampByte(lm.End, len(line))])
+		mr = append(mr, mrange{s, e, lm.MatchIndex == focused})
 	}
 
 	var b strings.Builder
-	cursor := 0   // byte offset into display
-	rendered := 0 // visible rune count; excludes ANSI styling
-	for _, lm := range matches {
-		start := lm.Start
-		end := lm.End
-		if start >= len(display) {
-			break
+	for col := 0; col < width; col++ {
+		idx := off + col
+		ch := " "
+		if idx < end {
+			ch = string(runes[idx])
 		}
-		if end > len(display) {
-			end = len(display)
-		}
-		if start < cursor {
-			start = cursor
-		}
-		if start > cursor {
-			b.WriteString(display[cursor:start])
-			rendered += utf8.RuneCountInString(display[cursor:start])
-		}
-		if start < end {
-			style := searchMatchStyle
-			if lm.MatchIndex == focused {
-				style = searchFocusedStyle
+		styled := false
+		if idx < end {
+			for _, r := range mr {
+				if idx >= r.start && idx < r.end {
+					style := searchMatchStyle
+					if r.focused {
+						style = searchFocusedStyle
+					}
+					b.WriteString(style.Render(ch))
+					styled = true
+					break
+				}
 			}
-			b.WriteString(style.Render(display[start:end]))
-			rendered += utf8.RuneCountInString(display[start:end])
 		}
-		cursor = end
-	}
-	if cursor < len(display) {
-		b.WriteString(display[cursor:])
-		rendered += utf8.RuneCountInString(display[cursor:])
-	}
-	if pad := width - rendered; pad > 0 {
-		b.WriteString(strings.Repeat(" ", pad))
+		if !styled {
+			b.WriteString(ch)
+		}
 	}
 	return b.String()
+}
+
+// clampByte clamps a byte offset into [0, n].
+func clampByte(i, n int) int {
+	if i < 0 {
+		return 0
+	}
+	if i > n {
+		return n
+	}
+	return i
 }
 
 func padTo(s string, width int) string {
@@ -418,7 +441,7 @@ func (m Model) renderFile(width, height int) string {
 		}
 		var content string
 		if editing && i == m.edit.cy {
-			content = renderEditLine(lines[i], m.edit.cx, contentWidth)
+			content = renderEditLine(lines[i], m.edit.cx, contentWidth, m.edit.sel)
 		} else {
 			content = renderHighlighted(lines[i], lang, contentWidth)
 		}
@@ -481,24 +504,53 @@ func renderHighlighted(line, lang string, width int) string {
 	return b.String()
 }
 
-func renderEditLine(line string, cx, width int) string {
-	truncated := truncateRunes(line, width)
-	runes := []rune(truncated)
-	at := input.Clamp(cx, 0, len(runes))
+// renderEditLine draws the cursor line, scrolling horizontally so the cursor
+// stays visible when the line is longer than width: it slices a width-wide
+// window that follows the cursor (offset = cx-width+1 once cx reaches the edge)
+// and draws the cursor at its in-window column. An active selection (sel, in
+// full-line rune columns) is highlighted where it intersects the window.
+func renderEditLine(line string, cx, width int, sel *selRange) string {
+	if width < 1 {
+		width = 1
+	}
+	runes := []rune(line)
+	n := len(runes)
+	at := input.Clamp(cx, 0, n)
 
-	before := string(runes[:at])
-	cursorChar := " "
-	after := ""
-	if at < len(runes) {
-		cursorChar = string(runes[at])
-		after = string(runes[at+1:])
+	off := 0
+	if at >= width {
+		off = at - width + 1 // keep the cursor at the right edge once past it
 	}
-	rendered := len([]rune(before)) + 1 + len([]rune(after))
-	out := before + cursorStyle.Render(cursorChar) + after
-	if pad := width - rendered; pad > 0 {
-		out += strings.Repeat(" ", pad)
+	end := min(off+width, n)
+	curCol := at - off // guaranteed within [0, width-1]
+
+	selS, selE := -1, -1
+	if sel != nil {
+		s, e := sel.start, sel.end
+		if s > e {
+			s, e = e, s
+		}
+		selS = input.Clamp(s, off, end) - off
+		selE = input.Clamp(e, off, end) - off
 	}
-	return out
+
+	var b strings.Builder
+	for col := 0; col < width; col++ {
+		idx := off + col
+		ch := " "
+		if idx < end {
+			ch = string(runes[idx])
+		}
+		switch {
+		case col == curCol:
+			b.WriteString(cursorStyle.Render(ch))
+		case selS >= 0 && col >= selS && col < selE:
+			b.WriteString(selectionStyle.Render(ch))
+		default:
+			b.WriteString(ch)
+		}
+	}
+	return b.String()
 }
 
 // renderMultilineInput renders a (possibly multi-line) input with a styled
@@ -746,6 +798,7 @@ var (
 
 	searchMatchStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("7"))
 	searchFocusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("3")).Bold(true)
+	selectionStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("4"))
 
 	aiUserStyle          = lipgloss.NewStyle().Bold(true)
 	suggestionStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("8"))

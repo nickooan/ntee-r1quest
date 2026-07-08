@@ -18,6 +18,7 @@ import type {
   ExecuteRequest,
 } from "./types.ts"
 import type { AcpAdaptorName } from "../acp/index.ts"
+import type { SnapshotKind } from "../cache/index.ts"
 
 export class SocketRuntimeServer {
   private server: Server | undefined
@@ -117,6 +118,28 @@ export class SocketRuntimeServer {
         )
       case RpcMethod.ClearCache:
         await this.client.clearCache()
+        return null
+      case RpcMethod.SnapshotPut: {
+        const p = params as {
+          path: string
+          seq: number
+          kind: SnapshotKind
+          content: string
+        }
+        this.client.snapshotPut(p.path, p.seq, p.kind, p.content)
+        return null
+      }
+      case RpcMethod.SnapshotGet:
+        return (
+          (await this.client.snapshotGet((params as { seq: number }).seq)) ??
+          null
+        )
+      case RpcMethod.SnapshotList: {
+        const { path, limit } = params as { path: string; limit?: number }
+        return this.client.snapshotList(path, limit)
+      }
+      case RpcMethod.SnapshotDelete:
+        this.client.snapshotDelete((params as { seqs: number[] }).seqs)
         return null
       case RpcMethod.AiStart:
         await this.client.ai.start(params as AiStartRequest)

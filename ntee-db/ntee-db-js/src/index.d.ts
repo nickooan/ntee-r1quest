@@ -121,7 +121,11 @@ export declare class NteeDB {
    * @param limit 0 = all (ascending); N>0 = first N ascending; N<0 = last |N| descending.
    * Async — runs off the event loop.
    */
-  secIndex(name: string, val: string | number, limit?: number): Promise<string[]>
+  secIndex(
+    name: string,
+    val: string | number,
+    limit?: number,
+  ): Promise<string[]>
   /** Whether any record has `val` in the secondary index `name` (no keys materialized). Async. */
   secIndexHas(name: string, val: string | number): Promise<boolean>
   /**
@@ -131,7 +135,11 @@ export declare class NteeDB {
    * value descending.
    * Async — runs off the event loop.
    */
-  secIndexPrefix(name: string, prefix: string, limit?: number): Promise<string[]>
+  secIndexPrefix(
+    name: string,
+    prefix: string,
+    limit?: number,
+  ): Promise<string[]>
   /** Primary keys whose value in the secondary index `name` is within [lo, hi]. Async. */
   secIndexRange(
     name: string,

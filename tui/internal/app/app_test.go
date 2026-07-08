@@ -32,6 +32,35 @@ type fakeClient struct {
 	aiResumed      []string
 	aiPrompts      []string
 	aiDecisions    []string
+	snapshots      map[int64]runtime.SnapshotRecord
+	snapshotPuts   []int64
+	snapshotDels   []int64
+}
+
+func (f *fakeClient) SnapshotPut(path string, seq int64, kind, content string) error {
+	if f.snapshots == nil {
+		f.snapshots = map[int64]runtime.SnapshotRecord{}
+	}
+	f.snapshots[seq] = runtime.SnapshotRecord{Path: path, Seq: seq, Kind: kind, Content: content}
+	f.snapshotPuts = append(f.snapshotPuts, seq)
+	return nil
+}
+
+func (f *fakeClient) SnapshotGet(_ context.Context, seq int64) (runtime.SnapshotRecord, bool, error) {
+	rec, ok := f.snapshots[seq]
+	return rec, ok, nil
+}
+
+func (f *fakeClient) SnapshotList(_ context.Context, _ string, _ int) ([]runtime.SnapshotMeta, error) {
+	return nil, nil
+}
+
+func (f *fakeClient) SnapshotDelete(seqs []int64) error {
+	for _, seq := range seqs {
+		delete(f.snapshots, seq)
+		f.snapshotDels = append(f.snapshotDels, seq)
+	}
+	return nil
 }
 
 func (f *fakeClient) Execute(_ context.Context, _ runtime.ExecuteRequest) (runtime.ExecuteResult, error) {

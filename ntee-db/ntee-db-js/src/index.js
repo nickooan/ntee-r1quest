@@ -181,9 +181,13 @@ export class NteeDB {
    */
   secIndex(name, val, limit = 0) {
     this.#assertOpen()
-    return callAsync(fns.byIndex, this.#h, name, JSON.stringify(val), limit).then(
-      (r) => r ?? [],
-    )
+    return callAsync(
+      fns.byIndex,
+      this.#h,
+      name,
+      JSON.stringify(val),
+      limit,
+    ).then((r) => r ?? [])
   }
 
   /**

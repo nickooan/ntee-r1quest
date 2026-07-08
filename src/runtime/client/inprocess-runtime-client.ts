@@ -22,8 +22,15 @@ import {
   recordInput as recordInputToCache,
   suggestInputs as suggestInputsFromCache,
   refreshAiSession,
+  recordSnapshot as recordSnapshotToCache,
+  getSnapshot as getSnapshotFromCache,
+  listSnapshots as listSnapshotsFromCache,
+  deleteSnapshots as deleteSnapshotsFromCache,
   type AiSessionRecord,
   type ApiCallRecord,
+  type SnapshotKind,
+  type SnapshotRecord,
+  type SnapshotMeta,
 } from "../cache/index.ts"
 import { execute, resolveRuntimeConfig } from "../cli-command.ts"
 import { clearRuntimeConfigCache, type RuntimeConfig } from "../config.ts"
@@ -146,6 +153,27 @@ export class InProcessRuntimeClient implements RuntimeClient {
     await clearCacheEntries()
   }
 
+  snapshotPut(
+    path: string,
+    seq: number,
+    kind: SnapshotKind,
+    content: string,
+  ): void {
+    void recordSnapshotToCache(path, seq, kind, content)
+  }
+
+  snapshotGet(seq: number): Promise<SnapshotRecord | undefined> {
+    return getSnapshotFromCache(seq)
+  }
+
+  snapshotList(path: string, limit?: number): Promise<SnapshotMeta[]> {
+    return listSnapshotsFromCache(path, limit)
+  }
+
+  snapshotDelete(seqs: number[]): void {
+    void deleteSnapshotsFromCache(seqs)
+  }
+
   readonly ai: AiClient = {
     start: (request) => this.startAi(request),
     prompt: (text) => this.promptAi(text),
@@ -217,7 +245,8 @@ export class InProcessRuntimeClient implements RuntimeClient {
       const sessionId = adapter.currentSessionId
 
       if (sessionId) {
-        const isKnown = listAiSessionsFromCache(adaptor).some(
+        const knownSessions = await listAiSessionsFromCache(adaptor)
+        const isKnown = knownSessions.some(
           (session) => session.id === sessionId,
         )
 

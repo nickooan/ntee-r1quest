@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -51,6 +52,10 @@ type runtimeClient interface {
 	ListApiEndpoints(ctx context.Context) ([]runtime.ApiCallRecord, error)
 	ListTraceCalls(ctx context.Context, traceID string) ([]runtime.ApiCallRecord, error)
 	ListAiSessions(ctx context.Context, adaptor string) ([]runtime.AiSessionRecord, error)
+	SnapshotPut(path string, seq int64, kind, content string) error
+	SnapshotGet(ctx context.Context, seq int64) (runtime.SnapshotRecord, bool, error)
+	SnapshotList(ctx context.Context, path string, limit int) ([]runtime.SnapshotMeta, error)
+	SnapshotDelete(seqs []int64) error
 	AiStart(ctx context.Context, req runtime.AiStartRequest) error
 	AiPrompt(ctx context.Context, text string) error
 	AiRespondPermission(ctx context.Context, decision runtime.AiPermissionDecision) error
@@ -134,6 +139,15 @@ type Model struct {
 	fileScrollY int
 	edit        editor
 	notice      string
+
+	// Edit-mode undo/redo timeline. Snapshots live in the runtime's ntee-db
+	// (keyed by these seqs); the TUI keeps only the lightweight seq list + a
+	// cursor. snapDirty marks edits made since the last checkpoint; nextSeq is a
+	// monotonic (millisecond-seeded) id so keys sort in save order.
+	undoSeqs   []int64
+	undoCursor int
+	nextSeq    int64
+	snapDirty  bool
 
 	// Query-mode overlays. pendingViewFile holds a non-.nts file's command while
 	// the "view this file?" confirm is shown; messageOverlay holds a dismissible
@@ -391,6 +405,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case AiPermissionMsg:
 		if permission, ok := view.ParsePermission(msg.Raw); ok {
 			m.aiPermission = &permission
+		}
+		return m, nil
+
+	case snapshotLoadedMsg:
+		// Result of an undo/redo fetch: replace the editor with the snapshot.
+		if msg.ok && m.mode == modeEdit {
+			m.edit = newEditor(msg.content)
+			m.edit.clampCursor()
+			m.snapDirty = false
 		}
 		return m, nil
 
@@ -909,11 +932,12 @@ func (m Model) openFileForMode(target string, forEdit bool) (tea.Model, tea.Cmd)
 	m.errText = ""
 	if forEdit {
 		m.mode = modeEdit
-		m.edit = newEditor(file.Content)
-	} else {
-		m.mode = modeView
-		m.fileScrollY = 0
+		var cmd tea.Cmd
+		m, cmd = m.beginEditSession(file.Content)
+		return m, cmd
 	}
+	m.mode = modeView
+	m.fileScrollY = 0
 	return m, nil
 }
 
@@ -943,7 +967,9 @@ func (m Model) handleViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "e":
 			if m.openFile != nil {
 				m.mode = modeEdit
-				m.edit = newEditor(m.openFile.Content)
+				var cmd tea.Cmd
+				m, cmd = m.beginEditSession(m.openFile.Content)
+				return m, cmd
 			}
 		case "s":
 			if m.openFile != nil {
@@ -1020,7 +1046,15 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc:
 		m.mode = m.searchPrevMode
 		return m, nil
-	case tea.KeyEnter, tea.KeyDown:
+	case tea.KeyEnter:
+		// From edit mode, Enter commits: jump the editor cursor to the focused
+		// match and return to editing. Elsewhere it just advances to the next match.
+		if m.searchPrevMode == modeEdit {
+			return m.jumpEditToMatch(), nil
+		}
+		m.searchFocused = m.nextMatch(1)
+		return m, nil
+	case tea.KeyDown:
 		m.searchFocused = m.nextMatch(1)
 		return m, nil
 	case tea.KeyUp:
@@ -1052,6 +1086,27 @@ func (m Model) nextMatch(direction int) int {
 		return 0
 	}
 	return ((m.searchFocused+direction)%n + n) % n
+}
+
+// jumpEditToMatch moves the editor cursor to the currently focused search match
+// and returns to edit mode. renderFile then scrolls the line into view (vertical)
+// and renderEditLine follows the cursor horizontally, so an off-screen match
+// becomes visible.
+func (m Model) jumpEditToMatch() Model {
+	matches := view.FindSearchMatches(m.searchContent, m.searchInput)
+	m.mode = modeEdit
+	if m.searchFocused < len(matches) {
+		mt := matches[m.searchFocused]
+		m.edit.clearSelection()
+		m.edit.cy = input.Clamp(mt.LineIndex, 0, len(m.edit.lines)-1)
+		line := m.edit.lines[m.edit.cy]
+		b := mt.Start
+		if b > len(line) {
+			b = len(line)
+		}
+		m.edit.cx = utf8.RuneCountInString(line[:b])
+	}
+	return m
 }
 
 func (m Model) enterSearch(prev mode, content string) Model {
@@ -1483,6 +1538,13 @@ func (m Model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
+	case tea.KeyCtrlA:
+		// Progressive select: word → key/value segment → whole line.
+		m.edit.expandSelection()
+		return m, nil
+	case tea.KeyCtrlF:
+		// Search the buffer; Enter in search jumps the editor cursor to the match.
+		return m.enterSearch(modeEdit, m.edit.content()), nil
 	case tea.KeyTab:
 		if overlay {
 			m.acceptSuggestion()
@@ -1491,6 +1553,11 @@ func (m Model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc:
 		if overlay {
 			m.editDismissed = true
+			return m, nil
+		}
+		if m.edit.sel != nil {
+			// First Esc clears an active selection; it does not exit edit mode.
+			m.edit.clearSelection()
 			return m, nil
 		}
 		// Discard edits and return to the file view (not all the way to query).
@@ -1512,9 +1579,16 @@ func (m Model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.openFile.Content = m.edit.content()
 				m.edit.dirty = false
 				m.notice = "saved"
+				var cmd tea.Cmd
+				m, cmd = m.pushSnapshot("save")
+				return m, cmd
 			}
 		}
 		return m, nil
+	case tea.KeyCtrlZ:
+		return m.undo()
+	case tea.KeyCtrlY:
+		return m.redo()
 	case tea.KeyEnter:
 		if overlay {
 			m.acceptSuggestion()
@@ -1522,37 +1596,49 @@ func (m Model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.edit.newline()
 		m.recomputeEditSuggestions()
-		return m, nil
+		// A newline is a burst boundary → checkpoint.
+		var cmd tea.Cmd
+		m, cmd = m.pushSnapshot("edit")
+		return m, cmd
 	case tea.KeyBackspace:
 		m.edit.backspace()
 		m.editDismissed = false
 		m.recomputeEditSuggestions()
+		m.snapDirty = true
 		return m, nil
 	case tea.KeyLeft:
+		var cmd tea.Cmd
+		m, cmd = m.flushBurst()
 		m.edit.move(-1, 0)
 		m.recomputeEditSuggestions()
-		return m, nil
+		return m, cmd
 	case tea.KeyRight:
+		var cmd tea.Cmd
+		m, cmd = m.flushBurst()
 		m.edit.move(1, 0)
 		m.recomputeEditSuggestions()
-		return m, nil
+		return m, cmd
 	case tea.KeyUp:
 		if overlay {
 			n := len(m.editSuggestions)
 			m.editSuggestIndex = (m.editSuggestIndex - 1 + n) % n
 			return m, nil
 		}
+		var cmd tea.Cmd
+		m, cmd = m.flushBurst()
 		m.edit.move(0, -1)
 		m.recomputeEditSuggestions()
-		return m, nil
+		return m, cmd
 	case tea.KeyDown:
 		if overlay {
 			m.editSuggestIndex = (m.editSuggestIndex + 1) % len(m.editSuggestions)
 			return m, nil
 		}
+		var cmd tea.Cmd
+		m, cmd = m.flushBurst()
 		m.edit.move(0, 1)
 		m.recomputeEditSuggestions()
-		return m, nil
+		return m, cmd
 	case tea.KeyRunes, tea.KeySpace:
 		text := string(msg.Runes)
 		if msg.Type == tea.KeySpace {
@@ -1561,6 +1647,13 @@ func (m Model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.edit.insert(text)
 		m.editDismissed = false
 		m.recomputeEditSuggestions()
+		m.snapDirty = true
+		if msg.Type == tea.KeySpace {
+			// A space ends a word → checkpoint the burst.
+			var cmd tea.Cmd
+			m, cmd = m.pushSnapshot("edit")
+			return m, cmd
+		}
 		return m, nil
 	}
 	return m, nil

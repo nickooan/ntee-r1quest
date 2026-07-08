@@ -12,11 +12,16 @@ export const NS = {
   input: "input:",
   api: "api:",
   system: "system:",
+  versions: "versions:",
 } as const
 
 // Secondary indexes over API-call records.
 export const ENDPOINT_INDEX = "endpoint"
 export const TRACE_INDEX = "traceId"
+// Secondary index over file-version snapshots (value = absolute file path). The
+// cap keeps at most 50 snapshots per file, evicting the oldest (lowest key).
+export const FILE_INDEX = "file"
+export const MAX_VERSIONS_PER_FILE = 50
 
 let store: NteeDB | null = null
 let openFailed = false
@@ -48,6 +53,11 @@ export const openCache = (): NteeDB | null => {
       indexes: [
         { name: ENDPOINT_INDEX, kind: "string", maxPerValue: 5 },
         { name: TRACE_INDEX, kind: "string" },
+        {
+          name: FILE_INDEX,
+          kind: "string",
+          maxPerValue: MAX_VERSIONS_PER_FILE,
+        },
       ],
     })
 
@@ -81,8 +91,11 @@ export const closeCache = (): void => {
  * store, so get() already returns the parsed object; a Buffer here means a
  * non-JSON / corrupt value, treated as absent.
  */
-export const cacheGet = <T>(db: NteeDB, key: string): T | undefined => {
-  const value = db.get(key)
+export const cacheGet = async <T>(
+  db: NteeDB,
+  key: string,
+): Promise<T | undefined> => {
+  const value = await db.get(key)
   if (value == null || Buffer.isBuffer(value)) {
     return undefined
   }

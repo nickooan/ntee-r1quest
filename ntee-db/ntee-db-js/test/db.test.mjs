@@ -383,7 +383,10 @@ test("secIndex limit + direction (first N asc / last N desc)", async () => {
         "call:2",
         "call:3",
       ]) // first 3 asc
-      assert.deepEqual(await db.secIndex("traceId", "T", -2), ["call:6", "call:5"]) // last 2 desc
+      assert.deepEqual(await db.secIndex("traceId", "T", -2), [
+        "call:6",
+        "call:5",
+      ]) // last 2 desc
       assert.deepEqual(await db.secIndex("traceId", "T", 100), [
         "call:1",
         "call:2",
@@ -454,13 +457,16 @@ test("async compact and reindex", async () => {
 })
 
 test("error surfaces as thrown Error", async () => {
-  await withDB({ indexes: [{ name: "status", kind: "number" }] }, async (db) => {
-    assert.throws(
-      () => db.put("k", "v", { unknownIndex: "x" }),
-      /unknown index/,
-    )
-    await assert.rejects(db.secIndex("nope", "x"), /unknown index/)
-  })
+  await withDB(
+    { indexes: [{ name: "status", kind: "number" }] },
+    async (db) => {
+      assert.throws(
+        () => db.put("k", "v", { unknownIndex: "x" }),
+        /unknown index/,
+      )
+      await assert.rejects(db.secIndex("nope", "x"), /unknown index/)
+    },
+  )
 })
 
 test("drop deletes the store", async () => {

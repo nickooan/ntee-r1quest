@@ -32,8 +32,7 @@ const db = NteeDB.open("./ntee-parallel", {})
   // One batched write to populate GROUPS × PER_GROUP records quickly.
   const items = []
   for (let g = 0; g < GROUPS; g++)
-    for (let i = 0; i < PER_GROUP; i++)
-      items.push({ key: key(g, i), value })
+    for (let i = 0; i < PER_GROUP; i++) items.push({ key: key(g, i), value })
   await db.putMany(items)
 }
 

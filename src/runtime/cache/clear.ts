@@ -10,7 +10,7 @@ export const clearCache = async (): Promise<void> => {
 
   try {
     // Delete every key across all namespaces, then reclaim the dead records.
-    for (const key of cache.prefixScan("")) {
+    for (const key of await cache.prefixScan("")) {
       cache.delete(key)
     }
 
