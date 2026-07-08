@@ -53,6 +53,76 @@ var headerSuggestions = func() []Item {
 	return items
 }()
 
+// headerValueSuggestions maps a (lowercased) header name to its most common
+// values, offered when the cursor is in the value position of a `header <name>,`
+// line. Ordered most-common-first so the default match sits at the top.
+var headerValueSuggestions = map[string][]string{
+	"content-type": {
+		"application/json",
+		"application/json; charset=utf-8",
+		"application/x-www-form-urlencoded",
+		"multipart/form-data",
+		"text/plain",
+		"text/plain; charset=utf-8",
+		"text/html",
+		"application/xml",
+		"application/octet-stream",
+		"application/graphql",
+	},
+	"accept": {
+		"application/json",
+		"application/json, text/plain, */*",
+		"*/*",
+		"text/html",
+		"application/xml",
+	},
+	"accept-encoding":  {"gzip, deflate, br", "gzip", "identity"},
+	"content-encoding": {"gzip", "br", "deflate"},
+	"accept-language":  {"en-US,en;q=0.9", "en", "*"},
+	"cache-control": {
+		"no-cache",
+		"no-store",
+		"no-cache, no-store, must-revalidate",
+		"max-age=0",
+		"max-age=3600",
+		"must-revalidate",
+		"public",
+		"private",
+	},
+	"connection":       {"keep-alive", "close"},
+	"authorization": {
+		"Bearer ",
+		"Basic ",
+		"Digest ",
+		"Token ",
+		"ApiKey ",
+		"AWS4-HMAC-SHA256 ",
+		"Negotiate ",
+		"NTLM ",
+	},
+	"proxy-authorization": {"Basic ", "Bearer ", "Negotiate ", "NTLM "},
+	"prefer":           {"return=representation", "return=minimal", "respond-async"},
+	"x-requested-with": {"XMLHttpRequest"},
+}
+
+// BuildHeaderValueSuggestionItems returns the common values for headerName whose
+// (case-insensitive) text begins with fragment (the value typed so far). Empty
+// fragment lists all values for the header; an unknown header returns nil.
+func BuildHeaderValueSuggestionItems(headerName, fragment string) []Item {
+	values, ok := headerValueSuggestions[strings.ToLower(strings.TrimSpace(headerName))]
+	if !ok {
+		return nil
+	}
+	lower := strings.ToLower(fragment)
+	var items []Item
+	for _, v := range values {
+		if lower == "" || strings.HasPrefix(strings.ToLower(v), lower) {
+			items = append(items, Item{Label: v, InsertText: v, Kind: "headerValue"})
+		}
+	}
+	return items
+}
+
 func buildCustomSuggestionItems(custom []string) []Item {
 	seen := map[string]bool{}
 	var items []Item

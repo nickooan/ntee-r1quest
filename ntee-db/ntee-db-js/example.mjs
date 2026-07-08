@@ -19,8 +19,8 @@ db.put("call:1", { kind: "request", url: "/orders" }, { traceId: "T1" })
 db.put("call:2", { kind: "request", url: "/items" }, { traceId: "T1" })
 db.put("call:3", { kind: "history", url: "/x" }, { traceId: "T2" })
 
-console.log("by traceId T1:", db.secIndex("traceId", "T1"))
-console.log("by kind=request:", db.secIndex("kind", "request"))
+console.log("by traceId T1:", await db.secIndex("traceId", "T1"))
+console.log("by kind=request:", await db.secIndex("kind", "request"))
 // Record-returning searches are async (the value fetch runs off the event
 // loop); values come back already parsed.
 console.log(
@@ -39,7 +39,7 @@ db = NteeDB.open(dir, {
   ],
 })
 // Default json valueFormat → get returns the parsed record directly.
-console.log("after reopen, get call:1:", db.get("call:1"))
+console.log("after reopen, get call:1:", await db.get("call:1"))
 db.close()
 
 rmSync(dir, { recursive: true, force: true })

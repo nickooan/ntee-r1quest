@@ -186,7 +186,9 @@ export const listApiEndpointsByPrefix = async (
 }
 
 /** Returns the latest cached call for an endpoint label, or undefined. */
-export const getApiCall = (endpoint: string): ApiCallRecord | undefined => {
+export const getApiCall = async (
+  endpoint: string,
+): Promise<ApiCallRecord | undefined> => {
   const cache = openCache()
 
   if (!cache) {
@@ -195,9 +197,9 @@ export const getApiCall = (endpoint: string): ApiCallRecord | undefined => {
 
   try {
     // -1 → the single most-recent record for this endpoint.
-    const [key] = cache.secIndex(ENDPOINT_INDEX, endpoint, -1)
+    const [key] = await cache.secIndex(ENDPOINT_INDEX, endpoint, -1)
 
-    return key ? cacheGet<ApiCallRecord>(cache, key) : undefined
+    return key ? await cacheGet<ApiCallRecord>(cache, key) : undefined
   } catch {
     return undefined
   }

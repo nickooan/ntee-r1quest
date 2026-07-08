@@ -93,48 +93,64 @@ export declare class NteeDB {
     }[],
   ): Promise<number>
 
-  /** Get the value for `key`, or null if absent (parsed; see ReadValue). */
-  get(key: string): ReadValue | null
+  /**
+   * Get the value for `key`, or null if absent (parsed; see ReadValue). Async:
+   * runs off the event loop, so concurrent reads run in parallel.
+   */
+  get(key: string): Promise<ReadValue | null>
   /**
    * Get the values for many keys in one FFI call, aligned to `keys`: each entry
    * is the parsed value (see ReadValue), or null if that key is absent. Async:
    * the unbounded read runs off the event loop.
    */
   getMany(keys: string[]): Promise<(ReadValue | null)[]>
-  /** Whether `key` exists. */
-  has(key: string): boolean
-  /** Point-in-time store size (cheap, in-memory counters). */
-  stats(): StoreStats
+  /** Whether `key` exists. Async — runs off the event loop. */
+  has(key: string): Promise<boolean>
+  /** Point-in-time store size (cheap, in-memory counters). Async for a uniform read surface. */
+  stats(): Promise<StoreStats>
   /** Delete `key` (no-op if absent). */
   delete(key: string): void
 
-  /** Sorted keys with the given primary-key prefix. */
-  prefixScan(prefix: string): string[]
+  /**
+   * Sorted keys with the given primary-key prefix. Async — the traversal runs
+   * off the event loop, so concurrent scans (e.g. via Promise.all) run in parallel.
+   */
+  prefixScan(prefix: string): Promise<string[]>
   /**
    * Primary keys whose value in the secondary index `name` equals `val` (multi-value).
    * @param limit 0 = all (ascending); N>0 = first N ascending; N<0 = last |N| descending.
+   * Async — runs off the event loop.
    */
-  secIndex(name: string, val: string | number, limit?: number): string[]
-  /** Whether any record has `val` in the secondary index `name` (no keys materialized). */
-  secIndexHas(name: string, val: string | number): boolean
+  secIndex(
+    name: string,
+    val: string | number,
+    limit?: number,
+  ): Promise<string[]>
+  /** Whether any record has `val` in the secondary index `name` (no keys materialized). Async. */
+  secIndexHas(name: string, val: string | number): Promise<boolean>
   /**
    * Primary keys whose (string) value in the secondary index `name` starts with `prefix`.
    * @param limit applied per distinct index value (grouped): 0 (default) = all
    * matches flat; N>0 = first N of each value ascending; N<0 = last |N| of each
    * value descending.
+   * Async — runs off the event loop.
    */
-  secIndexPrefix(name: string, prefix: string, limit?: number): string[]
-  /** Primary keys whose value in the secondary index `name` is within [lo, hi]. */
+  secIndexPrefix(
+    name: string,
+    prefix: string,
+    limit?: number,
+  ): Promise<string[]>
+  /** Primary keys whose value in the secondary index `name` is within [lo, hi]. Async. */
   secIndexRange(
     name: string,
     lo: string | number,
     hi: string | number,
-  ): string[]
+  ): Promise<string[]>
 
-  /** Indexes lingering in records after a soft-drop (until reindex). */
-  secIndexDropped(): string[]
-  /** Indexes not yet back-filled over pre-existing records. */
-  secIndexProspective(): string[]
+  /** Indexes lingering in records after a soft-drop (until reindex). Async. */
+  secIndexDropped(): Promise<string[]>
+  /** Indexes not yet back-filled over pre-existing records. Async. */
+  secIndexProspective(): Promise<string[]>
 
   /**
    * Delete every key strictly less than `cutoff` (cutoff kept). Lexical key

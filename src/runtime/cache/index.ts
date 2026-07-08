@@ -24,3 +24,12 @@ export {
   type AiSessionRecord,
 } from "./system.ts"
 export { clearCache } from "./clear.ts"
+export {
+  recordSnapshot,
+  getSnapshot,
+  listSnapshots,
+  deleteSnapshots,
+  type SnapshotKind,
+  type SnapshotRecord,
+  type SnapshotMeta,
+} from "./versions.ts"

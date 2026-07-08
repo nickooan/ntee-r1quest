@@ -9,7 +9,13 @@
 // are NOT here — they are ported to Go directly and never cross the seam.
 
 import type { AcpAdaptorName } from "../acp/index.ts"
-import type { AiSessionRecord, ApiCallRecord } from "../cache/index.ts"
+import type {
+  AiSessionRecord,
+  ApiCallRecord,
+  SnapshotKind,
+  SnapshotMeta,
+  SnapshotRecord,
+} from "../cache/index.ts"
 import type { ExternalRequestEvent } from "../external-event/index.ts"
 import type {
   AiConversation,
@@ -68,6 +74,17 @@ export interface RuntimeClient {
   listApiEndpoints(): Promise<ApiCallRecord[]>
   listTraceCalls(traceId: string): Promise<ApiCallRecord[]>
   clearCache(): Promise<void>
+
+  // File-version snapshots. put/delete are fire-and-forget (best-effort).
+  snapshotPut(
+    path: string,
+    seq: number,
+    kind: SnapshotKind,
+    content: string,
+  ): void
+  snapshotGet(seq: number): Promise<SnapshotRecord | undefined>
+  snapshotList(path: string, limit?: number): Promise<SnapshotMeta[]>
+  snapshotDelete(seqs: number[]): void
 
   // AI/ACP. Session bookkeeping (add/refresh records) is internal to the
   // runtime, triggered by start/resume — not exposed here.

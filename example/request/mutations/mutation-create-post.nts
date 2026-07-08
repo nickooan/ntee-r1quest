@@ -6,6 +6,7 @@ type post
 header accept, application/json
 header content-type, application/json
 
+
 body {
   query: @i(mutation)
   variables: @i(variables)

@@ -106,6 +106,23 @@ type ApiCallRecord struct {
 	} `json:"response"`
 }
 
+// SnapshotRecord mirrors cache SnapshotRecord (one file-version snapshot).
+type SnapshotRecord struct {
+	Filename   string `json:"filename"`
+	Path       string `json:"path"`
+	Seq        int64  `json:"seq"`
+	SnapshotAt string `json:"snapshotAt"`
+	Kind       string `json:"kind"`
+	Content    string `json:"content"`
+}
+
+// SnapshotMeta mirrors cache SnapshotMeta (lightweight snapshot metadata).
+type SnapshotMeta struct {
+	Seq        int64  `json:"seq"`
+	SnapshotAt string `json:"snapshotAt"`
+	Kind       string `json:"kind"`
+}
+
 // ExternalRequestEvent mirrors external-event ExternalRequestEvent.
 type ExternalRequestEvent struct {
 	NtsPath         string `json:"ntsPath"`

@@ -27,11 +27,11 @@ describe("cache single-writer lock hand-off", () => {
     rmSync(isolatedHome, { recursive: true, force: true })
   })
 
-  test("closeCache releases the store lock for another process", () => {
+  test("closeCache releases the store lock for another process", async () => {
     // Using the cache opens the store and takes the single-writer lock —
     // exactly what the CLI entry does during startup housekeeping.
-    recordInput("get users")
-    expect(suggestInputs("get")).toEqual(["get users"])
+    await recordInput("get users")
+    expect(await suggestInputs("get")).toEqual(["get users"])
 
     // While held, another opener (the TUI runtime server, in reality a
     // separate process) is locked out.
@@ -41,17 +41,17 @@ describe("cache single-writer lock hand-off", () => {
     // the next opener must succeed.
     closeCache()
     const takenOver = NteeDB.open(cacheDirectory, {})
-    expect(takenOver.prefixScan("input:").length).toBeGreaterThan(0)
+    expect((await takenOver.prefixScan("input:")).length).toBeGreaterThan(0)
 
     // And while the "runtime server" holds it, this process degrades to a
     // no-op instead of breaking.
-    recordInput("another input")
-    expect(suggestInputs("another")).toEqual([])
+    await recordInput("another input")
+    expect(await suggestInputs("another")).toEqual([])
 
     // Releasing again lets this process re-open on demand (memoization reset).
     takenOver.close()
     closeCache() // clear the openFailed latch from the locked attempt
-    recordInput("after handback")
-    expect(suggestInputs("after")).toEqual(["after handback"])
+    await recordInput("after handback")
+    expect(await suggestInputs("after")).toEqual(["after handback"])
   })
 })

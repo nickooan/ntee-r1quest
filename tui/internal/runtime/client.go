@@ -91,6 +91,32 @@ func (c *Client) ClearCache(ctx context.Context) error {
 	return err
 }
 
+// SnapshotPut records a file-version snapshot (fire-and-forget notification).
+func (c *Client) SnapshotPut(path string, seq int64, kind, content string) error {
+	return c.conn.Notify(MethodSnapshotPut, map[string]any{
+		"path": path, "seq": seq, "kind": kind, "content": content,
+	})
+}
+
+// SnapshotGet returns one snapshot by seq; ok is false when it's absent/evicted.
+func (c *Client) SnapshotGet(ctx context.Context, seq int64) (SnapshotRecord, bool, error) {
+	rec, err := request[*SnapshotRecord](ctx, c, MethodSnapshotGet, map[string]any{"seq": seq})
+	if err != nil || rec == nil {
+		return SnapshotRecord{}, false, err
+	}
+	return *rec, true, nil
+}
+
+// SnapshotList returns up to limit snapshots for a file, newest first.
+func (c *Client) SnapshotList(ctx context.Context, path string, limit int) ([]SnapshotMeta, error) {
+	return request[[]SnapshotMeta](ctx, c, MethodSnapshotList, map[string]any{"path": path, "limit": limit})
+}
+
+// SnapshotDelete removes snapshots by seq (fire-and-forget notification).
+func (c *Client) SnapshotDelete(seqs []int64) error {
+	return c.conn.Notify(MethodSnapshotDelete, map[string]any{"seqs": seqs})
+}
+
 func (c *Client) AiStart(ctx context.Context, req AiStartRequest) error {
 	_, err := c.conn.Request(ctx, MethodAiStart, req)
 	return err

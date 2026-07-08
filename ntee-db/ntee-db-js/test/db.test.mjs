@@ -19,35 +19,35 @@ async function withDB(opts, fn) {
 }
 
 test("single-writer lock: second open of the same store throws", async () => {
-  await withDB({}, (db, dir) => {
+  await withDB({}, async (db, dir) => {
     // The store is held by `db` — a second opener must fail fast.
     assert.throws(() => NteeDB.open(dir, {}), /locked/)
     // The first handle is unaffected.
     db.put("k", "v")
-    assert.equal(db.get("k").toString(), "v")
+    assert.equal((await db.get("k")).toString(), "v")
     // After releasing, the store opens again.
     db.close()
     const db2 = NteeDB.open(dir, {})
-    assert.equal(db2.get("k").toString(), "v")
+    assert.equal((await db2.get("k")).toString(), "v")
     db2.close()
   })
 })
 
 test("put/get/has/delete round-trip", async () => {
-  await withDB({}, (db) => {
+  await withDB({}, async (db) => {
     db.put("alpha", Buffer.from("one"))
     db.put("beta", "two") // string accepted
-    assert.equal(db.get("alpha").toString(), "one")
-    assert.equal(db.get("beta").toString(), "two")
-    assert.equal(db.has("beta"), true)
-    assert.equal(db.get("missing"), null)
+    assert.equal((await db.get("alpha")).toString(), "one")
+    assert.equal((await db.get("beta")).toString(), "two")
+    assert.equal(await db.has("beta"), true)
+    assert.equal(await db.get("missing"), null)
 
     db.put("alpha", Buffer.from("ONE"))
-    assert.equal(db.get("alpha").toString(), "ONE")
+    assert.equal((await db.get("alpha")).toString(), "ONE")
 
     db.delete("alpha")
-    assert.equal(db.get("alpha"), null)
-    assert.equal(db.has("alpha"), false)
+    assert.equal(await db.get("alpha"), null)
+    assert.equal(await db.has("alpha"), false)
   })
 })
 
@@ -65,12 +65,12 @@ test("putMany batches records (order, indexes, validation, caps)", async () => {
       assert.equal(n, 5)
 
       // Values round-trip; last write in the batch wins.
-      assert.equal(db.get("other:1").toString(), "y")
-      assert.equal(db.get("call:2").toString(), "b")
+      assert.equal((await db.get("other:1")).toString(), "y")
+      assert.equal((await db.get("call:2")).toString(), "b")
 
       // maxPerValue applied across the batch: only the newest 2 remain.
-      assert.deepEqual(db.secIndex("traceId", "T"), ["call:2", "call:3"])
-      assert.equal(db.has("call:1"), false)
+      assert.deepEqual(await db.secIndex("traceId", "T"), ["call:2", "call:3"])
+      assert.equal(await db.has("call:1"), false)
 
       // An invalid item rejects the whole batch with nothing written.
       await assert.rejects(
@@ -80,7 +80,7 @@ test("putMany batches records (order, indexes, validation, caps)", async () => {
         ]),
         /unknown index/,
       )
-      assert.equal(db.has("ok:1"), false)
+      assert.equal(await db.has("ok:1"), false)
 
       // A JSON value reads back parsed; binary and a BOM-prefixed value are
       // non-JSON → byte-exact Buffers.
@@ -91,15 +91,15 @@ test("putMany batches records (order, indexes, validation, caps)", async () => {
         { key: "batch:bin", value: binary },
         { key: "batch:bom", value: bom },
       ])
-      assert.deepEqual(db.get("batch:text"), { n: 1, emoji: "🎉" })
-      assert.deepEqual(db.get("batch:bin"), binary)
-      assert.deepEqual(db.get("batch:bom"), bom)
+      assert.deepEqual(await db.get("batch:text"), { n: 1, emoji: "🎉" })
+      assert.deepEqual(await db.get("batch:bin"), binary)
+      assert.deepEqual(await db.get("batch:bom"), bom)
     },
   )
 })
 
 test("prefix scan", async () => {
-  await withDB({}, (db) => {
+  await withDB({}, async (db) => {
     for (const k of [
       "input:Get",
       "input:GetProperty",
@@ -109,37 +109,37 @@ test("prefix scan", async () => {
     ]) {
       db.put(k, "v")
     }
-    assert.deepEqual(db.prefixScan("input:GetP"), [
+    assert.deepEqual(await db.prefixScan("input:GetP"), [
       "input:GetProperty",
       "input:GetPropertyNames",
     ])
-    assert.equal(db.prefixScan("input:").length, 4)
+    assert.equal((await db.prefixScan("input:")).length, 4)
   })
 })
 
 test("JSON values parse; invalid-UTF-8 binary round-trips as a Buffer", async () => {
-  await withDB({}, (db) => {
+  await withDB({}, async (db) => {
     // A JSON value is stored readably on disk ("s") and read back parsed.
     const obj = { endpoint: "/api/users", note: "emoji 🎉" }
     db.put("obj", JSON.stringify(obj))
-    assert.deepEqual(db.get("obj"), obj)
+    assert.deepEqual(await db.get("obj"), obj)
 
     // Binary (invalid UTF-8) is base64 on the wire → Buffer, byte-exact.
     const binary = Buffer.from([0xff, 0xfe, 0x00, 0x01, 0xc3, 0x28])
     db.put("bin", binary)
-    assert.deepEqual(db.get("bin"), binary)
+    assert.deepEqual(await db.get("bin"), binary)
 
     // Empty value is not valid JSON → an empty Buffer.
     db.put("empty", "")
-    assert.deepEqual(db.get("empty"), Buffer.alloc(0))
+    assert.deepEqual(await db.get("empty"), Buffer.alloc(0))
   })
 })
 
 test("binary values survive (blob path)", async () => {
-  await withDB({ blobThreshold: 32 }, (db) => {
+  await withDB({ blobThreshold: 32 }, async (db) => {
     const big = Buffer.alloc(4096, 0xab)
     db.put("blob", big)
-    assert.ok(db.get("blob").equals(big))
+    assert.ok((await db.get("blob")).equals(big))
   })
 })
 
@@ -166,22 +166,22 @@ test("put/putMany accept an object directly (JSON-serialized)", async () => {
   await withDB({}, async (db) => {
     const obj = { kind: "request", tags: ["a", "b"] }
     db.put("a", obj) // object, not a string
-    assert.deepEqual(db.get("a"), obj)
+    assert.deepEqual(await db.get("a"), obj)
 
     db.put("n", 42) // scalar
-    assert.equal(db.get("n"), 42)
+    assert.equal(await db.get("n"), 42)
 
     // string and Buffer still pass through unchanged (no double-encoding).
     db.put("s", '{"pre":"serialized"}')
-    assert.deepEqual(db.get("s"), { pre: "serialized" })
+    assert.deepEqual(await db.get("s"), { pre: "serialized" })
 
     await db.putMany([
       { key: "b1", value: { n: 1 } },
       { key: "b2", value: "raw-string" }, // stays a string → non-JSON → Buffer
     ])
-    assert.deepEqual(db.get("b1"), { n: 1 })
-    assert.ok(Buffer.isBuffer(db.get("b2")))
-    assert.equal(db.get("b2").toString(), "raw-string")
+    assert.deepEqual(await db.get("b1"), { n: 1 })
+    assert.ok(Buffer.isBuffer(await db.get("b2")))
+    assert.equal((await db.get("b2")).toString(), "raw-string")
   })
 })
 
@@ -198,10 +198,10 @@ test("putMany binary ABI: empty batch, blob-path + mixed values, byte-exact", as
       { key: "k:str", value: "plain" }, // non-JSON string → Buffer on read
     ])
     assert.equal(n, 4)
-    assert.ok(db.get("k:big").equals(big))
-    assert.deepEqual(db.get("k:obj"), { a: 1 })
-    assert.deepEqual(db.get("k:bin"), bin)
-    assert.equal(db.get("k:str").toString(), "plain")
+    assert.ok((await db.get("k:big")).equals(big))
+    assert.deepEqual(await db.get("k:obj"), { a: 1 })
+    assert.deepEqual(await db.get("k:bin"), bin)
+    assert.equal((await db.get("k:str")).toString(), "plain")
   })
 })
 
@@ -216,12 +216,12 @@ test("JSON store: reads return parsed values, Buffer for non-JSON", async () => 
       db.put("bin", Buffer.from([0xff, 0x00, 0x01])) // binary → Buffer
 
       // get: parsed value, not a Buffer.
-      assert.deepEqual(db.get("rec"), obj)
-      assert.equal(db.get("missing"), null)
+      assert.deepEqual(await db.get("rec"), obj)
+      assert.equal(await db.get("missing"), null)
       // Non-JSON and binary fall back to Buffer.
-      assert.ok(Buffer.isBuffer(db.get("text")))
-      assert.equal(db.get("text").toString(), "hello")
-      assert.deepEqual(db.get("bin"), Buffer.from([0xff, 0x00, 0x01]))
+      assert.ok(Buffer.isBuffer(await db.get("text")))
+      assert.equal((await db.get("text")).toString(), "hello")
+      assert.deepEqual(await db.get("bin"), Buffer.from([0xff, 0x00, 0x01]))
 
       // getMany + secIndexRecords return parsed values too.
       assert.deepEqual(await db.getMany(["rec", "missing"]), [obj, null])
@@ -233,7 +233,7 @@ test("JSON store: reads return parsed values, Buffer for non-JSON", async () => 
 
       // Documented JSON parse semantics: a stored scalar coerces.
       db.put("num", "123")
-      assert.equal(db.get("num"), 123)
+      assert.equal(await db.get("num"), 123)
     },
   )
 })
@@ -246,17 +246,17 @@ test("secondary indexes: explicit values, multi-value, range, prefix", async () 
         { name: "status", kind: "number" },
       ],
     },
-    (db) => {
+    async (db) => {
       db.put("call:1", "{}", { traceId: "T1", status: 200 })
       db.put("call:2", "{}", { traceId: "T1", status: 404 })
       db.put("call:3", "{}", { traceId: "T2", status: 200 })
 
-      assert.deepEqual(db.secIndex("traceId", "T1"), ["call:1", "call:2"])
-      assert.deepEqual(db.secIndexRange("status", 200, 299), [
+      assert.deepEqual(await db.secIndex("traceId", "T1"), ["call:1", "call:2"])
+      assert.deepEqual(await db.secIndexRange("status", 200, 299), [
         "call:1",
         "call:3",
       ])
-      assert.deepEqual(db.secIndexPrefix("traceId", "T"), [
+      assert.deepEqual(await db.secIndexPrefix("traceId", "T"), [
         "call:1",
         "call:2",
         "call:3",
@@ -264,16 +264,16 @@ test("secondary indexes: explicit values, multi-value, range, prefix", async () 
 
       // secIndexHas: presence per value, both kinds; false after the value
       // has no more records.
-      assert.equal(db.secIndexHas("traceId", "T1"), true)
-      assert.equal(db.secIndexHas("traceId", "T9"), false)
-      assert.equal(db.secIndexHas("status", 404), true)
-      assert.equal(db.secIndexHas("status", 500), false)
-      assert.throws(() => db.secIndexHas("nope", "x"), /unknown index/)
+      assert.equal(await db.secIndexHas("traceId", "T1"), true)
+      assert.equal(await db.secIndexHas("traceId", "T9"), false)
+      assert.equal(await db.secIndexHas("status", 404), true)
+      assert.equal(await db.secIndexHas("status", 500), false)
+      await assert.rejects(db.secIndexHas("nope", "x"), /unknown index/)
 
       db.delete("call:1")
-      assert.deepEqual(db.secIndex("traceId", "T1"), ["call:2"])
+      assert.deepEqual(await db.secIndex("traceId", "T1"), ["call:2"])
       db.delete("call:2")
-      assert.equal(db.secIndexHas("traceId", "T1"), false) // both gone
+      assert.equal(await db.secIndexHas("traceId", "T1"), false) // both gone
     },
   )
 })
@@ -289,18 +289,18 @@ test("secIndexPrefix grouped +/-N limit + secIndexPrefixRecords records", async 
       db.put("call:3", "c", { endpoint: "GetXXXMumu" })
 
       // limit 0 (default) is unchanged: all matches, flat, in (value, pk) order.
-      assert.deepEqual(db.secIndexPrefix("endpoint", "GetXXXM"), [
+      assert.deepEqual(await db.secIndexPrefix("endpoint", "GetXXXM"), [
         "call:3",
         "call:1",
         "call:2",
       ])
       // -1: last record of each endpoint (groups ascending by value).
-      assert.deepEqual(db.secIndexPrefix("endpoint", "GetXXXM", -1), [
+      assert.deepEqual(await db.secIndexPrefix("endpoint", "GetXXXM", -1), [
         "call:3",
         "call:2",
       ])
       // +1: first record of each endpoint.
-      assert.deepEqual(db.secIndexPrefix("endpoint", "GetXXXM", 1), [
+      assert.deepEqual(await db.secIndexPrefix("endpoint", "GetXXXM", 1), [
         "call:3",
         "call:1",
       ])
@@ -326,17 +326,17 @@ test("removeByPkLess / removeByPkGreater (range delete, count, secondary sweep)"
 
       // Strict: call:3 (the cutoff) survives; call:1/2 removed. Resolves to count.
       assert.equal(await db.removeByPkLess("call:3"), 2)
-      assert.equal(db.get("call:1"), null)
-      assert.equal(db.has("call:3"), true)
+      assert.equal(await db.get("call:1"), null)
+      assert.equal(await db.has("call:3"), true)
       // Secondary swept — no ghost for a deleted key.
-      assert.deepEqual(db.secIndex("traceId", "T1"), [])
-      assert.deepEqual(db.secIndex("traceId", "T3"), ["call:3"])
+      assert.deepEqual(await db.secIndex("traceId", "T1"), [])
+      assert.deepEqual(await db.secIndex("traceId", "T3"), ["call:3"])
 
       // Strict greater: call:4/5 removed, call:3 kept.
       assert.equal(await db.removeByPkGreater("call:3"), 2)
-      assert.equal(db.has("call:4"), false)
-      assert.equal(db.has("call:3"), true)
-      assert.deepEqual(db.secIndex("traceId", "T5"), [])
+      assert.equal(await db.has("call:4"), false)
+      assert.equal(await db.has("call:3"), true)
+      assert.deepEqual(await db.secIndex("traceId", "T5"), [])
 
       // No-op range removes nothing.
       assert.equal(await db.removeByPkLess("call:3"), 0)
@@ -347,20 +347,20 @@ test("removeByPkLess / removeByPkGreater (range delete, count, secondary sweep)"
 test("maxPerValue caps records per index value (oldest evicted)", async () => {
   await withDB(
     { indexes: [{ name: "traceId", kind: "string", maxPerValue: 2 }] },
-    (db) => {
+    async (db) => {
       db.put("call:1", "a", { traceId: "T" })
       db.put("call:2", "b", { traceId: "T" })
       // Third record with the same value: lowest pk (call:1) is fully deleted.
       db.put("call:3", "c", { traceId: "T" })
 
-      assert.equal(db.get("call:1"), null)
-      assert.equal(db.has("call:1"), false)
-      assert.deepEqual(db.secIndex("traceId", "T"), ["call:2", "call:3"])
+      assert.equal(await db.get("call:1"), null)
+      assert.equal(await db.has("call:1"), false)
+      assert.deepEqual(await db.secIndex("traceId", "T"), ["call:2", "call:3"])
 
       // A different value has its own budget.
       db.put("other:1", "x", { traceId: "U" })
-      assert.deepEqual(db.secIndex("traceId", "U"), ["other:1"])
-      assert.deepEqual(db.secIndex("traceId", "T"), ["call:2", "call:3"])
+      assert.deepEqual(await db.secIndex("traceId", "U"), ["other:1"])
+      assert.deepEqual(await db.secIndex("traceId", "T"), ["call:2", "call:3"])
     },
   )
 })
@@ -370,7 +370,7 @@ test("secIndex limit + direction (first N asc / last N desc)", async () => {
     { indexes: [{ name: "traceId", kind: "string" }] },
     async (db) => {
       for (let i = 1; i <= 6; i++) db.put(`call:${i}`, "{}", { traceId: "T" })
-      assert.deepEqual(db.secIndex("traceId", "T"), [
+      assert.deepEqual(await db.secIndex("traceId", "T"), [
         "call:1",
         "call:2",
         "call:3",
@@ -378,13 +378,16 @@ test("secIndex limit + direction (first N asc / last N desc)", async () => {
         "call:5",
         "call:6",
       ])
-      assert.deepEqual(db.secIndex("traceId", "T", 3), [
+      assert.deepEqual(await db.secIndex("traceId", "T", 3), [
         "call:1",
         "call:2",
         "call:3",
       ]) // first 3 asc
-      assert.deepEqual(db.secIndex("traceId", "T", -2), ["call:6", "call:5"]) // last 2 desc
-      assert.deepEqual(db.secIndex("traceId", "T", 100), [
+      assert.deepEqual(await db.secIndex("traceId", "T", -2), [
+        "call:6",
+        "call:5",
+      ]) // last 2 desc
+      assert.deepEqual(await db.secIndex("traceId", "T", 100), [
         "call:1",
         "call:2",
         "call:3",
@@ -392,7 +395,7 @@ test("secIndex limit + direction (first N asc / last N desc)", async () => {
         "call:5",
         "call:6",
       ]) // clamps
-      assert.deepEqual(db.secIndex("traceId", "missing", -5), [])
+      assert.deepEqual(await db.secIndex("traceId", "missing", -5), [])
       const recent = await db.secIndexRecords("traceId", "T", -2)
       assert.deepEqual(
         recent.map((r) => r.key),
@@ -430,8 +433,8 @@ test("reopen restores state", async () => {
     db.close()
 
     const db2 = NteeDB.open(dir, {})
-    assert.equal(db2.get("a").toString(), "1")
-    assert.equal(db2.get("b"), null)
+    assert.equal((await db2.get("a")).toString(), "1")
+    assert.equal(await db2.get("b"), null)
     db2.close()
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -446,21 +449,24 @@ test("async compact and reindex", async () => {
       db.put("r1", JSON.stringify({ kind: "a" })) // dead record
       db.put("r2", JSON.stringify({ kind: "b" }))
       await db.compact()
-      assert.deepEqual(db.secIndex("kind", "a"), ["r1"])
+      assert.deepEqual(await db.secIndex("kind", "a"), ["r1"])
       await db.reindex()
-      assert.deepEqual(db.secIndex("kind", "b"), ["r2"])
+      assert.deepEqual(await db.secIndex("kind", "b"), ["r2"])
     },
   )
 })
 
 test("error surfaces as thrown Error", async () => {
-  await withDB({ indexes: [{ name: "status", kind: "number" }] }, (db) => {
-    assert.throws(
-      () => db.put("k", "v", { unknownIndex: "x" }),
-      /unknown index/,
-    )
-    assert.throws(() => db.secIndex("nope", "x"), /unknown index/)
-  })
+  await withDB(
+    { indexes: [{ name: "status", kind: "number" }] },
+    async (db) => {
+      assert.throws(
+        () => db.put("k", "v", { unknownIndex: "x" }),
+        /unknown index/,
+      )
+      await assert.rejects(db.secIndex("nope", "x"), /unknown index/)
+    },
+  )
 })
 
 test("drop deletes the store", async () => {
@@ -470,7 +476,7 @@ test("drop deletes the store", async () => {
     db.put("a", "1")
     db.drop()
     const db2 = NteeDB.open(dir, {})
-    assert.equal(db2.has("a"), false)
+    assert.equal(await db2.has("a"), false)
     db2.close()
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -478,19 +484,19 @@ test("drop deletes the store", async () => {
 })
 
 test("stats reports records and file sizes", async () => {
-  await withDB({ blobThreshold: 32 }, (db) => {
-    const empty = db.stats()
+  await withDB({ blobThreshold: 32 }, async (db) => {
+    const empty = await db.stats()
     assert.deepEqual(empty, { records: 0, mainBytes: 0, blobBytes: 0 })
 
     db.put("a", { n: 1 })
     db.put("b", Buffer.alloc(100, 0xcd)) // blob path
-    const s = db.stats()
+    const s = await db.stats()
     assert.equal(s.records, 2)
     assert.ok(s.mainBytes > 0)
     assert.equal(s.blobBytes, 100)
 
     db.delete("a")
-    const s2 = db.stats()
+    const s2 = await db.stats()
     assert.equal(s2.records, 1)
     assert.ok(s2.mainBytes > s.mainBytes) // tombstone appended until compact
   })
@@ -505,7 +511,7 @@ test("static destroy deletes a closed store's files", async () => {
 
     NteeDB.destroy(dir)
     const db2 = NteeDB.open(dir, {}) // fresh store: nothing survives
-    assert.equal(db2.get("a"), null)
+    assert.equal(await db2.get("a"), null)
     db2.close()
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -525,13 +531,13 @@ test("secIndexDropped / secIndexProspective report schema state", async () => {
     const db2 = NteeDB.open(dir, {
       indexes: [{ name: "later", kind: "string", jsonPath: "v" }],
     })
-    assert.deepEqual(db2.secIndexDropped(), ["tmp"])
-    assert.deepEqual(db2.secIndexProspective(), ["later"])
+    assert.deepEqual(await db2.secIndexDropped(), ["tmp"])
+    assert.deepEqual(await db2.secIndexProspective(), ["later"])
 
     // reindex back-fills the jsonPath index and purges the dropped one.
     await db2.reindex()
-    assert.deepEqual(db2.secIndexDropped(), [])
-    assert.deepEqual(db2.secIndexProspective(), [])
+    assert.deepEqual(await db2.secIndexDropped(), [])
+    assert.deepEqual(await db2.secIndexProspective(), [])
     db2.close()
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -561,7 +567,7 @@ test("operations on a closed handle throw", async () => {
 })
 
 test("put(key, undefined) throws a clear error", async () => {
-  await withDB({}, (db) => {
+  await withDB({}, async (db) => {
     assert.throws(() => db.put("k", undefined), /value is undefined/)
     // putMany validates the payload before going async → throws synchronously,
     // like its closed-handle guard.
@@ -569,7 +575,7 @@ test("put(key, undefined) throws a clear error", async () => {
       () => db.putMany([{ key: "k", value: undefined }]),
       /value is undefined/,
     )
-    assert.equal(db.has("k"), false)
+    assert.equal(await db.has("k"), false)
   })
 })
 
@@ -588,20 +594,20 @@ test("overlapping async operations settle consistently", async () => {
     ])
     assert.equal(n, 500)
     await db.removeByPkLess("k0100")
-    assert.equal(db.get("k0099"), null)
-    assert.deepEqual(db.get("k0100"), { i: 100 })
-    assert.equal(db.stats().records, 400)
+    assert.equal(await db.get("k0099"), null)
+    assert.deepEqual(await db.get("k0100"), { i: 100 })
+    assert.equal((await db.stats()).records, 400)
   })
 })
 
 test("no memory leak across many calls (RSS stays bounded)", async () => {
-  await withDB({}, (db) => {
+  await withDB({}, async (db) => {
     const big = Buffer.alloc(64 * 1024, 0x7a) // 64 KiB
     for (let i = 0; i < 50; i++) db.put("k" + i, big)
     if (global.gc) global.gc()
     const before = process.memoryUsage().rss
     for (let i = 0; i < 20000; i++) {
-      const v = db.get("k" + (i % 50))
+      const v = await db.get("k" + (i % 50))
       assert.equal(v.length, big.length)
     }
     if (global.gc) global.gc()

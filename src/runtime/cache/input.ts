@@ -15,7 +15,7 @@ const isCacheableInput = (input: string): boolean =>
  * bumping a usage count and recency timestamp. No-op for empty input or
  * "@" commands.
  */
-export const recordInput = (rawInput: string): void => {
+export const recordInput = async (rawInput: string): Promise<void> => {
   const input = rawInput.trim()
 
   if (!isCacheableInput(input)) {
@@ -29,7 +29,7 @@ export const recordInput = (rawInput: string): void => {
   }
 
   try {
-    const existing = cacheGet<InputRecord>(cache, NS.input + input)
+    const existing = await cacheGet<InputRecord>(cache, NS.input + input)
 
     cachePut(cache, NS.input + input, {
       count: (existing?.count ?? 0) + 1,
@@ -44,7 +44,10 @@ export const recordInput = (rawInput: string): void => {
  * Returns cached inputs that start with the given prefix, most-recently-used
  * first. Prefix matching uses LMDB's ordered keys for an efficient range scan.
  */
-export const suggestInputs = (prefix: string, limit = 6): string[] => {
+export const suggestInputs = async (
+  prefix: string,
+  limit = 6,
+): Promise<string[]> => {
   const normalizedPrefix = prefix.trim()
 
   if (!isCacheableInput(normalizedPrefix)) {
@@ -61,7 +64,9 @@ export const suggestInputs = (prefix: string, limit = 6): string[] => {
     const matches: Array<{ key: string; lastUsedAt: number }> = []
 
     // Prefix scan over the input namespace; keys come back as "input:<text>".
-    for (const namespacedKey of cache.prefixScan(NS.input + normalizedPrefix)) {
+    for (const namespacedKey of await cache.prefixScan(
+      NS.input + normalizedPrefix,
+    )) {
       const text = namespacedKey.slice(NS.input.length)
 
       // Skip an exact match of what the user already typed.
@@ -69,7 +74,7 @@ export const suggestInputs = (prefix: string, limit = 6): string[] => {
         continue
       }
 
-      const record = cacheGet<InputRecord>(cache, namespacedKey)
+      const record = await cacheGet<InputRecord>(cache, namespacedKey)
 
       if (record) {
         matches.push({ key: text, lastUsedAt: record.lastUsedAt })

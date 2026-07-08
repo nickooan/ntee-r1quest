@@ -50,7 +50,7 @@ export const addAiSession = async (
     const now = new Date().toISOString()
     const record: AiSessionRecord = { id, createdAt: now, updatedAt: now }
 
-    const existing = cacheGet<AiSessionRecord[]>(cache, key) ?? []
+    const existing = (await cacheGet<AiSessionRecord[]>(cache, key)) ?? []
     cachePut(cache, key, [...existing, record])
   } catch {
     // ignore cache write failures
@@ -75,7 +75,7 @@ export const refreshAiSession = async (
 
   try {
     const key = aiSessionKey(agent)
-    const existing = cacheGet<AiSessionRecord[]>(cache, key) ?? []
+    const existing = (await cacheGet<AiSessionRecord[]>(cache, key)) ?? []
     const now = new Date().toISOString()
     const updated = existing.map((record) =>
       record.id === id ? { ...record, updatedAt: now } : record,
@@ -91,7 +91,9 @@ export const refreshAiSession = async (
  * Returns every recorded session for an agent, in creation order (oldest
  * first). Empty when the agent has none.
  */
-export const listAiSessions = (agent: string): AiSessionRecord[] => {
+export const listAiSessions = async (
+  agent: string,
+): Promise<AiSessionRecord[]> => {
   const cache = openCache()
 
   if (!cache) {
@@ -99,7 +101,7 @@ export const listAiSessions = (agent: string): AiSessionRecord[] => {
   }
 
   try {
-    return cacheGet<AiSessionRecord[]>(cache, aiSessionKey(agent)) ?? []
+    return (await cacheGet<AiSessionRecord[]>(cache, aiSessionKey(agent))) ?? []
   } catch {
     return []
   }
@@ -109,10 +111,10 @@ export const listAiSessions = (agent: string): AiSessionRecord[] => {
  * Returns the most recently created session for an agent (the last appended),
  * or undefined when none exist — the entry to resume from.
  */
-export const getLatestAiSession = (
+export const getLatestAiSession = async (
   agent: string,
-): AiSessionRecord | undefined => {
-  const sessions = listAiSessions(agent)
+): Promise<AiSessionRecord | undefined> => {
+  const sessions = await listAiSessions(agent)
 
   return sessions[sessions.length - 1]
 }
@@ -135,10 +137,10 @@ export const pruneExpiredAiSessions = async (
   try {
     const cutoff = Date.now() - cleanupPeriodDays * MS_PER_DAY
     // prefixScan returns a snapshot array, so writes below don't disturb it.
-    const keys = cache.prefixScan(NS.system)
+    const keys = await cache.prefixScan(NS.system)
 
     for (const key of keys) {
-      const sessions = cacheGet<AiSessionRecord[]>(cache, key)
+      const sessions = await cacheGet<AiSessionRecord[]>(cache, key)
 
       if (!isSessionArray(sessions)) {
         continue

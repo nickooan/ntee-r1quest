@@ -15,7 +15,7 @@ func TestRenderSearchLineNeverSplitsRunes(t *testing.T) {
 	divider := "── Request " + strings.Repeat("─", 60)
 
 	for width := 1; width <= 30; width++ {
-		got := renderSearchLine(divider, nil, 0, width)
+		got := renderSearchLine(divider, nil, 0, 0, width)
 		if !utf8.ValidString(got) {
 			t.Fatalf("width %d: invalid UTF-8: %q", width, got)
 		}
@@ -36,7 +36,7 @@ func TestRenderSearchLineHighlightsWithMultibyteContent(t *testing.T) {
 		MatchIndex:  0,
 	}}
 
-	got := renderSearchLine(line, matches, 0, 40)
+	got := renderSearchLine(line, matches, 0, 0, 40)
 	if !utf8.ValidString(got) || strings.ContainsRune(got, utf8.RuneError) {
 		t.Fatalf("invalid output: %q", got)
 	}
