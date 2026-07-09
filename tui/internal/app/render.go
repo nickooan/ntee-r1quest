@@ -106,7 +106,7 @@ func (m Model) renderStatusLine() string {
 			"   Ctrl+S save · Ctrl+F find · Ctrl+Z undo · esc discard"
 	case modeHistory:
 		count := fmt.Sprintf("%d/%d", min(m.historyIndex+1, len(m.history)), len(m.history))
-		return withNotice(promptStyle.Render("@history")+" "+count+"   ↑/↓ scroll · shift+↑/↓ select · s search · esc back", m.notice)
+		return withNotice(promptStyle.Render("@history")+" "+count+"   ↑/↓/←/→ scroll · shift+↑/↓ select · s search · esc back", m.notice)
 	case modeSearch:
 		matches := view.FindSearchMatches(m.searchContent, m.searchInput)
 		summary := fmt.Sprintf("%d matches", len(matches))
@@ -212,7 +212,7 @@ func (m Model) renderHistory(width, height int) string {
 		return "No cached requests yet.\n\nRun requests in @query mode to fill the history."
 	}
 	content := view.FormatHistoryEntry(record, width)
-	vp := view.BuildTerminalViewport(content, width, height, 0, m.historyScrollY)
+	vp := view.BuildTerminalViewport(content, width, height, m.historyScrollX, m.historyScrollY)
 	return strings.Join(vp.Lines, "\n")
 }
 

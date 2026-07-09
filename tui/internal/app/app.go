@@ -162,6 +162,7 @@ type Model struct {
 	history            []runtime.ApiCallRecord
 	historyIndex       int
 	historyScrollY     int
+	historyScrollX     int
 	historyTraceFilter string // set by `@h <traceId>`; empty = all endpoints
 
 	searchPrevMode mode
@@ -260,6 +261,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.history = msg.records
 		m.historyIndex = 0
 		m.historyScrollY = 0
+		m.historyScrollX = 0
 		m.errText = ""
 		return m, nil
 
@@ -999,13 +1001,13 @@ func (m Model) handleHistoryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyShiftUp:
 		if m.historyIndex > 0 {
 			m.historyIndex--
-			m.historyScrollY = 0
+			m.historyScrollY, m.historyScrollX = 0, 0
 		}
 		return m, nil
 	case tea.KeyShiftDown:
 		if m.historyIndex < len(m.history)-1 {
 			m.historyIndex++
-			m.historyScrollY = 0
+			m.historyScrollY, m.historyScrollX = 0, 0
 		}
 		return m, nil
 	// Up/Down: scroll the selected record on the right.
@@ -1014,6 +1016,13 @@ func (m Model) handleHistoryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyDown:
 		m.historyScrollY = input.Clamp(m.historyScrollY+1, 0, m.historyMaxScrollY())
+		return m, nil
+	// Left/Right: scroll the selected record horizontally (wide lines).
+	case tea.KeyLeft:
+		m.historyScrollX = input.Clamp(m.historyScrollX-1, 0, m.historyMaxScrollX())
+		return m, nil
+	case tea.KeyRight:
+		m.historyScrollX = input.Clamp(m.historyScrollX+1, 0, m.historyMaxScrollX())
 		return m, nil
 	case tea.KeyRunes:
 		switch string(msg.Runes) {
@@ -1039,6 +1048,22 @@ func (m Model) historyMaxScrollY() int {
 	content := view.FormatHistoryEntry(record, width)
 	vp := view.BuildTerminalViewport(content, width, height, 0, 0)
 	return vp.MaxScrollY
+}
+
+// historyMaxScrollX clamps horizontal scrolling of the selected history record to
+// its widest rendered line in the right pane.
+func (m Model) historyMaxScrollX() int {
+	width, height := m.responseViewportDims()
+	if width < 1 || height < 1 {
+		return 0
+	}
+	record, ok := m.currentHistoryRecord()
+	if !ok {
+		return 0
+	}
+	content := view.FormatHistoryEntry(record, width)
+	vp := view.BuildTerminalViewport(content, width, height, 0, 0)
+	return vp.MaxScrollX
 }
 
 // ── Search mode ─────────────────────────────────────────────────────────────

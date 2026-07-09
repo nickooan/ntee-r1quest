@@ -70,6 +70,22 @@ export const fns = {
   byIndexHas: def("nteedb_by_index_has", ["uint", "str", "str"]),
   byIndexPrefix: def("nteedb_by_index_prefix", ["uint", "str", "str", "int"]),
   byIndexRange: def("nteedb_by_index_range", ["uint", "str", "str", "str"]),
+  byIndexRecordsJson: def("nteedb_by_index_records_json", [
+    "uint",
+    "str",
+    "str",
+    "int",
+  ]),
+  byIndexPrefixRecordsJson: def("nteedb_by_index_prefix_records_json", [
+    "uint",
+    "str",
+    "str",
+    "int",
+  ]),
+  prefixScanRecordsJson: def("nteedb_prefix_scan_records_json", [
+    "uint",
+    "str",
+  ]),
   removeByPkLess: def("nteedb_remove_by_pk_less", ["uint", "str"]),
   removeByPkGreater: def("nteedb_remove_by_pk_greater", ["uint", "str"]),
   compact: def("nteedb_compact", ["uint"]),

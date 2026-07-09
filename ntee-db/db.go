@@ -454,6 +454,10 @@ func (db *DB) Get(key string) (value []byte, ok bool, err error) {
 // key yields found[i]=false, values[i]=nil). It reads every record under a
 // single read-lock — the batched counterpart to Get for callers (e.g. a
 // records-by-index search) that resolve many keys at once.
+//
+// Note: the reads are intentionally sequential. A goroutine fan-out measured
+// 2–3× slower — a cached pread is cheaper than the coordination overhead, and
+// the batch cost sits in the FFI/JSON layers, not these reads.
 func (db *DB) GetMany(keys []string) (values [][]byte, found []bool, err error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()

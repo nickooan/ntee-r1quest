@@ -699,6 +699,51 @@ func TestHistoryShiftSelectsAndScrollSeparated(t *testing.T) {
 	}
 }
 
+func TestHistoryHorizontalScroll(t *testing.T) {
+	// A wide URL line makes the record scroll horizontally in the right pane.
+	recA := runtime.ApiCallRecord{Endpoint: "/wide [GET]", Method: "get"}
+	recA.Request.URL = "https://example.com/" + strings.Repeat("x", 200)
+	recA.Response.Status = 200
+	recB := runtime.ApiCallRecord{Endpoint: "/b [GET]", Method: "get"}
+	recB.Response.Status = 201
+	fake := &fakeClient{endpoints: []runtime.ApiCallRecord{recA, recB}}
+
+	m := New(fake, runtime.ConfigDTO{})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.command = "@h"
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = apply(m, cmd())
+	if m.mode != modeHistory {
+		t.Fatalf("expected history mode, got %d", m.mode)
+	}
+	if m.historyMaxScrollX() <= 0 {
+		t.Fatalf("wide content should allow horizontal scroll, max=%d", m.historyMaxScrollX())
+	}
+
+	// Right scrolls right; Left scrolls back; Left clamps at 0.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyRight})
+	if m.historyScrollX != 1 {
+		t.Fatalf("KeyRight should scroll right, got %d", m.historyScrollX)
+	}
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyRight})
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyLeft})
+	if m.historyScrollX != 1 {
+		t.Fatalf("KeyLeft should scroll back to 1, got %d", m.historyScrollX)
+	}
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyLeft})
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyLeft})
+	if m.historyScrollX != 0 {
+		t.Fatalf("KeyLeft should clamp at 0, got %d", m.historyScrollX)
+	}
+
+	// Selecting a different record resets horizontal scroll.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyRight})
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyShiftDown})
+	if m.historyIndex != 1 || m.historyScrollX != 0 {
+		t.Fatalf("shift+down should select next and reset scrollX; index=%d scrollX=%d", m.historyIndex, m.historyScrollX)
+	}
+}
+
 func TestReloadAndClearCacheCommands(t *testing.T) {
 	fake := &fakeClient{
 		reloadConfig: runtime.ConfigDTO{Root: "/new/root", Version: "9.9.9"},
