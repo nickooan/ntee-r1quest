@@ -28,6 +28,12 @@ function decodeJson(rec) {
   return Buffer.alloc(0)
 }
 
+// Map the records read envelope (each row is a key plus the decodeJson value
+// fields) to { key, value } records. Absent keys yield a null value.
+function toRecords(recs) {
+  return (recs ?? []).map((rec) => ({ key: rec.key, value: decodeJson(rec) }))
+}
+
 /**
  * NteeDB is an open handle to a store. Construct via NteeDB.open().
  */
@@ -290,40 +296,48 @@ export class NteeDB {
   }
 
   /**
-   * Search a secondary index and return records {key, value} in one call — the
-   * keys query plus a single batched getMany, not one get per key. value is
-   * the parsed JSON (a Buffer for binary/non-JSON), like get().
+   * Search a secondary index and return records {key, value} in one call. value
+   * is the parsed JSON (a Buffer for binary/non-JSON), like get().
    * limit: 0 = all; N>0 = first N ascending; N<0 = last |N| descending.
    *
-   * Async (via getMany): resolves to the records; the record fetch runs off the
-   * event loop.
+   * Async: the index walk + record fetch happen in a single native call off the
+   * event loop (one FFI crossing, not a keys query followed by getMany).
    */
-  async secIndexRecords(name, val, limit = 0) {
-    const keys = await this.secIndex(name, val, limit)
-    const vals = await this.getMany(keys)
-    return keys.map((key, i) => ({ key, value: vals[i] }))
+  secIndexRecords(name, val, limit = 0) {
+    this.#assertOpen()
+    return callAsync(
+      fns.byIndexRecordsJson,
+      this.#h,
+      name,
+      JSON.stringify(val),
+      limit,
+    ).then(toRecords)
   }
 
   /**
    * Search by secondary-index prefix (string index) and return records
    * {key, value} (value parsed as in get()). limit as secIndexPrefix (grouped
    * per distinct value); records come back ordered by (index value, then
-   * selected primary key).
+   * selected primary key). One native call, off the event loop.
    */
-  async secIndexPrefixRecords(name, prefix, limit = 0) {
-    const keys = await this.secIndexPrefix(name, prefix, limit)
-    const vals = await this.getMany(keys)
-    return keys.map((key, i) => ({ key, value: vals[i] }))
+  secIndexPrefixRecords(name, prefix, limit = 0) {
+    this.#assertOpen()
+    return callAsync(
+      fns.byIndexPrefixRecordsJson,
+      this.#h,
+      name,
+      prefix,
+      limit,
+    ).then(toRecords)
   }
 
   /**
    * Search by primary-key prefix, returning records {key, value} (value parsed
-   * as in get()). Async (via getMany): resolves to the records.
+   * as in get()). One native call, off the event loop.
    */
-  async prefixScanRecords(prefix) {
-    const keys = await this.prefixScan(prefix)
-    const vals = await this.getMany(keys)
-    return keys.map((key, i) => ({ key, value: vals[i] }))
+  prefixScanRecords(prefix) {
+    this.#assertOpen()
+    return callAsync(fns.prefixScanRecordsJson, this.#h, prefix).then(toRecords)
   }
 }
 

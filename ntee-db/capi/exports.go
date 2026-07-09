@@ -121,6 +121,39 @@ func encodeValJSON(v []byte, found bool) valJSON {
 	return rec
 }
 
+// recordJSON is one {key, value} row on the records-by-query read path: the key
+// plus the same inline-JSON value encoding as valJSON. Lets a records search
+// return keys + values in a single FFI crossing (index walk + batched read),
+// instead of a separate keys query followed by getMany.
+type recordJSON struct {
+	Key   string          `json:"key"`
+	Found bool            `json:"found"`
+	JSON  json.RawMessage `json:"json,omitempty"`
+	V     string          `json:"v,omitempty"`
+}
+
+// encodeRecords zips keys with their read values into records, aligned to keys.
+func encodeRecords(keys []string, values [][]byte, found []bool) []recordJSON {
+	out := make([]recordJSON, len(keys))
+	for i, k := range keys {
+		vj := encodeValJSON(values[i], found[i])
+		out[i] = recordJSON{Key: k, Found: vj.Found, JSON: vj.JSON, V: vj.V}
+	}
+	return out
+}
+
+// readRecordsReply resolves keys to values and marshals the record envelope.
+func readRecordsReply(db *nteedb.DB, keys []string, err error) *C.char {
+	if err != nil {
+		return reply(nil, err)
+	}
+	values, found, err := db.GetMany(keys)
+	if err != nil {
+		return reply(nil, err)
+	}
+	return reply(encodeRecords(keys, values, found), nil)
+}
+
 //export nteedb_get_json
 func nteedb_get_json(h C.uint, key *C.char) *C.char {
 	db := regGet(uint32(h))
@@ -289,6 +322,40 @@ func nteedb_by_index(h C.uint, name *C.char, valJSON *C.char, limit C.int) *C.ch
 		return reply(nil, err)
 	}
 	return reply(emptyIfNil(keys), nil)
+}
+
+//export nteedb_by_index_records_json
+func nteedb_by_index_records_json(h C.uint, name *C.char, valJSONStr *C.char, limit C.int) *C.char {
+	db := regGet(uint32(h))
+	if db == nil {
+		return reply(nil, errInvalidHandle)
+	}
+	var val any
+	if err := json.Unmarshal([]byte(C.GoString(valJSONStr)), &val); err != nil {
+		return reply(nil, err)
+	}
+	keys, err := db.ByIndex(C.GoString(name), val, int(limit))
+	return readRecordsReply(db, keys, err)
+}
+
+//export nteedb_by_index_prefix_records_json
+func nteedb_by_index_prefix_records_json(h C.uint, name *C.char, prefix *C.char, limit C.int) *C.char {
+	db := regGet(uint32(h))
+	if db == nil {
+		return reply(nil, errInvalidHandle)
+	}
+	keys, err := db.ByIndexPrefix(C.GoString(name), C.GoString(prefix), int(limit))
+	return readRecordsReply(db, keys, err)
+}
+
+//export nteedb_prefix_scan_records_json
+func nteedb_prefix_scan_records_json(h C.uint, prefix *C.char) *C.char {
+	db := regGet(uint32(h))
+	if db == nil {
+		return reply(nil, errInvalidHandle)
+	}
+	keys, err := db.PrefixScan(C.GoString(prefix))
+	return readRecordsReply(db, keys, err)
 }
 
 //export nteedb_by_index_has

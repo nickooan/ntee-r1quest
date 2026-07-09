@@ -2,14 +2,12 @@ node_modules/
 *.out
 dbg.mjs
 capi/capi
-ntee-store/
-ntee-batch/
-ntee-hints/
-ntee-ix/
-ntee-full/
-lmdb-store/
-lmdb-ix/
+
+# Benchmark scratch stores — created in the package dir by bench/*.mjs, normally
+# removed on exit but left behind if a run is interrupted.
+ntee-*/
+lmdb-*/
+sqlite-*/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
-sqlite-ix/
