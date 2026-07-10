@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs"
 import { join } from "node:path"
-import { NteeDB } from "@ntee/ntee-db"
+import { NteeDB } from "ntee-db"
 import { getHomeConfigDirectory } from "../config.ts"
 
 // The cache is a single embedded ntee-db store. Each kind of record lives under

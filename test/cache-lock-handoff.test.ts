@@ -2,7 +2,7 @@ import { afterAll, describe, expect, jest, test } from "@jest/globals"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { NteeDB } from "@ntee/ntee-db"
+import { NteeDB } from "ntee-db"
 
 // Isolate the cache home so these tests never touch the developer's real cache.
 const isolatedHome = mkdtempSync(join(tmpdir(), "r1quest-cache-lock-"))
