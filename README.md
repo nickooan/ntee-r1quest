@@ -551,7 +551,7 @@ call immediately. The two paths are mutually exclusive by construction:
 
 ## ntee-db
 
-r1quest ships with its own embedded storage engine, **ntee-db** — a small, fast,
+r1quest uses [**ntee-db**](https://github.com/nickooan/ntee-db), an embedded storage engine — a small, fast,
 pure-Go log-structured key–value store with prefix search and secondary indexes,
 including capped, self-evicting retention (`maxPerValue`). It runs in-process (no
 separate database server or daemon), loaded into the Node runtime through a
@@ -569,7 +569,7 @@ It's tuned for this workload: caller-synchronous appends (so a one-shot CLI run
 persists before it exits), fast prefix/index scans for the History list, and
 automatic per-key retention with no manual cleanup. For the design, the Node
 binding API, and head-to-head benchmarks against `lmdb` and `better-sqlite3`,
-see [ntee-db/ntee-db-js/README.md](ntee-db/ntee-db-js/README.md).
+see the [ntee-db repository](https://github.com/nickooan/ntee-db) (npm package [`ntee-db`](https://www.npmjs.com/package/ntee-db)).
 
 ## Collection Structure
 
