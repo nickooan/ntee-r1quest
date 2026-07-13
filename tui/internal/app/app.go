@@ -1745,6 +1745,20 @@ var editRefPattern = regexp.MustCompile(`^\s*ref\s+(\S*)$`)
 // name+comma: group 1 is the header name, group 2 is the value typed so far.
 var editHeaderValuePattern = regexp.MustCompile(`^\s*header\s+([A-Za-z][A-Za-z0-9-]*)\s*,\s*(.*)$`)
 
+// Suggestion-context patterns. Every fragment is a trailing $-anchored capture
+// so editContext's `fragStart = cx - len(fragment)` arithmetic holds (ASCII
+// classes keep rune == byte lengths).
+var (
+	// A joint-file line holding only indentation plus "-"/"->" so far.
+	editJointStepPattern = regexp.MustCompile(`^\s*(->?[ \t]*)$`)
+	// The path typed inside @run( / @f( up to the cursor.
+	editRunPattern       = regexp.MustCompile(`@run\(([A-Za-z0-9/._-]*)$`)
+	editFileMacroPattern = regexp.MustCompile(`@f\(([A-Za-z0-9/._-]*)$`)
+	// The value typed after the type / auth keywords.
+	editTypePattern = regexp.MustCompile(`^\s*type\s+(\S*)$`)
+	editAuthPattern = regexp.MustCompile(`^\s*(?:authorization|auth)\s+(\S*)$`)
+)
+
 func (m Model) editOverlayOpen() bool {
 	return !m.editDismissed && len(m.editSuggestions) > 0
 }
@@ -1762,11 +1776,15 @@ func (m *Model) recomputeEditSuggestions() {
 }
 
 // editContext returns the suggestions for the cursor's current token and where
-// that token starts (so an accepted suggestion can replace it).
+// that token starts (so an accepted suggestion can replace it). Each branch's
+// fragment is a trailing capture, so fragStart arithmetic replaces exactly the
+// typed text — including '/', '.', and '->' runes the word path can't capture.
 func (m Model) editContext() ([]suggest.Item, int) {
 	line := []rune(m.edit.lines[m.edit.cy])
 	cx := input.Clamp(m.edit.cx, 0, len(line))
 	before := string(line[:cx])
+	content := m.edit.content()
+	isJoint := suggest.IsJointContent(content)
 
 	if rm := editRefPattern.FindStringSubmatch(before); rm != nil {
 		fragment := rm[1]
@@ -1774,13 +1792,48 @@ func (m Model) editContext() ([]suggest.Item, int) {
 		return suggest.BuildRefSuggestionItems(m.openFile.Path, fragment), fragStart
 	}
 
-	// In a `header <name>, <value>` line past the comma, suggest common values
-	// for that header (the fragment may contain '/', ';', etc., so it can't go
-	// through the word-based path below).
-	if hm := editHeaderValuePattern.FindStringSubmatch(before); hm != nil {
-		fragment := hm[2]
+	// A joint line holding only "-"/"->" so far offers the step templates.
+	if isJoint {
+		if sm := editJointStepPattern.FindStringSubmatch(before); sm != nil && sm[1] != "" {
+			fragStart := cx - len([]rune(sm[1]))
+			return suggest.JointStepSuggestions, fragStart
+		}
+	}
+
+	// Path completion inside @run( / @f( — before the header-value branch so a
+	// macro fragment never routes to header values.
+	if rm := editRunPattern.FindStringSubmatch(before); rm != nil {
+		fragment := rm[1]
 		fragStart := cx - len([]rune(fragment))
-		return suggest.BuildHeaderValueSuggestionItems(hm[1], fragment), fragStart
+		return suggest.BuildRunSuggestionItems(m.openFile.Path, fragment), fragStart
+	}
+	if fm := editFileMacroPattern.FindStringSubmatch(before); fm != nil {
+		fragment := fm[1]
+		fragStart := cx - len([]rune(fragment))
+		return suggest.BuildFileSuggestionItems(m.openFile.Path, fragment), fragStart
+	}
+
+	// Request-statement value positions — meaningless in joint buffers, where
+	// the grammar forbids header/type/auth statements.
+	if !isJoint {
+		// In a `header <name>, <value>` line past the comma, suggest common
+		// values for that header (the fragment may contain '/', ';', etc., so
+		// it can't go through the word-based path below).
+		if hm := editHeaderValuePattern.FindStringSubmatch(before); hm != nil {
+			fragment := hm[2]
+			fragStart := cx - len([]rune(fragment))
+			return suggest.BuildHeaderValueSuggestionItems(hm[1], fragment), fragStart
+		}
+		if tm := editTypePattern.FindStringSubmatch(before); tm != nil {
+			fragment := tm[1]
+			fragStart := cx - len([]rune(fragment))
+			return suggest.BuildTypeSuggestionItems(fragment), fragStart
+		}
+		if am := editAuthPattern.FindStringSubmatch(before); am != nil {
+			fragment := am[1]
+			fragStart := cx - len([]rune(fragment))
+			return suggest.BuildAuthSchemeSuggestionItems(fragment), fragStart
+		}
 	}
 
 	word, start := trailingWord(line, cx)
@@ -1788,7 +1841,7 @@ func (m Model) editContext() ([]suggest.Item, int) {
 		return nil, cx
 	}
 	lower := strings.ToLower(word)
-	all := suggest.BuildEditorSuggestionItems(m.openFile.Path, m.edit.content(), m.config.CustomSuggestions)
+	all := m.editWordPool(content, isJoint)
 	var matched []suggest.Item
 	for _, item := range all {
 		if strings.HasPrefix(strings.ToLower(item.Label), lower) ||
@@ -1797,6 +1850,19 @@ func (m Model) editContext() ([]suggest.Item, int) {
 		}
 	}
 	return matched, start
+}
+
+// editWordPool picks the word-path candidate pool by buffer kind: joint chains
+// get the joint statements, .ntd definitions get entry scaffolds + @env, and
+// request files get the full request set.
+func (m Model) editWordPool(content string, isJoint bool) []suggest.Item {
+	if isJoint {
+		return suggest.BuildJointSuggestionItems(m.openFile.Path, content)
+	}
+	if strings.HasSuffix(m.openFile.Path, ".ntd") {
+		return suggest.BuildDefinitionSuggestionItems(m.config.CustomSuggestions)
+	}
+	return suggest.BuildEditorSuggestionItems(m.openFile.Path, content, m.config.CustomSuggestions)
 }
 
 func (m *Model) acceptSuggestion() {

@@ -274,17 +274,27 @@ The status line shows a yellow **`editing`** badge while there are unsaved
 changes and a green **`saved`** badge once the buffer matches disk.
 
 Completions appear while typing request keywords, header names and values,
-macros, definition keys, or `ref` paths:
+macros, definition keys, or `ref` paths, and adapt to the file being edited —
+request `.nts`, joint chain, or `.ntd` definition:
 
 - `hea` suggests `header`.
 - `header cont` suggests header names such as `content-type` (with a trailing `, `).
 - `header content-type, ` suggests common values such as
   `application/json; charset=utf-8`; `authorization ` schemes such as `Bearer `,
   `cache-control` values such as `no-store`, and so on.
-- `@` suggests macros such as `@i`, `@f`, `@env`, and `@i(key)` values from
-  referenced `.ntd` files.
-- `@i(` suggests referenced `.ntd` keys.
+- `type ` suggests HTTP methods; `auth ` suggests `bearer` / `basic`.
+- `@` suggests macros such as `@i`, `@f`, and `@i(key)` values from referenced
+  `.ntd` files (`@env` is offered only in `.ntd` buffers, where it is valid).
+- `@i(` suggests referenced `.ntd` keys; `@f(` suggests files next to the
+  request.
 - `ref ../d` suggests matching directories and `.ntd` files.
+- In a joint chain file the pool swaps to chain statements: `-` on a new line
+  offers the `-> @run()` / `-> @pick()` step templates, `@` offers
+  `@joint`/`@pick`/`@run`/`@i`, and `@run(` completes sibling `.nts` scripts
+  (extension omitted). Request keywords like `url`/`type`/`header` disappear —
+  they cannot parse in a joint file.
+- Each row shows a faint kind tag (`macro`, `header`, `definition`, ...) on the
+  right when the pane is wide enough.
 
 ### Search Mode
 

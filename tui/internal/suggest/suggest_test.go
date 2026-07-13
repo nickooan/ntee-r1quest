@@ -3,6 +3,7 @@ package suggest
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -95,5 +96,179 @@ func TestBuildRefSuggestionItems(t *testing.T) {
 	dirItems := BuildRefSuggestionItems(reqPath, "sh")
 	if len(dirItems) != 1 || dirItems[0].Label != "shared/" {
 		t.Fatalf("expected shared/ dir completion: %+v", dirItems)
+	}
+}
+
+func TestIsJointContent(t *testing.T) {
+	cases := []struct {
+		content string
+		want    bool
+	}{
+		{"url \"https://x\"\ntype get\n", false},
+		{"@joint('t')\n-> @run(a)\n", true},
+		{"ref data.ntd\n\n// chain\n@joint()\n-> @run(a)\n", true},
+		{"-> @run(a)\n", true},
+		{"// @joint()\n", false},
+		{"key: value\n", false},
+		{"", false},
+		{"ref data.ntd\n", false},
+	}
+	for _, c := range cases {
+		if got := IsJointContent(c.content); got != c.want {
+			t.Fatalf("IsJointContent(%q) = %v, want %v", c.content, got, c.want)
+		}
+	}
+}
+
+func TestBuildJointSuggestionItems(t *testing.T) {
+	dir := t.TempDir()
+	ntd := filepath.Join(dir, "data.ntd")
+	if err := os.WriteFile(ntd, []byte("id: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	requestPath := filepath.Join(dir, "chain.joint.nts")
+	content := "ref data.ntd\n@joint()\n-> @run(a)\n"
+
+	items := BuildJointSuggestionItems(requestPath, content)
+	for _, want := range []struct{ label, kind string }{
+		{"ref", "keyword"},
+		{"@joint", "macro"},
+		{"@pick", "macro"},
+		{"@run", "macro"},
+		{"@i", "macro"},
+		{"@i(id)", "macro"},
+		{"id", "definition"},
+	} {
+		if !hasLabel(items, want.label, want.kind) {
+			t.Fatalf("missing %s (%s) in %#v", want.label, want.kind, items)
+		}
+	}
+	for _, absent := range []string{"url", "body", "content-type", "@f", "@env"} {
+		for _, item := range items {
+			if item.Label == absent {
+				t.Fatalf("joint pool must not contain %q", absent)
+			}
+		}
+	}
+}
+
+func TestJointStepSuggestionOffsets(t *testing.T) {
+	for _, item := range JointStepSuggestions {
+		open := strings.IndexByte(item.InsertText, '(')
+		if item.CursorOffset != open+1 {
+			t.Fatalf("%s: offset %d should land inside the parens (want %d)", item.Label, item.CursorOffset, open+1)
+		}
+	}
+}
+
+func TestBuildEditorSuggestionItemsJointBootstrap(t *testing.T) {
+	items := BuildEditorSuggestionItems("", "", nil)
+	if !hasLabel(items, "@joint", "macro") {
+		t.Fatalf("default pool should offer @joint to bootstrap a chain file")
+	}
+	for _, item := range items {
+		if item.Label == "@env" {
+			t.Fatalf("default .nts pool must not offer @env (a .ntd-only macro)")
+		}
+	}
+}
+
+func TestBuildRunSuggestionItems(t *testing.T) {
+	dir := t.TempDir()
+	for _, f := range []string{"query-user.nts", "notes.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sub", "query-post.nts"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	requestPath := filepath.Join(dir, "chain.joint.nts")
+	if err := os.WriteFile(requestPath, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	items := BuildRunSuggestionItems(requestPath, "")
+	if !hasLabel(items, "query-user", "run") {
+		t.Fatalf("expected extension-stripped query-user in %#v", items)
+	}
+	if !hasLabel(items, "sub/", "run") {
+		t.Fatalf("expected sub/ dir in %#v", items)
+	}
+	for _, item := range items {
+		if item.Label == "chain.joint" || item.Label == "chain.joint.nts" {
+			t.Fatalf("the open file must be excluded: %#v", items)
+		}
+		if item.Label == "notes.txt" {
+			t.Fatalf("non-.nts files must be excluded: %#v", items)
+		}
+	}
+
+	items = BuildRunSuggestionItems(requestPath, "sub/")
+	if len(items) != 1 || items[0].Label != "sub/query-post" {
+		t.Fatalf("dir navigation: %#v", items)
+	}
+
+	if BuildRunSuggestionItems(requestPath, "query-user.nts") != nil {
+		t.Fatalf("a fragment already ending in .nts is complete")
+	}
+}
+
+func TestBuildFileSuggestionItems(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "avatar.png"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	requestPath := filepath.Join(dir, "upload.nts")
+	if err := os.WriteFile(requestPath, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	items := BuildFileSuggestionItems(requestPath, "")
+	if !hasLabel(items, "avatar.png", "file") {
+		t.Fatalf("expected avatar.png with extension kept: %#v", items)
+	}
+	for _, item := range items {
+		if item.Label == "upload.nts" {
+			t.Fatalf("the open file must be excluded: %#v", items)
+		}
+	}
+}
+
+func TestBuildTypeSuggestionItems(t *testing.T) {
+	all := BuildTypeSuggestionItems("")
+	if len(all) != 9 || all[0].Label != "get" {
+		t.Fatalf("all methods, usage order: %#v", all)
+	}
+	p := BuildTypeSuggestionItems("P")
+	if len(p) != 3 || !hasLabel(p, "post", "httpMethod") || !hasLabel(p, "put", "httpMethod") || !hasLabel(p, "patch", "httpMethod") {
+		t.Fatalf("prefix p: %#v", p)
+	}
+}
+
+func TestBuildAuthSchemeSuggestionItems(t *testing.T) {
+	all := BuildAuthSchemeSuggestionItems("")
+	if len(all) != 2 {
+		t.Fatalf("all schemes: %#v", all)
+	}
+	be := BuildAuthSchemeSuggestionItems("be")
+	if len(be) != 1 || be[0].InsertText != "bearer " {
+		t.Fatalf("bearer with trailing space: %#v", be)
+	}
+}
+
+func TestBuildDefinitionSuggestionItems(t *testing.T) {
+	items := BuildDefinitionSuggestionItems([]string{"trace-token", "trace-token"})
+	if !hasLabel(items, "@env", "macro") {
+		t.Fatalf("definition pool should offer @env: %#v", items)
+	}
+	if !hasLabel(items, "trace-token", "bodyKey") {
+		t.Fatalf("custom keys as entry scaffolds: %#v", items)
+	}
+	if len(items) != 2 {
+		t.Fatalf("duplicates must collapse: %#v", items)
 	}
 }

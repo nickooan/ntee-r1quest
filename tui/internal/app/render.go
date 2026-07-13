@@ -476,12 +476,23 @@ func (m Model) renderEditOverlay(width int) []string {
 
 	lines := make([]string, 0, end-start)
 	for i := start; i < end; i++ {
-		label := padTo(truncateRunes(" "+items[i].Label, width), width)
+		rowStyle := suggestionStyle
 		if i == m.editSuggestIndex {
-			lines = append(lines, selectedEntryStyle.Render(label))
-		} else {
-			lines = append(lines, suggestionStyle.Render(label))
+			rowStyle = selectedEntryStyle
 		}
+
+		// Right-align a faint kind tag (macro/header/definition/...) when it
+		// fits — several pools emit visually identical labels that differ only
+		// by kind. Narrow panes fall back to the label-only row.
+		row := " " + items[i].Label
+		if kind := items[i].Kind; kind != "" {
+			if pad := width - utf8.RuneCountInString(row) - len(kind) - 1; pad >= 2 {
+				lines = append(lines, rowStyle.Render(row+strings.Repeat(" ", pad))+
+					rowStyle.Faint(true).Render(kind+" "))
+				continue
+			}
+		}
+		lines = append(lines, rowStyle.Render(padTo(truncateRunes(row, width), width)))
 	}
 	return lines
 }
