@@ -140,6 +140,15 @@ type Model struct {
 	edit        editor
 	notice      string
 
+	// Cached highlight state for the open file, so View() never rescans the
+	// whole buffer per frame: fileLines is the split of openFile.Content (view
+	// mode only — edit mode renders m.edit.lines directly), graphqlLines the
+	// BuildGraphqlHighlightLines result for the current buffer, and hlRev the
+	// editor revision it was computed from. Refreshed by refreshFileHighlights.
+	fileLines    []string
+	graphqlLines map[int]bool
+	hlRev        int
+
 	// Edit-mode undo/redo timeline. Snapshots live in the runtime's ntee-db
 	// (keyed by these seqs); the TUI keeps only the lightweight seq list + a
 	// cursor. snapDirty marks edits made since the last checkpoint; nextSeq is a
@@ -426,6 +435,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.edit.dirty = msg.content != m.openFile.Content
 			}
 			m.snapDirty = false
+			m = m.refreshFileHighlights()
 		}
 		return m, nil
 
@@ -438,7 +448,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modeView:
 			return m.handleViewKey(msg)
 		case modeEdit:
-			return m.handleEditKey(msg)
+			// Single choke point keeping the highlight cache in sync with edit
+			// keystrokes: refresh when the buffer changed (rev moved) or the key
+			// left edit mode (Esc discards edits — re-split the saved content).
+			nm, cmd := m.handleEditKey(msg)
+			if mm, ok := nm.(Model); ok && (mm.edit.rev != mm.hlRev || mm.mode != modeEdit) {
+				nm = mm.refreshFileHighlights()
+			}
+			return nm, cmd
 		case modeSearch:
 			return m.handleSearchKey(msg)
 		case modeHistory:
@@ -955,7 +972,30 @@ func (m Model) openFileForMode(target string, forEdit bool) (tea.Model, tea.Cmd)
 	}
 	m.mode = modeView
 	m.fileScrollY = 0
+	m = m.refreshFileHighlights()
 	return m, nil
+}
+
+// refreshFileHighlights recomputes the cached highlight state consumed by
+// renderFile. Called whenever the displayed buffer changes — file open, edit
+// keystrokes (tracked by the editor rev counter), undo/redo restore, or
+// leaving edit mode — so the whole-file graphql scan never runs per frame.
+func (m Model) refreshFileHighlights() Model {
+	if m.mode == modeEdit {
+		// Never alias fileLines to m.edit.lines — the editor mutates in place.
+		m.graphqlLines = view.BuildGraphqlHighlightLines(m.edit.lines)
+		m.hlRev = m.edit.rev
+		return m
+	}
+	if m.openFile != nil {
+		m.fileLines = strings.Split(m.openFile.Content, "\n")
+		m.graphqlLines = view.BuildGraphqlHighlightLines(m.fileLines)
+	} else {
+		m.fileLines = nil
+		m.graphqlLines = nil
+	}
+	m.hlRev = m.edit.rev
+	return m
 }
 
 // ── View mode ───────────────────────────────────────────────────────────────

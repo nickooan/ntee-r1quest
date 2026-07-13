@@ -403,7 +403,12 @@ func (m Model) renderFile(width, height int) string {
 	if editing {
 		lines = m.edit.lines
 	} else if m.openFile != nil {
-		lines = strings.Split(m.openFile.Content, "\n")
+		// Cached by refreshFileHighlights; fall back defensively if a path
+		// missed the refresh.
+		lines = m.fileLines
+		if lines == nil {
+			lines = strings.Split(m.openFile.Content, "\n")
+		}
 	}
 	if len(lines) == 0 {
 		return ""
@@ -412,7 +417,10 @@ func (m Model) renderFile(width, height int) string {
 	overlay := m.renderEditOverlay(width)
 	fileHeight := max(1, height-len(overlay))
 
-	graphql := view.BuildGraphqlHighlightLines(lines)
+	graphql := m.graphqlLines
+	if graphql == nil {
+		graphql = view.BuildGraphqlHighlightLines(lines)
+	}
 	gutterWidth := len(strconv.Itoa(max(len(lines), fileHeight)))
 	contentWidth := max(1, width-gutterWidth-3)
 
@@ -478,6 +486,37 @@ func (m Model) renderEditOverlay(width int) []string {
 	return lines
 }
 
+// segStyles memoizes lipgloss styles per (color, bold, dim) combination —
+// renderHighlighted runs for every visible row on every frame, and the style
+// set is tiny. The TUI render loop is single-goroutine, so a plain map is safe.
+type segStyleKey struct {
+	color string
+	bold  bool
+	dim   bool
+}
+
+var segStyles = map[segStyleKey]lipgloss.Style{}
+
+func segStyleFor(segment view.HighlightSegment) lipgloss.Style {
+	key := segStyleKey{color: segment.Color, bold: segment.Bold, dim: segment.DimColor}
+	if style, ok := segStyles[key]; ok {
+		return style
+	}
+
+	style := lipgloss.NewStyle()
+	if key.color != "" {
+		style = style.Foreground(colorFor(key.color))
+	}
+	if key.bold {
+		style = style.Bold(true)
+	}
+	if key.dim {
+		style = style.Faint(true)
+	}
+	segStyles[key] = style
+	return style
+}
+
 func renderHighlighted(line, lang string, width int) string {
 	truncated := truncateRunes(line, width)
 	segments := view.HighlightLine(truncated, lang)
@@ -485,18 +524,8 @@ func renderHighlighted(line, lang string, width int) string {
 	var b strings.Builder
 	rendered := 0
 	for _, segment := range segments {
-		style := lipgloss.NewStyle()
-		if segment.Color != "" {
-			style = style.Foreground(colorFor(segment.Color))
-		}
-		if segment.Bold {
-			style = style.Bold(true)
-		}
-		if segment.DimColor {
-			style = style.Faint(true)
-		}
-		b.WriteString(style.Render(segment.Text))
-		rendered += len([]rune(segment.Text))
+		b.WriteString(segStyleFor(segment).Render(segment.Text))
+		rendered += utf8.RuneCountInString(segment.Text)
 	}
 	if pad := width - rendered; pad > 0 {
 		b.WriteString(strings.Repeat(" ", pad))
@@ -749,6 +778,11 @@ func (m Model) renderAiCommandSuggestions(width int) []string {
 }
 
 func truncateRunes(s string, width int) string {
+	// Byte length ≤ width implies rune count ≤ width — skip the []rune alloc
+	// for the common short line.
+	if len(s) <= width {
+		return s
+	}
 	runes := []rune(s)
 	if len(runes) > width {
 		return string(runes[:width])
@@ -779,6 +813,8 @@ func colorFor(name string) lipgloss.Color {
 		return lipgloss.Color("6")
 	case "white":
 		return lipgloss.Color("7")
+	case "gray":
+		return lipgloss.Color("8")
 	default:
 		return lipgloss.Color("")
 	}

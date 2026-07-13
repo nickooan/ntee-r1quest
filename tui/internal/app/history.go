@@ -24,6 +24,7 @@ func (m Model) beginEditSession(content string) (Model, tea.Cmd) {
 	m.undoSeqs = nil
 	m.undoCursor = 0
 	m.snapDirty = false
+	m = m.refreshFileHighlights()
 	return m.pushSnapshot("edit")
 }
 
