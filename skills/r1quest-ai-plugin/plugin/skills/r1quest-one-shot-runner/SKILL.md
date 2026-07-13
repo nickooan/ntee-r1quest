@@ -1,6 +1,6 @@
 ---
 name: r1quest-one-shot-runner
-description: Locate and execute ntee-r1quest .nts requests as one-shot commands. Use this whenever a user asks to run, call, trigger, or execute one or more named requests, referenced by name or path (with or without .nts) — a single request ("run google-api get-orders-by-id", "run folder-2/create-post") or several in sequence ("run folder-2/create-post then folder-2/update-post"), optionally chaining a response value into the next via -env. This is THE skill for actually executing requests.
+description: Locate and execute ntee-r1quest .nts requests as one-shot commands. Use this whenever a user asks to run, call, trigger, or execute one or more named requests, referenced by name or path (with or without .nts) — a single request ("run google-api get-orders-by-id", "run folder-2/create-post") or several in sequence ("run folder-2/create-post then folder-2/update-post"), chained via a generated @joint file or per-step -env passing. This is THE skill for actually executing requests.
 argument-hint: "<collection-name> <request-name> [then <request-name> ...]"
 ---
 
@@ -83,6 +83,10 @@ e.g. "get-property-by-name then get-property-setup" or "run A, then B, then C".
 Run them as an ordered chain where earlier responses can supply `@env(...)`
 inputs for later requests, and every run shares one trace id.
 
+**Prefer a joint chain file**: generate a temporary `.joint.nts` file and run
+the whole chain with a single command. Fall back to per-step orchestration only
+when the chain does not qualify (see the fallback section).
+
 ### 1. Plan and confirm (before running anything)
 
 Resolve and read every request in order — each `.nts` and all the `.ntd` files
@@ -91,50 +95,87 @@ it `ref`s. For each request collect:
 - its method and URL,
 - every `@env(KEY)` it needs that is not already satisfied (not in the
   environment, not going to be passed, and with no `or` default),
-- for each unsatisfied key, its source: a value the user gives, or a field from
-  an earlier request's response (match by name, e.g. a response `propertyId`
-  satisfies `@env(propertyId)`).
+- for each unsatisfied key, its source: a value the user gives, or a json path
+  into an earlier request's response body (match by name, e.g. a response
+  `propertyId` satisfies `@env(propertyId)`).
 
 Present a numbered execution plan: one line per request with its method, URL, the
 `@env` inputs it needs, and where each value comes from (literal / environment /
-"from step N response field X"). List any `@env` you cannot source and ask the
-user to provide it. **Ask the user to confirm the plan before executing.**
+"from step N response, json path X"). List any `@env` you cannot source and ask
+the user to provide it. **Ask the user to confirm the plan before executing.**
 
-### 2. Generate one trace id
+### 2. Preferred: generate and run a temporary joint file
 
-Create one short unique id for the whole task (for example `task-<timestamp>` or
-a short random token) and reuse it for every request, so the runs group together
-in history (`@h <id>`).
+A joint file turns the plan into an engine-executed chain: every step runs in
+order, shares one trace id, records to history, and only the final response is
+printed. Requirements — all steps must be `application/json` requests with JSON
+responses, every carried-forward value must be expressible as a rename plus a
+json path (`envKey: path.to[0].value`), and no step may itself be a joint file.
 
-### 3. Run each request in order
+Write the file at the collection root as `.r1q-task-<id>.joint.nts`:
 
-For each request, in sequence:
+```text
+@joint("task-<id>")
+
+-> @pick(name: @i(default-name))          // optional first pick: only @i(...) context values
+-> @run(queries/get-property-by-name)     // paths relative to this file
+-> @pick(propertyId: data.property.id)    // json paths read the previous response body
+-> @run(queries/get-property-setup)
+```
+
+Rules:
+
+- `@joint("<trace-id>")` comes after any `ref` lines; steps follow as
+  `-> @pick(...)` / `-> @run(...)` pairs (the pick is optional per step).
+- `@pick(key: <source>, ...)` merges values into the chain env passed to every
+  later step via the `@env(...)` mechanism. A source is either a json path into
+  the previous response body (`data.items[0].id`) or `@i(key)` from the joint
+  file's own `ref`'d `.ntd` context.
+- User-provided values still go in via `-env` on the command line; picked values
+  override them on duplicate keys.
+
+Run it once, then delete the temp file (also on failure):
+
+```bash
+r1q -r <root> -p .r1q-task-<id>.joint
+```
+
+The output is the final step's response plus the trace id; every step (including
+intermediates) is recorded in history — inspect with `@h task-<id>` in the app.
+If a step fails, the run stops, prints `Joint step N/M (<target>) failed.` with
+the failing response or error, and exits non-zero.
+
+### Fallback: run each request separately
+
+Use per-step one-shot commands instead of a joint file when:
+
+- the user must confirm individual mutating steps (`post`/`put`/`patch`/
+  `delete`) as they happen,
+- any step's request or response is not `application/json`,
+- a carried-forward value needs a transformation beyond rename + json path, or
+- choosing a later step's input requires reasoning about an earlier response
+  rather than a fixed path.
+
+Generate one trace id for the whole task (for example `task-<timestamp>`), then
+for each request in sequence:
 
 - Build `-env` from values gathered so far (user-provided plus fields extracted
-  from earlier responses) and run the one-shot command with `-ti <traceId>`:
+  from earlier responses) and run with `-ti <traceId>`:
 
   ```bash
   r1q -r <collection-path> -p <request> -env '{"propertyId":"123"}' -ti <traceId>
   ```
 
-  The first request usually needs no extracted `-env` (only user-provided
-  values, if any); later requests carry forward what earlier ones produced.
-
 - After it returns, inspect the response for fields that satisfy a later
   request's `@env` inputs and record them. State the mapping you chose
   (response field → `@env(KEY)`).
 - Report this step: method/URL, status, and the values passed forward.
+- If a request returns an API error (non-2xx) or a runtime/compile error,
+  **stop immediately** — do not run the remaining requests. Present the failing
+  step, the exact command used, and the error response.
 
-### 4. Stop on any failure
-
-If a request returns an API error (non-2xx) or a runtime/compile error, **stop
-immediately** — do not run the remaining requests. Present the failing step, the
-exact command used, and the error response.
-
-### 5. Continue to the end, then summarize
-
-Repeat step 3 for every remaining request. When the task completes, summarize it:
-each step's status, the values chained between steps, and the shared trace id.
+When the task completes, summarize it: each step's status, the values chained
+between steps, and the shared trace id.
 
 Apply all **Safety And Reporting** rules to every request in the chain — in
 particular, state the method and URL and confirm before any mutating request
@@ -150,21 +191,27 @@ Plan presented for confirmation:
 trace id: task-20260619-01
 1. get-property-by-name   GET  /properties?name=...   needs: @env(name) (you provide)
 2. get-property-setup     POST /properties/@i(propertyId)/setup
-                                                       needs: @env(propertyId) (from step 1 response field "id")
+                                                       needs: @env(propertyId) (from step 1 response, json path "id")
 ```
 
-After confirmation:
+After confirmation, generate `<root>/.r1q-task-20260619-01.joint.nts`:
+
+```text
+@joint("task-20260619-01")
+
+-> @run(get-property-by-name)
+-> @pick(propertyId: id)
+-> @run(get-property-setup)
+```
+
+Run it (user-provided values via `-env`), then delete the temp file:
 
 ```bash
-# Step 1 — run, then read "id" from the response
-r1q -r <root> -p get-property-by-name -env '{"name":"Acme HQ"}' -ti task-20260619-01
-# response: { "id": "p_123", ... }  -> propertyId = "p_123"
-
-# Step 2 — pass the extracted value forward, same trace id
-r1q -r <root> -p get-property-setup -env '{"propertyId":"p_123"}' -ti task-20260619-01
+r1q -r <root> -p .r1q-task-20260619-01.joint -env '{"name":"Acme HQ"}'
 ```
 
-If step 1 fails, do not run step 2 — report the error instead.
+If step 1 fails, the chain stops on its own — report the failing step and the
+error. Inspect the full chain later with `@h task-20260619-01`.
 
 ## Safety And Reporting
 

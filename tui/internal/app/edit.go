@@ -15,13 +15,19 @@ type editor struct {
 	cy    int
 	dirty bool
 
+	// rev counts line mutations; the model compares it against its cached
+	// highlight state to know when to rescan the buffer. Every method that
+	// mutates `lines` MUST bump it (alongside setting dirty) or highlighting
+	// goes stale.
+	rev int
+
 	// sel, when non-nil, is a highlighted range [start,end) of rune columns on
 	// line cy. selLevel tracks how far the progressive Ctrl+A has expanded so
 	// repeated presses grow the range; selAnchor is the cursor column captured
 	// at the first press, so the expansion levels stay stable even though the
 	// cursor rides the selection end.
-	sel      *selRange
-	selLevel int
+	sel       *selRange
+	selLevel  int
 	selAnchor int
 }
 
@@ -59,6 +65,7 @@ func (e *editor) insert(text string) {
 	e.lines[e.cy] = string(line[:at]) + text + string(line[at:])
 	e.cx = at + len([]rune(text))
 	e.dirty = true
+	e.rev++
 }
 
 func (e *editor) newline() {
@@ -73,6 +80,7 @@ func (e *editor) newline() {
 	e.cy++
 	e.cx = 0
 	e.dirty = true
+	e.rev++
 }
 
 func (e *editor) backspace() {
@@ -85,6 +93,7 @@ func (e *editor) backspace() {
 		e.lines[e.cy] = string(line[:e.cx-1]) + string(line[e.cx:])
 		e.cx--
 		e.dirty = true
+		e.rev++
 		return
 	}
 	if e.cy == 0 {
@@ -97,6 +106,7 @@ func (e *editor) backspace() {
 	e.lines = append(e.lines[:e.cy], e.lines[e.cy+1:]...)
 	e.cy--
 	e.dirty = true
+	e.rev++
 }
 
 func (e *editor) move(dx, dy int) {
@@ -119,6 +129,7 @@ func (e *editor) replaceWord(wordStart int, insertText string, cursorOffset int)
 		e.cx = start + len([]rune(insertText))
 	}
 	e.dirty = true
+	e.rev++
 }
 
 // deleteSelection removes the active selection's text on line cy (a whole-line
@@ -138,6 +149,7 @@ func (e *editor) deleteSelection() bool {
 	e.cx = s
 	e.clearSelection()
 	e.dirty = true
+	e.rev++
 	return true
 }
 

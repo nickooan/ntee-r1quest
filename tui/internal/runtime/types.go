@@ -38,6 +38,12 @@ type ExecuteResult struct {
 	Headers    map[string]any  `json:"headers"`
 	Body       json.RawMessage `json:"body,omitempty"`
 	DurationMs int64           `json:"durationMs"`
+	// Joint chain runs only: shared trace id, executed step count, and — when
+	// the chain stopped on a failing step that still returned a response — that
+	// step's label, e.g. "2/3 (query-user-posts)".
+	TraceID    string `json:"traceId,omitempty"`
+	StepCount  int    `json:"stepCount,omitempty"`
+	FailedStep string `json:"failedStep,omitempty"`
 }
 
 // AiStartRequest mirrors AiStartRequest.
@@ -130,6 +136,9 @@ type ExternalRequestEvent struct {
 	Time            int64  `json:"time"`
 	ResponseContent string `json:"responseContent"`
 	TraceID         string `json:"traceId,omitempty"`
+	// A non-final step of a joint chain: persisted to history by the runtime,
+	// but the results pane only shows the chain's final response.
+	Intermediate bool `json:"intermediate,omitempty"`
 }
 
 // EventHandlers are the server→client notification callbacks (nil = ignore).

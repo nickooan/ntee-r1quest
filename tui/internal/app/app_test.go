@@ -1344,3 +1344,54 @@ func TestEnterIgnoredWhenEmpty(t *testing.T) {
 		t.Fatal("empty command should not execute")
 	}
 }
+
+func TestFileHighlightCache(t *testing.T) {
+	root := t.TempDir()
+	content := "url \"https://x\"\ntype get\n"
+	if err := os.WriteFile(filepath.Join(root, "get.nts"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(&fakeClient{}, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.selectedCommand = "get"
+	m.command = "@v"
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.mode != modeView || m.fileLines == nil || m.graphqlLines == nil {
+		t.Fatalf("view cache not populated: mode=%d lines=%v graphql=%v", m.mode, m.fileLines, m.graphqlLines)
+	}
+	if strings.Join(m.fileLines, "\n") != content {
+		t.Fatalf("fileLines mismatch: %q", m.fileLines)
+	}
+
+	// Enter edit mode and type a graphql sugar block; the graphql line map
+	// must update as the buffer changes (rev-based invalidation).
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	if m.mode != modeEdit {
+		t.Fatalf("expected edit mode, got %d", m.mode)
+	}
+	if len(m.graphqlLines) != 0 {
+		t.Fatalf("plain file should have no graphql lines: %v", m.graphqlLines)
+	}
+	m = typeRunes(m, "query { user }")
+	if m.hlRev != m.edit.rev {
+		t.Fatalf("cache rev out of sync: hlRev=%d rev=%d", m.hlRev, m.edit.rev)
+	}
+	if !m.graphqlLines[0] {
+		t.Fatalf("expected first line flagged graphql after typing: %v", m.graphqlLines)
+	}
+
+	// Esc discards the edits; the view cache must reflect the saved content,
+	// not the abandoned edit buffer.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.mode == modeEdit {
+		t.Fatalf("expected to leave edit mode")
+	}
+	if strings.Join(m.fileLines, "\n") != content {
+		t.Fatalf("view cache should match saved content: %q", m.fileLines)
+	}
+	if len(m.graphqlLines) != 0 {
+		t.Fatalf("discarded edits must not leak graphql flags: %v", m.graphqlLines)
+	}
+}

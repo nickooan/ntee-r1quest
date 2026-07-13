@@ -1,9 +1,20 @@
 import axios, { type AxiosResponse } from "axios"
-import type { ScopeObject } from "../compiler/semantics.ts"
+import {
+  isJointScope,
+  type CompileResult,
+  type ScopeObject,
+} from "../compiler/semantics.ts"
 
 export const execute = async (
-  scopeObject: ScopeObject,
+  compileResult: CompileResult,
 ): Promise<AxiosResponse> => {
+  if (isJointScope(compileResult)) {
+    throw new Error(
+      "Cannot execute a joint scope as a single request — run it as a chain.",
+    )
+  }
+
+  const scopeObject = compileResult
   const contentType = String(
     scopeObject.headers["content-type"] ?? "",
   ).toLowerCase()

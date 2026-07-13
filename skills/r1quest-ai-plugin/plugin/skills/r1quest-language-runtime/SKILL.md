@@ -96,6 +96,45 @@ Use these macro rules:
   string.
 - Header and auth values must resolve to primitive values.
 
+## Joint Chain Files (`@joint`)
+
+A `.nts` file that declares `@joint(...)` is a chain of other requests instead
+of a single request. Convention: name it `<something>.joint.nts`.
+
+```nts
+ref ./data/common.ntd
+
+@joint("my-trace-id")
+
+-> @pick(content: @i(content-type)) // optional leading pick: @i(...) sources only
+-> @run(query-user)
+-> @pick(userId: data.user.id)
+-> @run(query-user-posts)
+```
+
+Rules:
+
+- `@joint("<trace-id>")` comes after `ref` lines. The trace id may be single- or
+  double-quoted, or omitted (`@joint()`) to auto-generate one; the CLI `-ti`
+  flag overrides it. A joint file cannot contain `url`, `type`, `header`,
+  `auth`, or `body` statements.
+- Steps are `-> @pick(...)` / `-> @run(...)` pairs; the pick is optional per
+  step, and a trailing `@pick` without a following `@run` is a parse error.
+- `@pick(key: <source>, ...)` merges values into the chain env that later steps
+  read via `@env(...)` in their `ref`'d `.ntd` files. Sources: a json path into
+  the previous step's response body (`data.items[0].id`, dots and `[n]` only)
+  or `@i(key)` (with `or` defaults) from the joint file's own refs. Values
+  accumulate across steps; later picks win on duplicate keys.
+- `@run(<path>)` executes another `.nts` (path relative to the joint file,
+  `.nts` optional). Every step must be an `application/json` request with a
+  JSON response, and may not be another joint file.
+- Execution stops at the first failing step (`Joint step N/M (<target>)
+failed.`, non-zero exit). Only the final response is printed; every step is
+  recorded in history under the shared trace id (`@h <trace-id>`).
+- Joint files run from both the CLI (`-p <path>`) and the terminal app (type
+  the path in `@query` mode and press Enter) — the app shows the final
+  response with the trace id and a step-count footer.
+
 ## Content Types
 
 Runtime execution dispatches by `content-type`:

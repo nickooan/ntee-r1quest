@@ -1,6 +1,59 @@
 R1Quest {
   Program
+    = JointProgram
+    | RequestProgram
+
+  RequestProgram
     = Ref* RequestStatement* HeaderStatement* Body?
+
+  // A joint file chains other .nts requests. The alternation makes @joint and
+  // request statements (url/type/header/auth/body) mutually exclusive.
+  JointProgram
+    = Ref* Joint JointStep+
+
+  Joint
+    = "@joint" "(" jointTraceId? ")"
+
+  jointTraceId
+    = string
+    | singleQuotedString
+
+  singleQuotedString
+    = "'" singleQuotedChar* "'"
+
+  singleQuotedChar
+    = singleQuoteEscape
+    | ~("'" | "\\" | lineTerminator) any
+
+  singleQuoteEscape
+    = "\\" ("'" | "\\")
+
+  // The optional leading pick binds to the run that follows it, so a trailing
+  // @pick without a @run cannot parse.
+  JointStep
+    = ("->" Pick)? "->" Run
+
+  Pick
+    = "@pick" "(" NonemptyListOf<PickPair, ","> ")"
+
+  PickPair
+    = objectKey ":" PickSource
+
+  PickSource
+    = intermediateMacro
+    | jsonPath
+
+  Run
+    = "@run" "(" filePath ")"
+
+  jsonPath
+    = jsonPathSegment ("." jsonPathSegment)*
+
+  jsonPathSegment
+    = objectKey jsonIndex*
+
+  jsonIndex
+    = "[" digit+ "]"
 
   RequestStatement
     = Url

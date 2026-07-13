@@ -12,6 +12,7 @@ import {
   resolveImmediateCommandOutput,
   resolveRuntimeConfig,
 } from "./src/runtime/cli-command.ts"
+import { isJointStepError, type JointStepResult } from "./src/runtime/joint.ts"
 import { toExecuteResult } from "./src/runtime/client/index.ts"
 import { runStartupBeforeActions } from "./src/runtime/startup.ts"
 import {
@@ -70,6 +71,7 @@ const postToOpenApp = async (
   responseContent: string,
   response: AxiosResponse,
   traceId?: string,
+  intermediate?: boolean,
 ): Promise<void> => {
   const socketPath = config.sock
 
@@ -86,6 +88,7 @@ const postToOpenApp = async (
         responseContent,
         traceId,
         toCallRecord(response, requestStartTime, traceId),
+        intermediate,
       ),
     )
   } catch (error) {
@@ -103,51 +106,86 @@ const runPathArgument = async (
 ): Promise<boolean> => {
   const requestStartTime = Date.now()
 
-  try {
-    const response = await executePathArgument(args)
+  // Intermediate chain steps print nothing, but still post their event so an
+  // open app persists them to history; the `intermediate` flag keeps the app
+  // from flipping its results pane until the final response arrives.
+  const onStepComplete = async (step: JointStepResult): Promise<void> => {
+    await postToOpenApp(
+      config,
+      step.source,
+      step.startedAt,
+      formatResponse(
+        toExecuteResult(step.response, step.durationMs),
+        step.traceId,
+      ),
+      step.response,
+      step.traceId,
+      true,
+    )
+  }
 
-    if (!response) {
+  try {
+    const result = await executePathArgument(args, onStepComplete)
+
+    if (!result) {
       return false
     }
 
-    const traceId = config.parsedArgs.traceId
+    const traceId =
+      result.kind === "joint" ? result.traceId : config.parsedArgs.traceId
     const responseContent = formatResponse(
-      toExecuteResult(response, Date.now() - requestStartTime),
+      toExecuteResult(result.response, Date.now() - requestStartTime),
       traceId,
     )
 
     process.stdout.write(responseContent)
+
+    if (result.kind === "joint") {
+      process.stdout.write(
+        `\nJoint chain: ${result.stepCount} steps completed, trace ${result.traceId} — search history with @h ${result.traceId}\n`,
+      )
+    }
 
     await postToOpenApp(
       config,
       config.parsedArgs.path,
       requestStartTime,
       responseContent,
-      response,
+      result.response,
       traceId,
     )
 
     return true
   } catch (error) {
-    const traceId = config.parsedArgs.traceId
+    // A failed chain step arrives wrapped in a JointStepError carrying the
+    // step context and shared trace id; unwrap it so the underlying HTTP
+    // failure renders the same as a plain one-shot failure.
+    const jointError = isJointStepError(error) ? error : undefined
+    const cause = jointError ? jointError.cause : error
+    const traceId = jointError?.traceId ?? config.parsedArgs.traceId
     // A non-2xx response surfaces as a thrown AxiosError carrying `.response`;
     // render it the same as a success (to stderr, exit 1). Only true failures
     // with no response fall through to the error block.
     const failedResponse =
-      isAxiosError(error) && error.response ? error.response : undefined
+      isAxiosError(cause) && cause.response ? cause.response : undefined
     const content = failedResponse
       ? formatResponse(
           toExecuteResult(failedResponse, Date.now() - requestStartTime),
           traceId,
         )
-      : formatError(error, traceId)
+      : formatError(cause, traceId)
+
+    if (jointError) {
+      process.stderr.write(`${jointError.message}\n`)
+    }
 
     process.stderr.write(`${content}\n`)
     process.exitCode = 1
 
     // Failed calls are kept in history too — hand them to an open app the
     // same way (the one-shot's own record is a no-op while an app holds the
-    // store lock).
+    // store lock). A failed chain step posts as non-intermediate so the app
+    // shows the failure.
     if (failedResponse && typeof failedResponse.status === "number") {
       await postToOpenApp(
         config,

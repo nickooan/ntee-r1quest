@@ -158,6 +158,26 @@ func FormatResponse(res runtime.ExecuteResult, traceID string, width int) string
 	return strings.Join(lines, "\n")
 }
 
+// FormatExecuteResult renders an execute RPC result, threading through the
+// joint-chain fields when present: the trace id line, a failed-step banner,
+// and a chain summary footer pointing at trace history.
+func FormatExecuteResult(res runtime.ExecuteResult, width int) string {
+	content := FormatResponse(res, res.TraceID, width)
+
+	if res.FailedStep != "" {
+		content = fmt.Sprintf("Joint step %s failed.\n\n%s", res.FailedStep, content)
+	}
+
+	if res.StepCount > 0 {
+		content = fmt.Sprintf(
+			"%s\n\nJoint chain: %d steps completed, trace %s — inspect with @h %s",
+			content, res.StepCount, res.TraceID, res.TraceID,
+		)
+	}
+
+	return content
+}
+
 // FormatError renders a true failure (no response) as an Error block. Mirrors
 // formatError.
 func FormatError(err error, width int) string {

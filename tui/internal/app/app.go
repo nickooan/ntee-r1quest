@@ -140,6 +140,15 @@ type Model struct {
 	edit        editor
 	notice      string
 
+	// Cached highlight state for the open file, so View() never rescans the
+	// whole buffer per frame: fileLines is the split of openFile.Content (view
+	// mode only — edit mode renders m.edit.lines directly), graphqlLines the
+	// BuildGraphqlHighlightLines result for the current buffer, and hlRev the
+	// editor revision it was computed from. Refreshed by refreshFileHighlights.
+	fileLines    []string
+	graphqlLines map[int]bool
+	hlRev        int
+
 	// Edit-mode undo/redo timeline. Snapshots live in the runtime's ntee-db
 	// (keyed by these seqs); the TUI keeps only the lightweight seq list + a
 	// cursor. snapDirty marks edits made since the last checkpoint; nextSeq is a
@@ -235,6 +244,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ExternalEventMsg:
+		// Intermediate joint-chain steps are history-only: the runtime already
+		// persisted the call record, and the results pane keeps showing what it
+		// has until the chain's final event arrives.
+		if msg.Event.Intermediate {
+			return m, nil
+		}
 		m.pending = false
 		m.response = nil
 		m.errText = ""
@@ -420,6 +435,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.edit.dirty = msg.content != m.openFile.Content
 			}
 			m.snapDirty = false
+			m = m.refreshFileHighlights()
 		}
 		return m, nil
 
@@ -432,7 +448,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modeView:
 			return m.handleViewKey(msg)
 		case modeEdit:
-			return m.handleEditKey(msg)
+			// Single choke point keeping the highlight cache in sync with edit
+			// keystrokes: refresh when the buffer changed (rev moved) or the key
+			// left edit mode (Esc discards edits — re-split the saved content).
+			nm, cmd := m.handleEditKey(msg)
+			if mm, ok := nm.(Model); ok && (mm.edit.rev != mm.hlRev || mm.mode != modeEdit) {
+				nm = mm.refreshFileHighlights()
+			}
+			return nm, cmd
 		case modeSearch:
 			return m.handleSearchKey(msg)
 		case modeHistory:
@@ -699,6 +722,11 @@ func (m Model) submitQuery(
 }
 
 func (m Model) startExecute(command string) (tea.Model, tea.Cmd) {
+	// One execute at a time: the runtime process mutates global cwd/env state
+	// per run, and a joint chain keeps it busy across several requests.
+	if m.pending {
+		return m, nil
+	}
 	m.pending = true
 	m.errText = ""
 	m.response = nil
@@ -944,7 +972,30 @@ func (m Model) openFileForMode(target string, forEdit bool) (tea.Model, tea.Cmd)
 	}
 	m.mode = modeView
 	m.fileScrollY = 0
+	m = m.refreshFileHighlights()
 	return m, nil
+}
+
+// refreshFileHighlights recomputes the cached highlight state consumed by
+// renderFile. Called whenever the displayed buffer changes — file open, edit
+// keystrokes (tracked by the editor rev counter), undo/redo restore, or
+// leaving edit mode — so the whole-file graphql scan never runs per frame.
+func (m Model) refreshFileHighlights() Model {
+	if m.mode == modeEdit {
+		// Never alias fileLines to m.edit.lines — the editor mutates in place.
+		m.graphqlLines = view.BuildGraphqlHighlightLines(m.edit.lines)
+		m.hlRev = m.edit.rev
+		return m
+	}
+	if m.openFile != nil {
+		m.fileLines = strings.Split(m.openFile.Content, "\n")
+		m.graphqlLines = view.BuildGraphqlHighlightLines(m.fileLines)
+	} else {
+		m.fileLines = nil
+		m.graphqlLines = nil
+	}
+	m.hlRev = m.edit.rev
+	return m
 }
 
 // ── View mode ───────────────────────────────────────────────────────────────
@@ -1694,6 +1745,20 @@ var editRefPattern = regexp.MustCompile(`^\s*ref\s+(\S*)$`)
 // name+comma: group 1 is the header name, group 2 is the value typed so far.
 var editHeaderValuePattern = regexp.MustCompile(`^\s*header\s+([A-Za-z][A-Za-z0-9-]*)\s*,\s*(.*)$`)
 
+// Suggestion-context patterns. Every fragment is a trailing $-anchored capture
+// so editContext's `fragStart = cx - len(fragment)` arithmetic holds (ASCII
+// classes keep rune == byte lengths).
+var (
+	// A joint-file line holding only indentation plus "-"/"->" so far.
+	editJointStepPattern = regexp.MustCompile(`^\s*(->?[ \t]*)$`)
+	// The path typed inside @run( / @f( up to the cursor.
+	editRunPattern       = regexp.MustCompile(`@run\(([A-Za-z0-9/._-]*)$`)
+	editFileMacroPattern = regexp.MustCompile(`@f\(([A-Za-z0-9/._-]*)$`)
+	// The value typed after the type / auth keywords.
+	editTypePattern = regexp.MustCompile(`^\s*type\s+(\S*)$`)
+	editAuthPattern = regexp.MustCompile(`^\s*(?:authorization|auth)\s+(\S*)$`)
+)
+
 func (m Model) editOverlayOpen() bool {
 	return !m.editDismissed && len(m.editSuggestions) > 0
 }
@@ -1711,11 +1776,15 @@ func (m *Model) recomputeEditSuggestions() {
 }
 
 // editContext returns the suggestions for the cursor's current token and where
-// that token starts (so an accepted suggestion can replace it).
+// that token starts (so an accepted suggestion can replace it). Each branch's
+// fragment is a trailing capture, so fragStart arithmetic replaces exactly the
+// typed text — including '/', '.', and '->' runes the word path can't capture.
 func (m Model) editContext() ([]suggest.Item, int) {
 	line := []rune(m.edit.lines[m.edit.cy])
 	cx := input.Clamp(m.edit.cx, 0, len(line))
 	before := string(line[:cx])
+	content := m.edit.content()
+	isJoint := suggest.IsJointContent(content)
 
 	if rm := editRefPattern.FindStringSubmatch(before); rm != nil {
 		fragment := rm[1]
@@ -1723,13 +1792,48 @@ func (m Model) editContext() ([]suggest.Item, int) {
 		return suggest.BuildRefSuggestionItems(m.openFile.Path, fragment), fragStart
 	}
 
-	// In a `header <name>, <value>` line past the comma, suggest common values
-	// for that header (the fragment may contain '/', ';', etc., so it can't go
-	// through the word-based path below).
-	if hm := editHeaderValuePattern.FindStringSubmatch(before); hm != nil {
-		fragment := hm[2]
+	// A joint line holding only "-"/"->" so far offers the step templates.
+	if isJoint {
+		if sm := editJointStepPattern.FindStringSubmatch(before); sm != nil && sm[1] != "" {
+			fragStart := cx - len([]rune(sm[1]))
+			return suggest.JointStepSuggestions, fragStart
+		}
+	}
+
+	// Path completion inside @run( / @f( — before the header-value branch so a
+	// macro fragment never routes to header values.
+	if rm := editRunPattern.FindStringSubmatch(before); rm != nil {
+		fragment := rm[1]
 		fragStart := cx - len([]rune(fragment))
-		return suggest.BuildHeaderValueSuggestionItems(hm[1], fragment), fragStart
+		return suggest.BuildRunSuggestionItems(m.openFile.Path, fragment), fragStart
+	}
+	if fm := editFileMacroPattern.FindStringSubmatch(before); fm != nil {
+		fragment := fm[1]
+		fragStart := cx - len([]rune(fragment))
+		return suggest.BuildFileSuggestionItems(m.openFile.Path, fragment), fragStart
+	}
+
+	// Request-statement value positions — meaningless in joint buffers, where
+	// the grammar forbids header/type/auth statements.
+	if !isJoint {
+		// In a `header <name>, <value>` line past the comma, suggest common
+		// values for that header (the fragment may contain '/', ';', etc., so
+		// it can't go through the word-based path below).
+		if hm := editHeaderValuePattern.FindStringSubmatch(before); hm != nil {
+			fragment := hm[2]
+			fragStart := cx - len([]rune(fragment))
+			return suggest.BuildHeaderValueSuggestionItems(hm[1], fragment), fragStart
+		}
+		if tm := editTypePattern.FindStringSubmatch(before); tm != nil {
+			fragment := tm[1]
+			fragStart := cx - len([]rune(fragment))
+			return suggest.BuildTypeSuggestionItems(fragment), fragStart
+		}
+		if am := editAuthPattern.FindStringSubmatch(before); am != nil {
+			fragment := am[1]
+			fragStart := cx - len([]rune(fragment))
+			return suggest.BuildAuthSchemeSuggestionItems(fragment), fragStart
+		}
 	}
 
 	word, start := trailingWord(line, cx)
@@ -1737,7 +1841,7 @@ func (m Model) editContext() ([]suggest.Item, int) {
 		return nil, cx
 	}
 	lower := strings.ToLower(word)
-	all := suggest.BuildEditorSuggestionItems(m.openFile.Path, m.edit.content(), m.config.CustomSuggestions)
+	all := m.editWordPool(content, isJoint)
 	var matched []suggest.Item
 	for _, item := range all {
 		if strings.HasPrefix(strings.ToLower(item.Label), lower) ||
@@ -1746,6 +1850,19 @@ func (m Model) editContext() ([]suggest.Item, int) {
 		}
 	}
 	return matched, start
+}
+
+// editWordPool picks the word-path candidate pool by buffer kind: joint chains
+// get the joint statements, .ntd definitions get entry scaffolds + @env, and
+// request files get the full request set.
+func (m Model) editWordPool(content string, isJoint bool) []suggest.Item {
+	if isJoint {
+		return suggest.BuildJointSuggestionItems(m.openFile.Path, content)
+	}
+	if strings.HasSuffix(m.openFile.Path, ".ntd") {
+		return suggest.BuildDefinitionSuggestionItems(m.config.CustomSuggestions)
+	}
+	return suggest.BuildEditorSuggestionItems(m.openFile.Path, content, m.config.CustomSuggestions)
 }
 
 func (m *Model) acceptSuggestion() {

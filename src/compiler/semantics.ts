@@ -20,6 +20,30 @@ export interface ScopeObject {
   body?: ScopeValue
 }
 
+// A @pick source: an @i(...) macro is resolved against the joint file's own
+// intermediate object at compile time, while a json path into the previous
+// step's response body can only be evaluated at run time.
+export type PickSource =
+  | { kind: "jsonPath"; path: string }
+  | { kind: "value"; value: ScopeValue }
+
+export interface JointStepNode {
+  pick?: Record<string, PickSource>
+  run: string
+}
+
+export interface JointScopeObject {
+  kind: "joint"
+  traceId?: string
+  steps: JointStepNode[]
+}
+
+export type CompileResult = ScopeObject | JointScopeObject
+
+export const isJointScope = (
+  result: CompileResult,
+): result is JointScopeObject => (result as JointScopeObject).kind === "joint"
+
 export interface IntermediateObject {
   [key: string]: ScopeValue
 }
@@ -33,7 +57,48 @@ type HeaderValue = string | number | boolean | null
 export const semantics = scriptGrammar
   .createSemantics()
   .addOperation("compile(cwd)", {
-    Program(refs, requestStatements, headerStatements, body) {
+    Program(program) {
+      return program.compile(this.args.cwd)
+    },
+
+    JointProgram(refs, joint, steps) {
+      const intermediateObject: IntermediateObject = {}
+
+      for (const ref of refs.children) {
+        ref.buildItermediateObject(intermediateObject, this.args.cwd)
+      }
+
+      const stepNodes: JointStepNode[] = steps.children.map((step) =>
+        step.toJointStep(intermediateObject, this.args.cwd),
+      )
+
+      // The leading pick runs before any request, so no response body exists
+      // for a json path to read — only @i(...) context sources make sense.
+      const firstPick = stepNodes[0]?.pick
+
+      if (
+        firstPick &&
+        Object.values(firstPick).some((source) => source.kind === "jsonPath")
+      ) {
+        throw new SyntaxError(
+          "The first @pick runs before any response exists — only @i(...) sources are allowed.",
+        )
+      }
+
+      const jointScope: JointScopeObject = {
+        kind: "joint",
+        steps: stepNodes,
+      }
+      const traceId = joint.toTraceId()
+
+      if (traceId !== undefined) {
+        jointScope.traceId = traceId
+      }
+
+      return jointScope
+    },
+
+    RequestProgram(refs, requestStatements, headerStatements, body) {
       const headersObject: ScopeObject["headers"] = {}
       const intermediateObject: IntermediateObject = {}
       const scopeObject: ScopeObject = {
@@ -380,6 +445,90 @@ export const semantics = scriptGrammar
       return this.sourceString === "true"
     },
   })
+  .addOperation<JointStepNode>("toJointStep(intermediateObject, cwd)", {
+    JointStep(_pickArrow, pickNode, _runArrow, run) {
+      const step: JointStepNode = { run: run.toRunTarget() }
+
+      if (pickNode.numChildren > 0) {
+        step.pick = pickNode
+          .child(0)
+          .toPickMap(this.args.intermediateObject, this.args.cwd)
+      }
+
+      return step
+    },
+  })
+  .addOperation<Record<string, PickSource>>(
+    "toPickMap(intermediateObject, cwd)",
+    {
+      Pick(_pick, _open, pairs, _close) {
+        const pick: Record<string, PickSource> = {}
+
+        for (const pair of pairs.asIteration().children) {
+          const [key, source] = pair.toPickPair(
+            this.args.intermediateObject,
+            this.args.cwd,
+          )
+          pick[key] = source
+        }
+
+        return pick
+      },
+    },
+  )
+  .addOperation<[string, PickSource]>("toPickPair(intermediateObject, cwd)", {
+    PickPair(key, _colon, source) {
+      return [
+        key.toKey(),
+        source.toPickSource(this.args.intermediateObject, this.args.cwd),
+      ]
+    },
+  })
+  .addOperation<PickSource>("toPickSource(intermediateObject, cwd)", {
+    PickSource(source) {
+      return source.toPickSource(this.args.intermediateObject, this.args.cwd)
+    },
+
+    intermediateMacro(_operator, actionName, _open, key, defaultNode, _close) {
+      return {
+        kind: "value",
+        value: resolveMacro(
+          actionName.sourceString,
+          key.sourceString,
+          this.args.intermediateObject,
+          readMacroDefault(defaultNode),
+        ),
+      }
+    },
+
+    jsonPath(_first, _dots, _rest) {
+      return { kind: "jsonPath", path: this.sourceString }
+    },
+  })
+  .addOperation<string>("toRunTarget()", {
+    Run(_run, _open, path, _close) {
+      return path.sourceString
+    },
+  })
+  .addOperation<string | undefined>("toTraceId()", {
+    Joint(_joint, _open, traceIdNode, _close) {
+      return traceIdNode.numChildren > 0
+        ? traceIdNode.child(0).toTraceId()
+        : undefined
+    },
+
+    jointTraceId(value) {
+      return value.toTraceId()
+    },
+
+    string(_open, _chars, _close) {
+      return parseQuotedString(this.sourceString)
+    },
+
+    singleQuotedString(_open, _chars, _close) {
+      return this.sourceString.slice(1, -1).replace(/\\(['\\])/g, "$1")
+    },
+  })
 
 export const definitionSemantics = definitionGrammar
   .createSemantics()
@@ -709,16 +858,30 @@ const toHeaderValue = (value: ScopeValue): HeaderValue => {
 export const compile = (
   input: string,
   options: CompileOptions = {},
-): ScopeObject => {
+): CompileResult => {
   const matchResult = scriptGrammar.match(input)
 
   if (matchResult.failed()) {
+    // The Program alternation reports the failure of whichever alternative got
+    // furthest, which for a broken joint file is often the unrelated
+    // RequestProgram rule. Re-match against JointProgram directly so the error
+    // points at the actual joint syntax problem.
+    if (input.includes("@joint")) {
+      const jointMatchResult = scriptGrammar.match(input, "JointProgram")
+
+      if (jointMatchResult.failed()) {
+        throw new SyntaxError(
+          `Invalid @joint file: ${jointMatchResult.message}`,
+        )
+      }
+    }
+
     throw new SyntaxError(matchResult.message)
   }
 
   return semantics(matchResult).compile(
     options.cwd ?? process.cwd(),
-  ) as ScopeObject
+  ) as CompileResult
 }
 
 export enum CompileSourceType {
@@ -729,7 +892,7 @@ export enum CompileSourceType {
 export const compileFile = (
   source: string,
   type: CompileSourceType,
-): ScopeObject => {
+): CompileResult => {
   if (type === CompileSourceType.Raw) {
     return compile(source, {
       cwd: process.cwd(),
