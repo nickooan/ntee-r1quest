@@ -38,6 +38,12 @@ type ExecuteResult struct {
 	Headers    map[string]any  `json:"headers"`
 	Body       json.RawMessage `json:"body,omitempty"`
 	DurationMs int64           `json:"durationMs"`
+	// Joint chain runs only: shared trace id, executed step count, and — when
+	// the chain stopped on a failing step that still returned a response — that
+	// step's label, e.g. "2/3 (query-user-posts)".
+	TraceID    string `json:"traceId,omitempty"`
+	StepCount  int    `json:"stepCount,omitempty"`
+	FailedStep string `json:"failedStep,omitempty"`
 }
 
 // AiStartRequest mirrors AiStartRequest.

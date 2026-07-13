@@ -1,6 +1,6 @@
 ref ../../data/example.ntd
 
-@joint('example-user-post-chain')
+@joint()
 
 -> @pick(content: @i(content-type)) // optional leading pick: context values only
 -> @run(query-user)

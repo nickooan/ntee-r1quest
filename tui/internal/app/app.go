@@ -705,6 +705,11 @@ func (m Model) submitQuery(
 }
 
 func (m Model) startExecute(command string) (tea.Model, tea.Cmd) {
+	// One execute at a time: the runtime process mutates global cwd/env state
+	// per run, and a joint chain keeps it busy across several requests.
+	if m.pending {
+		return m, nil
+	}
 	m.pending = true
 	m.errText = ""
 	m.response = nil

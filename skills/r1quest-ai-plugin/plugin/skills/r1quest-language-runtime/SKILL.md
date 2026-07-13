@@ -131,6 +131,9 @@ Rules:
 - Execution stops at the first failing step (`Joint step N/M (<target>)
 failed.`, non-zero exit). Only the final response is printed; every step is
   recorded in history under the shared trace id (`@h <trace-id>`).
+- Joint files run from both the CLI (`-p <path>`) and the terminal app (type
+  the path in `@query` mode and press Enter) — the app shows the final
+  response with the trace id and a step-count footer.
 
 ## Content Types
 

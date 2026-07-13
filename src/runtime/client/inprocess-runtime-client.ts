@@ -32,8 +32,9 @@ import {
   type SnapshotRecord,
   type SnapshotMeta,
 } from "../cache/index.ts"
-import { execute, resolveRuntimeConfig } from "../cli-command.ts"
+import { executeSource, resolveRuntimeConfig } from "../cli-command.ts"
 import { clearRuntimeConfigCache, type RuntimeConfig } from "../config.ts"
+import { isJointStepError } from "../joint.ts"
 import {
   startExternalEventListener,
   type ExternalEventListener,
@@ -110,21 +111,58 @@ export class InProcessRuntimeClient implements RuntimeClient {
   // Resolves with an ExecuteResult for any received response — including non-2xx,
   // which axios surfaces as a thrown AxiosError carrying `.response`. Rejects
   // only when no response came back (network/runtime failure). See ExecuteResult.
+  //
+  // A joint file executes as a chain in this process (which holds the history
+  // store lock, so every step records directly). The result carries the final
+  // step's response plus the chain's trace id and step count; a step that
+  // failed with an HTTP response resolves too, tagged with `failedStep`.
   async execute(request: ExecuteRequest): Promise<ExecuteResult> {
     const startedAt = Date.now()
 
     try {
-      const response = await execute(
+      const result = await executeSource(
         request.command,
         this.config.root,
         request.traceId,
         request.env ?? this.config.parsedArgs.env,
       )
-      return toExecuteResult(response, Date.now() - startedAt)
+      const executeResult = toExecuteResult(
+        result.response,
+        Date.now() - startedAt,
+      )
+
+      if (result.kind === "joint") {
+        executeResult.traceId = result.traceId
+        executeResult.stepCount = result.stepCount
+      }
+
+      return executeResult
     } catch (error) {
+      if (isJointStepError(error)) {
+        const cause = error.cause
+
+        if (isAxiosError(cause) && cause.response) {
+          const executeResult = toExecuteResult(
+            cause.response,
+            Date.now() - startedAt,
+          )
+          executeResult.traceId = error.traceId
+          executeResult.failedStep = `${error.stepIndex + 1}/${error.stepCount} (${error.runTarget})`
+
+          return executeResult
+        }
+
+        // No HTTP response to show — reject with the step context plus the
+        // underlying reason so the terminal's error pane tells the full story.
+        throw new Error(
+          `${error.message} ${cause instanceof Error ? cause.message : String(cause)}`,
+        )
+      }
+
       if (isAxiosError(error) && error.response) {
         return toExecuteResult(error.response, Date.now() - startedAt)
       }
+
       throw error
     }
   }

@@ -126,3 +126,45 @@ func TestBuildTerminalViewportPadsShort(t *testing.T) {
 		t.Fatalf("lines: %#v", vp.Lines)
 	}
 }
+
+func TestFormatExecuteResultPlainRequest(t *testing.T) {
+	res := runtime.ExecuteResult{Status: 200, StatusText: "OK"}
+	res.Request.Method = "get"
+	res.Request.URL = "https://ntee.io/x"
+
+	got := FormatExecuteResult(res, 60)
+	if strings.Contains(got, "Trace:") || strings.Contains(got, "Joint") {
+		t.Fatalf("plain request must not render chain lines; got:\n%s", got)
+	}
+}
+
+func TestFormatExecuteResultJointChain(t *testing.T) {
+	res := runtime.ExecuteResult{Status: 200, StatusText: "OK", TraceID: "t-1", StepCount: 3}
+	res.Request.Method = "post"
+	res.Request.URL = "https://ntee.io/x"
+
+	got := FormatExecuteResult(res, 60)
+	if !strings.Contains(got, "Trace: t-1") {
+		t.Fatalf("expected trace line; got:\n%s", got)
+	}
+	if !strings.Contains(got, "Joint chain: 3 steps completed, trace t-1 — inspect with @h t-1") {
+		t.Fatalf("expected chain footer; got:\n%s", got)
+	}
+}
+
+func TestFormatExecuteResultFailedStep(t *testing.T) {
+	res := runtime.ExecuteResult{Status: 500, StatusText: "Server Error", TraceID: "t-1", FailedStep: "2/3 (query-user-posts)"}
+	res.Request.Method = "post"
+	res.Request.URL = "https://ntee.io/x"
+
+	got := FormatExecuteResult(res, 60)
+	if !strings.HasPrefix(got, "Joint step 2/3 (query-user-posts) failed.") {
+		t.Fatalf("expected failed-step banner first; got:\n%s", got)
+	}
+	if !strings.Contains(got, "Trace: t-1") {
+		t.Fatalf("expected trace line; got:\n%s", got)
+	}
+	if strings.Contains(got, "Joint chain:") {
+		t.Fatalf("failed run must not render the completed footer; got:\n%s", got)
+	}
+}

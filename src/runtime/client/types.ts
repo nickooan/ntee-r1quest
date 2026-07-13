@@ -49,6 +49,15 @@ export type ExecuteResult = {
   headers: Record<string, unknown>
   body: unknown
   durationMs: number
+  // Joint chain runs only: the shared trace id every step recorded under.
+  traceId?: string
+  // Joint chain runs only: how many steps the chain executed. The result body
+  // is the final step's response.
+  stepCount?: number
+  // Set when a joint chain stopped on a failing step that still returned an
+  // HTTP response, e.g. "2/3 (query-user-posts)". The response fields describe
+  // that failing step.
+  failedStep?: string
 }
 
 // ── AI / ACP ───────────────────────────────────────────────────────────────

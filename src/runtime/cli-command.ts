@@ -228,6 +228,26 @@ export const execute = async (
   })
 }
 
+// The joint-aware entry point: a regular request resolves to its response,
+// while a joint file runs as a chain and resolves to the final response plus
+// the shared trace id. Used by the `-p` one-shot and the in-process (TUI)
+// execute path.
+export const executeSource = async (
+  source: string,
+  root: string = resolveRoot(),
+  traceId?: string,
+  env?: string,
+  onStepComplete?: (step: JointStepResult) => void | Promise<void>,
+): Promise<PathExecutionResult> => {
+  return runSource({
+    root,
+    source: normalizeSource(source),
+    traceId,
+    env,
+    onStepComplete,
+  })
+}
+
 export const executePathArgument = async (
   args: string[] = [],
   onStepComplete?: (step: JointStepResult) => void | Promise<void>,
@@ -239,13 +259,13 @@ export const executePathArgument = async (
     return undefined
   }
 
-  return runSource({
-    root: config.root,
-    source: normalizeSource(parsedArgs.path),
-    traceId: parsedArgs.traceId,
-    env: parsedArgs.env,
+  return executeSource(
+    parsedArgs.path,
+    config.root,
+    parsedArgs.traceId,
+    parsedArgs.env,
     onStepComplete,
-  })
+  )
 }
 
 export const resolveRuntimeConfig = (args: string[] = []): RuntimeConfig => {

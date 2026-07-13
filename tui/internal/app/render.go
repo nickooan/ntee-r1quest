@@ -391,7 +391,7 @@ func (m Model) responseContent(width int) string {
 	case m.external != "":
 		return m.external
 	case m.response != nil:
-		return view.FormatResponse(*m.response, "", width)
+		return view.FormatExecuteResult(*m.response, width)
 	default:
 		return "Type a request path and press Enter, or browse with ↑/↓."
 	}

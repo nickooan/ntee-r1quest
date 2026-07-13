@@ -887,9 +887,16 @@ exits non-zero. Steps that already ran are in history under the trace id.
 
 **Terminal app behavior**
 
-While the terminal app is open, intermediate steps are persisted to history
-but do not touch the results pane; only the chain's final response (or a
-failing step) is displayed.
+Joint files also run directly inside the terminal app — select or type the
+joint file's path in `@query` mode and press Enter like any request. The
+results pane shows only the final response, with the trace id and a
+`Joint chain: N steps completed` footer; every step is in history under the
+trace id. If a step fails with an HTTP response, that response is shown with a
+`Joint step N/M (<target>) failed.` banner.
+
+When a chain runs from the CLI (`-p`) while the app is open, intermediate
+steps are persisted to history but do not touch the results pane; only the
+chain's final response (or a failing step) is displayed.
 
 ## Macros
 
