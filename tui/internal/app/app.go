@@ -235,6 +235,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ExternalEventMsg:
+		// Intermediate joint-chain steps are history-only: the runtime already
+		// persisted the call record, and the results pane keeps showing what it
+		// has until the chain's final event arrives.
+		if msg.Event.Intermediate {
+			return m, nil
+		}
 		m.pending = false
 		m.response = nil
 		m.errText = ""

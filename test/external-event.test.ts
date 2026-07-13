@@ -95,6 +95,52 @@ describe("external event runtime", () => {
     }).toThrow("External event traceId must be a string.")
   })
 
+  test("carries the intermediate flag through build and parse", () => {
+    const event = buildExternalRequestEvent(
+      "nested/get",
+      12,
+      "response",
+      "joint-1",
+      undefined,
+      true,
+    )
+
+    expect(event.intermediate).toBe(true)
+    expect(parseExternalRequestEvent(JSON.stringify(event)).intermediate).toBe(
+      true,
+    )
+  })
+
+  test("omits the intermediate flag on final and plain events", () => {
+    expect(
+      buildExternalRequestEvent("nested/get", 12, "response").intermediate,
+    ).toBeUndefined()
+    expect(
+      buildExternalRequestEvent(
+        "nested/get",
+        12,
+        "response",
+        "t",
+        undefined,
+        false,
+      ).intermediate,
+    ).toBeUndefined()
+  })
+
+  test("rejects a non-boolean intermediate flag", () => {
+    expect(() => {
+      parseExternalRequestEvent(
+        JSON.stringify({
+          ntsPath: "nested",
+          ntsFile: "get.nts",
+          time: 42,
+          responseContent: "ok",
+          intermediate: "yes",
+        }),
+      )
+    }).toThrow("External event intermediate must be a boolean.")
+  })
+
   test("round-trips the full call record payload", () => {
     const call = {
       at: 1000,

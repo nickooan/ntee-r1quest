@@ -223,6 +223,106 @@ body {
   })
 })
 
+describe("joint grammar", () => {
+  test("matches a joint document with refs, picks and runs", () => {
+    const input = `ref ../../data/example.ntd
+ref ../data/other.ntd
+
+@joint('trace-id')
+
+-> @pick(content: @i(content-type)) // optional in beginning
+-> @run(query-user)
+-> @pick(userId: userId, content: @i(content-type))
+-> @run(query-user-posts)
+-> @pick(postId: data[0].postId, role: post.user.role)
+-> @run(../../query-post-comments)`
+
+    expect(scriptGrammar.match(input).succeeded()).toBe(true)
+  })
+
+  test("matches single-quoted, double-quoted and absent trace ids", () => {
+    expect(
+      scriptGrammar
+        .match("@joint('trace-id')\n-> @run(query-user)")
+        .succeeded(),
+    ).toBe(true)
+    expect(
+      scriptGrammar
+        .match('@joint("trace-id")\n-> @run(query-user)')
+        .succeeded(),
+    ).toBe(true)
+    expect(
+      scriptGrammar.match("@joint()\n-> @run(query-user)").succeeded(),
+    ).toBe(true)
+  })
+
+  test("matches runs without a leading pick", () => {
+    const input = `@joint("t")
+-> @run(query-user)
+-> @run(query-user-posts)`
+
+    expect(scriptGrammar.match(input).succeeded()).toBe(true)
+  })
+
+  test("matches pick sources with default macros and json paths", () => {
+    const input = `@joint("t")
+-> @pick(name: @i(name or "guest"))
+-> @run(query-user)
+-> @pick(postId: data[0].items[1].postId)
+-> @run(query-post)`
+
+    expect(scriptGrammar.match(input).succeeded()).toBe(true)
+  })
+
+  test("rejects joint documents without any run step", () => {
+    expect(scriptGrammar.match('@joint("t")').failed()).toBe(true)
+    expect(scriptGrammar.match('@joint("t")\n-> @pick(a: b)').failed()).toBe(
+      true,
+    )
+  })
+
+  test("rejects trailing picks without a following run", () => {
+    const input = `@joint("t")
+-> @run(query-user)
+-> @pick(userId: userId)`
+
+    expect(scriptGrammar.match(input).failed()).toBe(true)
+  })
+
+  test("rejects consecutive picks", () => {
+    const input = `@joint("t")
+-> @pick(a: b)
+-> @pick(c: d)
+-> @run(query-user)`
+
+    expect(scriptGrammar.match(input).failed()).toBe(true)
+  })
+
+  test("rejects request statements in joint documents", () => {
+    for (const statement of [
+      'url "http://www.123.com/"',
+      "type get",
+      "header name, value",
+      "auth bearer token",
+      "body { value: true }",
+    ]) {
+      const input = `@joint("t")
+${statement}
+-> @run(query-user)`
+
+      expect(scriptGrammar.match(input).failed()).toBe(true)
+    }
+  })
+
+  test("rejects refs after the joint declaration", () => {
+    const input = `@joint("t")
+ref user.ntd
+-> @run(query-user)`
+
+    expect(scriptGrammar.match(input).failed()).toBe(true)
+  })
+})
+
 describe("definition lexer grammar", () => {
   test("matches definition documents with quoted and unquoted strings", () => {
     const input = `spid: xxx-xxx-xxxx

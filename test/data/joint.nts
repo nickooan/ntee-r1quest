@@ -1,0 +1,8 @@
+ref user.ntd
+
+@joint('joint-trace')
+
+-> @pick(name: @i(name), fallback: @i(nope or "fallback-value"))
+-> @run(get)
+-> @pick(userId: data[0].userId, age: @i(age))
+-> @run(post)

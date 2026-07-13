@@ -11,6 +11,10 @@ export type ExternalRequestEvent = {
   // Batch/task id from the request's `-ti` flag. Present only when the request
   // was tagged with one.
   traceId?: string
+  // Marks a non-final step of a joint chain. The receiving app still persists
+  // the call record but keeps its results pane untouched — only the chain's
+  // final response is displayed.
+  intermediate?: boolean
   // Full API-call record for the receiving app to persist. The history store
   // is single-writer: while a terminal app is open it holds the store lock, so
   // a one-shot run cannot record directly — it hands the record over here and
@@ -51,6 +55,13 @@ const assertExternalRequestEvent = (value: unknown): ExternalRequestEvent => {
     throw new TypeError("External event traceId must be a string.")
   }
 
+  if (
+    value.intermediate !== undefined &&
+    typeof value.intermediate !== "boolean"
+  ) {
+    throw new TypeError("External event intermediate must be a boolean.")
+  }
+
   const call =
     value.call === undefined ? undefined : assertCallRecord(value.call)
 
@@ -60,6 +71,9 @@ const assertExternalRequestEvent = (value: unknown): ExternalRequestEvent => {
     time: value.time,
     responseContent: value.responseContent,
     ...(value.traceId === undefined ? {} : { traceId: value.traceId }),
+    ...(value.intermediate === undefined
+      ? {}
+      : { intermediate: value.intermediate }),
     ...(call === undefined ? {} : { call }),
   }
 }
@@ -108,6 +122,7 @@ export const buildExternalRequestEvent = (
   responseContent: string,
   traceId?: string,
   call?: RecordApiCallInput,
+  intermediate?: boolean,
 ): ExternalRequestEvent => {
   const normalizedRequestPath = requestPath.trim().replaceAll("\\", "/")
   const ntsPath = normalizedRequestPath.includes("/")
@@ -121,6 +136,7 @@ export const buildExternalRequestEvent = (
     time,
     responseContent,
     ...(traceId ? { traceId } : {}),
+    ...(intermediate ? { intermediate: true } : {}),
     ...(call ? { call } : {}),
   }
 }

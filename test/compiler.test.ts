@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, test } from "@jest/globals"
 import {
   buildItermediateObject,
+  compile,
   compileFile,
   CompileSourceType,
+  isJointScope,
   parseEnvOverrides,
   setEnvOverrides,
+  type ScopeObject,
 } from "../src/compiler/semantics.ts"
 
 describe("compiler", () => {
@@ -400,7 +403,7 @@ describe("compiler", () => {
     const scopeObject = compileFile(
       "test/data/compiler-file-body.nts",
       CompileSourceType.File,
-    )
+    ) as ScopeObject
     const body = scopeObject.body as Record<string, Blob[]>
     const upload = body.upload
     const uploads = body.uploads
@@ -435,5 +438,70 @@ describe("compiler", () => {
     expect(() =>
       compileFile("test/data/missing-macro.nts", CompileSourceType.File),
     ).toThrow("Undefined macro: @i(missing)")
+  })
+
+  describe("joint documents", () => {
+    test("compiles a joint file into an ordered step chain", () => {
+      const result = compileFile("test/data/joint.nts", CompileSourceType.File)
+
+      expect(isJointScope(result)).toBe(true)
+      expect(result).toEqual({
+        kind: "joint",
+        traceId: "joint-trace",
+        steps: [
+          {
+            pick: {
+              name: { kind: "value", value: "macro-name" },
+              fallback: { kind: "value", value: "fallback-value" },
+            },
+            run: "get",
+          },
+          {
+            pick: {
+              userId: { kind: "jsonPath", path: "data[0].userId" },
+              age: { kind: "value", value: 2 },
+            },
+            run: "post",
+          },
+        ],
+      })
+    })
+
+    test("compiles runs without picks and double-quoted trace ids", () => {
+      expect(
+        compile('@joint("t-1")\n-> @run(query-user)\n-> @run(../query-posts)'),
+      ).toEqual({
+        kind: "joint",
+        traceId: "t-1",
+        steps: [{ run: "query-user" }, { run: "../query-posts" }],
+      })
+    })
+
+    test("omits the trace id when @joint() has no argument", () => {
+      expect(compile("@joint()\n-> @run(query-user)")).toEqual({
+        kind: "joint",
+        steps: [{ run: "query-user" }],
+      })
+    })
+
+    test("throws when the first pick reads from a response json path", () => {
+      expect(() =>
+        compile("@joint()\n-> @pick(userId: userId)\n-> @run(query-user)"),
+      ).toThrow(
+        "The first @pick runs before any response exists — only @i(...) sources are allowed.",
+      )
+    })
+
+    test("reports joint syntax errors for broken joint files", () => {
+      expect(() =>
+        compile('@joint("t")\nurl "http://ntee.io"\n-> @run(query-user)'),
+      ).toThrow(/Invalid @joint file:/)
+    })
+
+    test("regular request documents still compile to a scope object", () => {
+      const result = compileFile("test/data/get.nts", CompileSourceType.File)
+
+      expect(isJointScope(result)).toBe(false)
+    })
   })
 })

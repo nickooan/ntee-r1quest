@@ -130,6 +130,9 @@ type ExternalRequestEvent struct {
 	Time            int64  `json:"time"`
 	ResponseContent string `json:"responseContent"`
 	TraceID         string `json:"traceId,omitempty"`
+	// A non-final step of a joint chain: persisted to history by the runtime,
+	// but the results pane only shows the chain's final response.
+	Intermediate bool `json:"intermediate,omitempty"`
 }
 
 // EventHandlers are the server→client notification callbacks (nil = ignore).

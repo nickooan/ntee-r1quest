@@ -11,5 +11,5 @@ query GetPost($id: ID!) {
   }
 }
 variables: {
-  id: "1"
+  id: @env(postId or "1")
 }

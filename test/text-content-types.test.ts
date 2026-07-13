@@ -8,7 +8,11 @@ import {
 } from "@jest/globals"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
-import { compileFile, CompileSourceType } from "../src/compiler/semantics.ts"
+import {
+  compileFile,
+  CompileSourceType,
+  type ScopeObject,
+} from "../src/compiler/semantics.ts"
 import { execute } from "../src/runtime/request.ts"
 
 const server = setupServer()
@@ -44,7 +48,7 @@ describe("text content type requests", () => {
       const scopeObject = compileFile(
         `test/data/${file}`,
         CompileSourceType.File,
-      )
+      ) as ScopeObject
 
       expect(scopeObject.body).toBeString()
       expect(scopeObject.body).not.toBe("")

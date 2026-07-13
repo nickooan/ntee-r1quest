@@ -222,15 +222,16 @@ describe("CLI command runtime", () => {
     )
 
     const originalWorkingDirectory = process.cwd()
-    const response = await executePathArgument([
+    const result = await executePathArgument([
       "-r",
       join(originalWorkingDirectory, "test/data"),
       "-p",
       "nested/get.nts",
     ])
 
-    expect(response?.status).toBe(200)
-    expect(response?.data).toEqual({
+    expect(result?.kind).toBe("request")
+    expect(result?.response.status).toBe(200)
+    expect(result?.response.data).toEqual({
       method: "get",
       ok: true,
     })

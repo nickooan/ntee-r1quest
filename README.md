@@ -58,6 +58,7 @@ npx ntee-r1quest -r ./example/request
 - [Collection Structure](#collection-structure)
 - [`.ntd` Definition Files](#ntd-definition-files)
 - [`.nts` Request Files](#nts-request-files)
+- [Joint Chain Files](#joint-chain-files-jointnts)
 - [Macros](#macros)
 - [Examples](#examples)
 - [GraphQL Requests](#graphql-requests)
@@ -141,7 +142,14 @@ npx ntee-r1quest -r ./example/request -p folder-1/get-post
 
 # Inject env values for @env(...) macros and tag the run with a trace id
 r1q -r ./example/request -p users/get -env '{"API_TOKEN":"abc"}' -ti task-42
+
+# Run a joint chain file — steps share one trace id, only the final response prints
+r1q -r ./example -p request/queries/query-user-post.joint
 ```
+
+`-p` also accepts [joint chain files](#joint-chain-files-jointnts); for a
+chain, `-ti` overrides the trace id declared in the file and `-env` seeds the
+chain's env before the first step.
 
 A one-shot run can also notify an open terminal app — see [`sock`](#config).
 
@@ -388,7 +396,9 @@ its previous entry.
 **Trace grouping.** Tag one-shot runs with `-ti <id>` (see
 [CLI Reference](#cli-reference)) to record them under a shared trace. In History
 Mode, `@h <id>` lists just that trace's calls **in the order they ran** — handy
-for reviewing a multi-step flow.
+for reviewing a multi-step flow. A [joint chain](#joint-chain-files-jointnts)
+records every step (including intermediates the terminal never displays) under
+its trace id automatically.
 
 **Clearing.** Run `@clean-cache` (or `@cc`) to wipe both input history and
 request history (the cache lives under `~/.ntee-r1quest/cache/`).
@@ -785,6 +795,101 @@ Rules and cautions:
 - `@f(...)` cannot be used in headers or authorization.
 - `@f(...)` cannot be used as the entire body by itself.
 - Comments start with `//`.
+
+## Joint Chain Files (`.joint.nts`)
+
+A joint file chains existing `.nts` requests into one run: each step executes
+in order, values picked from a response feed the next request, every call is
+recorded to history under one trace id, and **only the final response is
+printed**. Declaring `@joint(...)` makes the file a chain — it can no longer
+contain `url`, `type`, `header`, `auth`, or `body` statements. The `.joint.nts`
+suffix is a naming convention, not a requirement; any `.nts` file with a
+`@joint(...)` declaration is a chain.
+
+The shipped example (`example/request/queries/query-user-post.joint.nts`):
+
+```nts
+ref ../../data/example.ntd
+
+@joint('example-user-post-chain')
+
+-> @pick(content: @i(content-type)) // optional leading pick: context values only
+-> @run(query-user)
+-> @pick(userId: data.user.id)
+-> @run(query-user-posts)
+-> @pick(postId: data.user.posts.data[0].id)
+-> @run(query-post)
+```
+
+Run it like any one-shot request:
+
+```bash
+r1q -r ./example -p request/queries/query-user-post.joint
+```
+
+The output is the final step's response followed by a summary line with the
+trace id — inspect the whole chain, including intermediate steps, with
+`@h example-user-post-chain` in the terminal app.
+
+**Structure**
+
+- `ref` lines come first, then `@joint(<trace-id>)`, then one or more steps.
+- The trace id may be single- or double-quoted, or omitted: `@joint()`
+  generates one (`joint-<timestamp>-<token>`). The CLI `-ti` flag takes
+  precedence over the declared id.
+- A step is `-> @run(<path>)`, optionally preceded by `-> @pick(...)`. The
+  pick binds to the run that follows it, so a trailing `@pick` with no `@run`
+  is a parse error.
+- `@run` paths resolve relative to the joint file (`.nts` optional), so
+  `@run(query-user)` and `@run(../folder-2/create-post)` both work.
+
+**Picking values**
+
+`@pick(key: <source>, ...)` merges values into the chain env, which later
+steps read through the ordinary `@env(...)` mechanism in their `ref`'d `.ntd`
+files. Two kinds of source:
+
+- a **json path** into the previous step's response body — dot segments plus
+  `[n]` indexes, e.g. `data.user.posts.data[0].id`;
+- an **`@i(key)` macro** (with optional `or` default) reading the joint file's
+  own `ref`'d context.
+
+Values accumulate across steps (a key picked at step 1 is still available at
+step 3); later picks win on duplicate keys, and picked values override
+same-named keys from `-env`. Non-string values are JSON-stringified, matching
+`-env` coercion. The first step's pick runs before any response exists, so it
+may only use `@i(...)` sources.
+
+For the chain above, `example/graphql/query-user-posts.ntd` reads the picked
+value with a default so the request still works standalone:
+
+```ntd
+variables: {
+  id: @env(userId or "1")
+  page: 1
+  limit: 5
+}
+```
+
+**The rule of `@joint`**
+
+Every step must be an `application/json` request returning a JSON response
+(a body-less response such as `204 No Content` is allowed). A joint file
+cannot `@run` another joint file. Violations stop the chain before the
+offending request is sent.
+
+**Failure behavior**
+
+The chain stops at the first failing step — compile error, non-2xx response,
+non-JSON content, or an unresolvable json path. The run prints
+`Joint step N/M (<target>) failed.` plus the failing response or error and
+exits non-zero. Steps that already ran are in history under the trace id.
+
+**Terminal app behavior**
+
+While the terminal app is open, intermediate steps are persisted to history
+but do not touch the results pane; only the chain's final response (or a
+failing step) is displayed.
 
 ## Macros
 
