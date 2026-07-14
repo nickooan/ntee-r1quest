@@ -17,6 +17,8 @@ type HighlightSegment struct {
 	Bold      bool
 	DimColor  bool
 	Underline bool
+	Italic    bool
+	Strike    bool
 }
 
 // FilePaneLayout mirrors file-content-highlight.ts FilePaneLayout.

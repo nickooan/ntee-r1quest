@@ -43,6 +43,11 @@ func (m Model) View() string {
 		return lipgloss.JoinVertical(lipgloss.Left, header, body, status)
 	}
 
+	// The status line can span multiple rows (query shows a hint row beneath the
+	// input); shrink the body by those extra rows so the layout never overflows.
+	status := m.renderStatusLine()
+	bodyHeight = max(3, bodyHeight-strings.Count(status, "\n"))
+
 	sidebarWidth := input.Clamp(m.width/4, 14, max(14, m.width-24))
 	mainWidth := max(3, m.width-sidebarWidth-1)
 
@@ -79,7 +84,7 @@ func (m Model) View() string {
 	mainPane := paneStyle.Width(mainWidth - 2).Height(bodyHeight - 2).Render(mainBody)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, mainPane)
-	return lipgloss.JoinVertical(lipgloss.Left, header, body, m.renderStatusLine())
+	return lipgloss.JoinVertical(lipgloss.Left, header, body, status)
 }
 
 func (m Model) renderStatusLine() string {
@@ -112,7 +117,7 @@ func (m Model) renderStatusLine() string {
 		return line
 	case modeHistory:
 		count := fmt.Sprintf("%d/%d", min(m.historyIndex+1, len(m.history)), len(m.history))
-		return withNotice(promptStyle.Render("@history")+" "+count+"   ↑/↓/←/→ scroll · shift+↑/↓ select · s search · esc back", m.notice)
+		return withNotice(promptStyle.Render("@history")+" "+count+"   ↑/↓/←/→ scroll · shift+↑/↓ select · s search · esc back   "+modeSwitchHint(m.mode), m.notice)
 	case modeSearch:
 		matches := view.FindSearchMatches(m.searchContent, m.searchInput)
 		summary := fmt.Sprintf("%d matches", len(matches))
@@ -127,7 +132,11 @@ func (m Model) renderStatusLine() string {
 		if m.aiPermission != nil {
 			return promptStyle.Render("Permission:") + " " + m.aiPermission.Title + "   [y] allow · [n] reject"
 		}
-		return renderMultilineInput("@ai >", m.aiInput, m.aiInputCursor)
+		// Input on the top row, key hints on a faint row beneath it (the AI
+		// layout accounts for the extra line via the status line's height).
+		input := renderMultilineInput("@ai >", m.aiInput, m.aiInputCursor)
+		hint := gutterStyle.Render("Ctrl+J newline · enter send · ↑/↓ scroll · esc back · " + modeSwitchHint(m.mode))
+		return input + "\n" + hint
 	default:
 		// While navigating (shift+arrow / popup), the input bar reflects the
 		// selected entry; typing returns to the editable typed command.
@@ -138,8 +147,18 @@ func (m Model) renderStatusLine() string {
 		} else {
 			line += renderInputLine(m.command, m.cursor)
 		}
-		return withNotice(line, m.notice)
+		// Mode-switch hint on its own faint row beneath the input, so it never
+		// crowds what the user is typing.
+		return withNotice(line, m.notice) + "\n" + gutterStyle.Render(modeSwitchHint(m.mode))
 	}
+}
+
+// modeSwitchHint is a compact "shift+tab → <next mode>" hint so the Shift+Tab
+// cycle is discoverable from every primary mode. Returned unstyled, matching
+// the other plain status-line hints (the AI line renders it faint alongside
+// its own hints).
+func modeSwitchHint(m mode) string {
+	return "shift+tab → " + nextModeLabel(m)
 }
 
 // withNotice appends a transient status note (e.g. "copied") to a status line.
@@ -511,12 +530,21 @@ type segStyleKey struct {
 	bold      bool
 	dim       bool
 	underline bool
+	italic    bool
+	strike    bool
 }
 
 var segStyles = map[segStyleKey]lipgloss.Style{}
 
 func segStyleFor(segment view.HighlightSegment) lipgloss.Style {
-	key := segStyleKey{color: segment.Color, bold: segment.Bold, dim: segment.DimColor, underline: segment.Underline}
+	key := segStyleKey{
+		color:     segment.Color,
+		bold:      segment.Bold,
+		dim:       segment.DimColor,
+		underline: segment.Underline,
+		italic:    segment.Italic,
+		strike:    segment.Strike,
+	}
 	if style, ok := segStyles[key]; ok {
 		return style
 	}
@@ -533,6 +561,12 @@ func segStyleFor(segment view.HighlightSegment) lipgloss.Style {
 	}
 	if key.underline {
 		style = style.Underline(true)
+	}
+	if key.italic {
+		style = style.Italic(true)
+	}
+	if key.strike {
+		style = style.Strikethrough(true)
 	}
 	segStyles[key] = style
 	return style

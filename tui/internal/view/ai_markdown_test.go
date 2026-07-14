@@ -55,6 +55,82 @@ func TestMarkdownInlineSpans(t *testing.T) {
 	}
 }
 
+func findSegment(segments []HighlightSegment, text string) *HighlightSegment {
+	for i := range segments {
+		if segments[i].Text == text {
+			return &segments[i]
+		}
+	}
+	return nil
+}
+
+func TestMarkdownLink(t *testing.T) {
+	segs, _ := MarkdownLineSegments("see the [docs](https://example.com) now", false)
+	label := findSegment(segs, "docs")
+	if label == nil || label.Color != "cyan" || !label.Underline {
+		t.Fatalf("link label should be cyan underlined: %+v", segs)
+	}
+	url := findSegment(segs, " (https://example.com)")
+	if url == nil || url.Color != "gray" {
+		t.Fatalf("link url should be kept as a gray parenthetical: %+v", segs)
+	}
+	// The raw markdown syntax must not survive as plain text.
+	if findSegment(segs, "[docs](") != nil {
+		t.Fatalf("raw link syntax should not render literally: %+v", segs)
+	}
+}
+
+func TestMarkdownBareURLTrailingPunctuation(t *testing.T) {
+	segs, _ := MarkdownLineSegments("visit https://example.com. Thanks", false)
+	url := findSegment(segs, "https://example.com")
+	if url == nil || url.Color != "cyan" || !url.Underline {
+		t.Fatalf("bare url should be styled without the trailing period: %+v", segs)
+	}
+	if findSegment(segs, ".") == nil {
+		t.Fatalf("trailing punctuation should split into plain text: %+v", segs)
+	}
+}
+
+func TestMarkdownItalicAndBoldItalic(t *testing.T) {
+	segs, _ := MarkdownLineSegments("this is *soft* and ***loud***", false)
+	if it := findSegment(segs, "*soft*"); it == nil || !it.Italic || it.Bold {
+		t.Fatalf("*soft* should be italic only: %+v", segs)
+	}
+	if bi := findSegment(segs, "***loud***"); bi == nil || !bi.Bold || !bi.Italic {
+		t.Fatalf("***loud*** should be bold+italic: %+v", segs)
+	}
+}
+
+func TestMarkdownStrikethrough(t *testing.T) {
+	segs, _ := MarkdownLineSegments("~~gone~~ text", false)
+	if s := findSegment(segs, "~~gone~~"); s == nil || !s.Strike {
+		t.Fatalf("~~gone~~ should be struck through: %+v", segs)
+	}
+}
+
+func TestMarkdownDoesNotItalicizeSnakeCase(t *testing.T) {
+	// Underscores are common in agent prose (identifiers); they must stay plain.
+	for _, in := range []string{"call foo_bar_baz here", "the __init__ method", "a *b in code"} {
+		segs, _ := MarkdownLineSegments(in, false)
+		for _, s := range segs {
+			if s.Italic || s.Bold {
+				t.Fatalf("%q should not be emphasized: %+v", in, segs)
+			}
+		}
+	}
+}
+
+func TestMarkdownPlusBulletAndBlockquote(t *testing.T) {
+	segs, _ := MarkdownLineSegments("+ plus item", false)
+	if m := findSegment(segs, "+ "); m == nil || m.Color != "cyan" {
+		t.Fatalf("+ bullet marker should be cyan: %+v", segs)
+	}
+	segs, _ = MarkdownLineSegments("> quoted line", false)
+	if m := findSegment(segs, "> "); m == nil || m.Color != "gray" {
+		t.Fatalf("blockquote marker should be gray: %+v", segs)
+	}
+}
+
 func TestMarkdownUnclosedSpansStayLiteral(t *testing.T) {
 	segs, _ := MarkdownLineSegments("this **is unclosed and `so is", false)
 	if len(segs) != 1 || segs[0].Bold || segs[0].Color != "" {
