@@ -272,3 +272,46 @@ func TestBuildDefinitionSuggestionItems(t *testing.T) {
 		t.Fatalf("duplicates must collapse: %#v", items)
 	}
 }
+
+func TestFindDefinitionKeyLine(t *testing.T) {
+	content := "id: 1\nname: \"x\"\nid: 2\n// id: 3\n"
+	if got := FindDefinitionKeyLine(content, "id"); got != 2 {
+		t.Fatalf("duplicate keys resolve to the LAST line: got %d", got)
+	}
+	if got := FindDefinitionKeyLine(content, "name"); got != 1 {
+		t.Fatalf("name line: got %d", got)
+	}
+	if got := FindDefinitionKeyLine(content, "missing"); got != -1 {
+		t.Fatalf("absent key: got %d", got)
+	}
+}
+
+func TestResolveKeyDefinition(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("a.ntd", "key: \"first\"\nonly-a: 1\n")
+	write("b.ntd", "other: 1\nkey: \"second\"\n")
+	requestPath := filepath.Join(dir, "get.nts")
+	content := "ref a.ntd\nref gone.ntd\nref b.ntd\nurl \"https://x\"\n"
+
+	// Later refs override earlier ones — the runtime winner is b.ntd.
+	path, line, ok := ResolveKeyDefinition(requestPath, content, "key")
+	if !ok || filepath.Base(path) != "b.ntd" || line != 1 {
+		t.Fatalf("winner: %q line %d ok %v", path, line, ok)
+	}
+
+	// A key defined only in an earlier ref still resolves; the unreadable
+	// ref (gone.ntd) is skipped.
+	path, line, ok = ResolveKeyDefinition(requestPath, content, "only-a")
+	if !ok || filepath.Base(path) != "a.ntd" || line != 1 {
+		t.Fatalf("only-a: %q line %d ok %v", path, line, ok)
+	}
+
+	if _, _, ok := ResolveKeyDefinition(requestPath, content, "missing"); ok {
+		t.Fatalf("missing key must not resolve")
+	}
+}

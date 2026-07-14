@@ -229,6 +229,44 @@ func readDefinitionKeys(path string) []string {
 	return keys
 }
 
+// FindDefinitionKeyLine returns the 0-based index of the LAST line defining
+// key (`key: ...`) — at runtime later duplicate entries override earlier ones,
+// so the last definition is the one in effect. Returns -1 when absent.
+func FindDefinitionKeyLine(content, key string) int {
+	found := -1
+	for i, line := range strings.Split(content, "\n") {
+		if m := defKeyPattern.FindStringSubmatch(line); m != nil && m[1] == key {
+			found = i
+		}
+	}
+	return found
+}
+
+// ResolveKeyDefinition locates the definition of an @i key that wins at
+// runtime: the buffer's ref lines merge in order with later files overriding
+// earlier ones, so the LAST ref'd .ntd defining the key is returned, with the
+// 0-based line of its winning entry. The returned path is absolute. Files are
+// read directly (the definition cache stores key names only; .ntd files are
+// tiny). ok=false when no readable ref defines the key.
+func ResolveKeyDefinition(requestPath, content, key string) (ntdPath string, line int, ok bool) {
+	dir := filepath.Dir(requestPath)
+	for _, bufferLine := range strings.Split(content, "\n") {
+		m := refLinePattern.FindStringSubmatch(bufferLine)
+		if m == nil {
+			continue
+		}
+		path := filepath.Join(dir, m[1])
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		if keyLine := FindDefinitionKeyLine(string(data), key); keyLine >= 0 {
+			ntdPath, line, ok = path, keyLine, true
+		}
+	}
+	return ntdPath, line, ok
+}
+
 // referencedDefinitionKeys collects keys from every .ntd referenced by the
 // request content, resolved relative to the request file. Sorted, unique.
 func referencedDefinitionKeys(requestPath, content string) []string {
