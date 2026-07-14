@@ -132,6 +132,21 @@ func (e *editor) replaceWord(wordStart int, insertText string, cursorOffset int)
 	e.rev++
 }
 
+// selectedText returns the text of the active selection on the cursor line,
+// clamped like deleteSelection; "" when there is no selection.
+func (e *editor) selectedText() string {
+	if e.sel == nil {
+		return ""
+	}
+	line := e.line()
+	s := input.Clamp(e.sel.start, 0, len(line))
+	end := input.Clamp(e.sel.end, 0, len(line))
+	if s > end {
+		s, end = end, s
+	}
+	return string(line[s:end])
+}
+
 // deleteSelection removes the active selection's text on line cy (a whole-line
 // selection empties the line), moves the cursor to its start, and clears the
 // selection. Reports whether anything was selected.

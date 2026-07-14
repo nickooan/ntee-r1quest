@@ -160,7 +160,7 @@ The status line at the bottom shows the current mode and its keys, for example:
 ```text
 @query >
 @view   ↑/↓ scroll · e edit · s search · esc back
-@edit   a.nts   editing   Ctrl+S save · Ctrl+F find · Ctrl+Z undo · esc discard
+@edit   a.nts   editing   Ctrl+S save · Ctrl+F find · Ctrl+J/O jump/back · Ctrl+Z undo · esc discard
 @search /uuid/   3/5   ↑/↓ next · esc back
 @history 2/8   ↑/↓ scroll · shift+↑/↓ select · s search · esc back
 @ai >
@@ -256,19 +256,21 @@ Read a file in the Result pane.
 Edit the open file in place. (The Go front-end is the sole writer of
 `.nts`/`.ntd` files; the runtime only reads them.)
 
-| Key             | Action                                                                                                       |
-| --------------- | ------------------------------------------------------------------------------------------------------------ |
-| Type text       | Insert at the cursor (replaces the current selection, if any).                                               |
-| Enter           | Insert a newline.                                                                                            |
-| Left / Right    | Move the cursor; a long line scrolls horizontally to keep the cursor in view.                                |
-| Up / Down       | Move the cursor between lines; navigate the completion popup while open.                                     |
-| Tab             | Accept the highlighted completion.                                                                           |
-| Backspace       | Delete before the cursor, or delete the selection.                                                           |
-| Ctrl+A          | Select the word under the cursor; press again to grow to the `key:` / value segment, then to the whole line. |
-| Ctrl+F          | Search the buffer; Enter in search jumps the cursor to the match (scrolling off-screen matches into view).   |
-| Ctrl+Z / Ctrl+Y | Undo / redo. History is coalesced by edit burst and persisted (up to 50 snapshots per file) via ntee-db.     |
-| Ctrl+S          | Save the file (stays in edit mode).                                                                          |
-| Esc             | Clear the selection; if there is none, discard unsaved changes and return to view mode.                      |
+| Key             | Action                                                                                                                                                                                                                                 |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Type text       | Insert at the cursor (replaces the current selection, if any).                                                                                                                                                                         |
+| Enter           | Insert a newline.                                                                                                                                                                                                                      |
+| Left / Right    | Move the cursor; a long line scrolls horizontally to keep the cursor in view.                                                                                                                                                          |
+| Up / Down       | Move the cursor between lines; navigate the completion popup while open.                                                                                                                                                               |
+| Tab             | Accept the highlighted completion.                                                                                                                                                                                                     |
+| Backspace       | Delete before the cursor, or delete the selection.                                                                                                                                                                                     |
+| Ctrl+A          | Select the word under the cursor; press again to grow to the `key:` / value segment, then to the whole line.                                                                                                                           |
+| Ctrl+F          | Search the buffer; Enter in search jumps the cursor to the match (scrolling off-screen matches into view).                                                                                                                             |
+| Ctrl+Z / Ctrl+Y | Undo / redo. History is coalesced by edit burst and persisted (up to 50 snapshots per file) via ntee-db.                                                                                                                               |
+| Ctrl+S          | Save the file (stays in edit mode).                                                                                                                                                                                                    |
+| Ctrl+J          | Jump to the file referenced by the selection or cursor token — a `ref` path, `@run(...)` target, `@f(...)` file, or `@i(key)` (lands on the line defining the key in the winning `.ntd`, cursor at column 0). Requires a saved buffer. |
+| Ctrl+O          | Jump back to where the last Ctrl+J left from (up to 20 hops). The trail ends when you leave edit mode.                                                                                                                                 |
+| Esc             | Clear the selection; if there is none, discard unsaved changes and return to view mode.                                                                                                                                                |
 
 The status line shows a yellow **`editing`** badge while there are unsaved
 changes and a green **`saved`** badge once the buffer matches disk.

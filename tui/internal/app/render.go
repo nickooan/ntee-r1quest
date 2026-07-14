@@ -102,8 +102,14 @@ func (m Model) renderStatusLine() string {
 		if m.edit.dirty {
 			state = editingStyle.Render("editing")
 		}
-		return promptStyle.Render("@edit") + " " + name + "   " + state +
-			"   Ctrl+S save · Ctrl+F find · Ctrl+Z undo · esc discard"
+		line := promptStyle.Render("@edit") + " " + name + "   " + state +
+			"   Ctrl+S save · Ctrl+F find · Ctrl+J/O jump/back · Ctrl+Z undo · esc discard"
+		if m.errText != "" {
+			// Transient errors (failed save, failed jump) — cleared on the
+			// next keystroke by handleEditKey.
+			line += "   " + editErrStyle.Render(m.errText)
+		}
+		return line
 	case modeHistory:
 		count := fmt.Sprintf("%d/%d", min(m.historyIndex+1, len(m.history)), len(m.history))
 		return withNotice(promptStyle.Render("@history")+" "+count+"   ↑/↓/←/→ scroll · shift+↑/↓ select · s search · esc back", m.notice)
@@ -855,6 +861,7 @@ var (
 	noticeStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 	editingStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Bold(true) // yellow: unsaved edits
 	savedStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true) // green: in sync with disk
+	editErrStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true) // red: transient edit-mode error
 	aiModalStyle         = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("11"))
 
 	sessionTitleStyle    = lipgloss.NewStyle().Bold(true)

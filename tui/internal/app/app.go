@@ -140,6 +140,11 @@ type Model struct {
 	edit        editor
 	notice      string
 
+	// Ctrl+J jump-back trail (bounded at maxJumpFrames). Lives only within a
+	// continuous edit-mode session: released on Esc out of edit mode and on
+	// any fresh deliberate file open.
+	jumpStack []jumpFrame
+
 	// Cached highlight state for the open file, so View() never rescans the
 	// whole buffer per frame: fileLines is the split of openFile.Content (view
 	// mode only — edit mode renders m.edit.lines directly), graphqlLines the
@@ -257,11 +262,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Highlight the request that produced the event in the sidebar (drives
 		// expansion + highlight via selectedCommand) and clear any typed command
 		// so it doesn't override that highlight.
-		m.selectedCommand = externalEventCommand(msg.Event)
-		m.keyboardSelectedCommand = ""
-		m.command = ""
-		m.cursor = 0
-		m.commandPreview = ""
+		m = m.selectSidebarCommand(externalEventCommand(msg.Event))
 		m.openFile = nil
 		if m.mode != modeAI {
 			m.mode = modeQuery
@@ -807,6 +808,18 @@ func (m Model) handleAppCommand(command string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// selectSidebarCommand highlights, expands to, and scrolls the sidebar to the
+// entry for cmd (a .nts-stripped root-relative command value), clearing any
+// typed query so it doesn't override the highlight.
+func (m Model) selectSidebarCommand(cmd string) Model {
+	m.selectedCommand = cmd
+	m.keyboardSelectedCommand = ""
+	m.command = ""
+	m.cursor = 0
+	m.commandPreview = ""
+	return m
+}
+
 // sidebarCommand drives directory EXPANSION (typed command, else confirmed
 // selection). highlightedSidebarCommand drives the HIGHLIGHT (keyboard
 // selection takes precedence).
@@ -964,6 +977,8 @@ func (m Model) openFileForMode(target string, forEdit bool) (tea.Model, tea.Cmd)
 
 	m.openFile = &file
 	m.errText = ""
+	// A deliberate open starts a fresh navigation trail.
+	m.jumpStack = nil
 	if forEdit {
 		m.mode = modeEdit
 		var cmd tea.Cmd
@@ -1614,6 +1629,9 @@ func agentDisplayName(adaptor string) string {
 
 func (m Model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	overlay := m.editOverlayOpen()
+	// Edit-mode errors (failed save, failed jump) are transient — any
+	// keystroke clears them, and nothing stale leaks into other modes.
+	m.errText = ""
 
 	switch msg.Type {
 	case tea.KeyCtrlC:
@@ -1625,6 +1643,11 @@ func (m Model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyCtrlF:
 		// Search the buffer; Enter in search jumps the editor cursor to the match.
 		return m.enterSearch(modeEdit, m.edit.content()), nil
+	case tea.KeyCtrlJ:
+		// Jump to the file referenced by the selection / cursor token.
+		return m.jumpToReference()
+	case tea.KeyCtrlO:
+		return m.jumpBack()
 	case tea.KeyTab:
 		if overlay {
 			m.acceptSuggestion()
@@ -1642,7 +1665,10 @@ func (m Model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		// Discard edits and return to the file view (not all the way to query).
 		// The view reads openFile.Content, so unsaved changes are dropped.
+		// Quitting edit mode also ends the jump trail — Ctrl+O only walks
+		// jumps made within one continuous edit session.
 		m.notice = ""
+		m.jumpStack = nil
 		if m.openFile != nil {
 			m.mode = modeView
 			m.fileScrollY = 0
