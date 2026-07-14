@@ -12,10 +12,11 @@ import (
 
 // HighlightSegment is a colored run of text.
 type HighlightSegment struct {
-	Text     string
-	Color    string
-	Bold     bool
-	DimColor bool
+	Text      string
+	Color     string
+	Bold      bool
+	DimColor  bool
+	Underline bool
 }
 
 // FilePaneLayout mirrors file-content-highlight.ts FilePaneLayout.

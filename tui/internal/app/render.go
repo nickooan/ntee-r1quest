@@ -507,15 +507,16 @@ func (m Model) renderEditOverlay(width int) []string {
 // renderHighlighted runs for every visible row on every frame, and the style
 // set is tiny. The TUI render loop is single-goroutine, so a plain map is safe.
 type segStyleKey struct {
-	color string
-	bold  bool
-	dim   bool
+	color     string
+	bold      bool
+	dim       bool
+	underline bool
 }
 
 var segStyles = map[segStyleKey]lipgloss.Style{}
 
 func segStyleFor(segment view.HighlightSegment) lipgloss.Style {
-	key := segStyleKey{color: segment.Color, bold: segment.Bold, dim: segment.DimColor}
+	key := segStyleKey{color: segment.Color, bold: segment.Bold, dim: segment.DimColor, underline: segment.Underline}
 	if style, ok := segStyles[key]; ok {
 		return style
 	}
@@ -529,6 +530,9 @@ func segStyleFor(segment view.HighlightSegment) lipgloss.Style {
 	}
 	if key.dim {
 		style = style.Faint(true)
+	}
+	if key.underline {
+		style = style.Underline(true)
 	}
 	segStyles[key] = style
 	return style
@@ -739,10 +743,12 @@ func (m Model) renderAI(width, height int) string {
 
 	rows := make([]string, 0, len(lines)+len(popup))
 	for _, line := range lines {
-		switch line.Role {
-		case "user":
+		switch {
+		case line.Segments != nil:
+			rows = append(rows, renderAiSegments(line.Segments))
+		case line.Role == "user":
 			rows = append(rows, aiUserStyle.Render(line.Content))
-		case "divider":
+		case line.Role == "divider" || line.Role == "status":
 			rows = append(rows, gutterStyle.Render(line.Content))
 		default:
 			rows = append(rows, line.Content)
@@ -760,6 +766,16 @@ func (m Model) renderAI(width, height int) string {
 		rows = append(rows, popup...)
 	}
 	return strings.Join(rows, "\n")
+}
+
+// renderAiSegments renders a pre-wrapped AI chat line from its styled
+// segments (padding to width is already baked into the segments).
+func renderAiSegments(segments []view.HighlightSegment) string {
+	var b strings.Builder
+	for _, segment := range segments {
+		b.WriteString(segStyleFor(segment).Render(segment.Text))
+	}
+	return b.String()
 }
 
 // renderAiCommandSuggestions renders the `/command` popup (custom AI commands)
