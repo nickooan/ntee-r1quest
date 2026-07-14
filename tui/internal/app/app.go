@@ -924,6 +924,22 @@ func (m Model) quickSwitch() (tea.Model, tea.Cmd) {
 	}
 }
 
+// nextModeLabel names where Shift+Tab goes next from the given mode — the
+// display side of quickSwitch's cycle (query → history → ai → query). Keep the
+// two in sync.
+func nextModeLabel(m mode) string {
+	switch m {
+	case modeQuery:
+		return "history"
+	case modeHistory:
+		return "ai"
+	case modeAI:
+		return "query"
+	default:
+		return "query"
+	}
+}
+
 func (m Model) treeEntries() []filetree.FileTreeEntry {
 	return filetree.BuildFileTreeEntries(
 		m.config.Root,
