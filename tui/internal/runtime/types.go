@@ -52,6 +52,14 @@ type AiStartRequest struct {
 	ResumeSessionID string `json:"resumeSessionId,omitempty"`
 }
 
+// AiPromptFileRef mirrors client AiPromptFileRef: a file/directory attached to
+// an AI prompt, sent as an ACP resource_link content block (name + absolute
+// path) rather than inlined into the message text.
+type AiPromptFileRef struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
 // AiPermissionDecision mirrors AiPermissionDecision.
 type AiPermissionDecision struct {
 	Type     string `json:"type"`

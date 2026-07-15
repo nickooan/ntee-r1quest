@@ -2,6 +2,29 @@ package app
 
 import "testing"
 
+func TestCollectAiRefs(t *testing.T) {
+	refs := map[string]string{
+		"get.nts": "/root/orders/get.nts",
+		"orders":  "/root/orders",
+		"gone":    "/root/gone.nts", // pill deleted from the text → dropped
+	}
+	got := collectAiRefs("compare [orders] with [get.nts]", refs)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 refs (deleted pill dropped), got %+v", got)
+	}
+	// Order follows appearance in the text: [orders] before [get.nts].
+	if got[0].Path != "/root/orders" || got[0].Name != "orders" {
+		t.Fatalf("first ref should be orders, got %+v", got[0])
+	}
+	if got[1].Path != "/root/orders/get.nts" || got[1].Name != "get.nts" {
+		t.Fatalf("second ref should be get.nts, got %+v", got[1])
+	}
+
+	if got := collectAiRefs("no pills here", refs); len(got) != 0 {
+		t.Fatalf("no pills should yield no refs, got %+v", got)
+	}
+}
+
 func TestParseRefToken(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -40,18 +63,3 @@ func TestParseRefToken(t *testing.T) {
 	}
 }
 
-func TestExpandAiRefs(t *testing.T) {
-	refs := map[string]string{
-		"get.nts": "/root/orders/get.nts",
-		"orders":  "/root/orders",
-	}
-	got := expandAiRefs("compare [get.nts] with [orders] and [unknown]", refs)
-	want := "compare /root/orders/get.nts with /root/orders and [unknown]"
-	if got != want {
-		t.Fatalf("expandAiRefs = %q, want %q", got, want)
-	}
-
-	if got := expandAiRefs("no pills", nil); got != "no pills" {
-		t.Fatalf("nil refs should pass through, got %q", got)
-	}
-}

@@ -2,11 +2,13 @@ package app
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode"
 
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/filetree"
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/input"
+	"codeberg.org/nickoan/ntee-r1quest/tui/internal/runtime"
 )
 
 // maxAiRefSuggestions caps the #reference popup.
@@ -105,13 +107,33 @@ func (m *Model) acceptAiRef(ref aiRefState) {
 	m.aiRefSuggestIndex = 0
 }
 
-// expandAiRefs substitutes every "[label]" pill with its absolute path.
-// Unknown bracketed text is left alone.
-func expandAiRefs(text string, refs map[string]string) string {
-	for label, path := range refs {
-		text = strings.ReplaceAll(text, "["+label+"]", path)
+// collectAiRefs returns the file references whose "[label]" pill still appears
+// in text, as resource_link attachments (name = the file/dir base name, path =
+// absolute). Refs whose pill was deleted from the input are dropped. Order
+// follows first appearance in the text so the attachments track the prose.
+func collectAiRefs(text string, refs map[string]string) []runtime.AiPromptFileRef {
+	type placed struct {
+		at  int
+		ref runtime.AiPromptFileRef
 	}
-	return text
+	var found []placed
+	for label, path := range refs {
+		at := strings.Index(text, "["+label+"]")
+		if at < 0 {
+			continue
+		}
+		found = append(found, placed{at: at, ref: runtime.AiPromptFileRef{
+			Name: filepath.Base(path),
+			Path: path,
+		}})
+	}
+	sort.Slice(found, func(i, j int) bool { return found[i].at < found[j].at })
+
+	out := make([]runtime.AiPromptFileRef, len(found))
+	for i, f := range found {
+		out[i] = f.ref
+	}
+	return out
 }
 
 // clearAiRefs resets all #reference state (after a send or session reset).

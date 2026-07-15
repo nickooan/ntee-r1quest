@@ -70,6 +70,15 @@ export type AiStartRequest = {
   resumeSessionId?: string
 }
 
+// A file/directory reference attached to an AI prompt. The runtime turns each
+// into an ACP `resource_link` content block so the agent receives a first-class
+// file link instead of a raw absolute path inlined into the message text (which
+// some agents mis-parse — e.g. a leading path reads as a slash command).
+export type AiPromptFileRef = {
+  name: string
+  path: string
+}
+
 // Streamed reply for an active turn. `update` is an ACP `SessionUpdate` passed
 // through verbatim (opaque to the contract; the runtime produces it, Go renders
 // it). Typed as unknown so the contract stays free of the ACP SDK.

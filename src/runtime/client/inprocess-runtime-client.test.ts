@@ -134,8 +134,12 @@ describe("InProcessRuntimeClient.ai orchestration", () => {
     const { client, getAdapter } = makeAiClient()
     await client.ai.start({ adaptor: "claude" })
 
-    await client.ai.prompt("hello")
-    expect(getAdapter()!.lastWrite).toBe("hello")
+    await client.ai.prompt("hello", [{ name: "f.nts", path: "/root/f.nts" }])
+    expect(getAdapter()!.lastWrite).toEqual({
+      type: "prompt",
+      text: "hello",
+      refs: [{ name: "f.nts", path: "/root/f.nts" }],
+    })
 
     await client.ai.respondPermission({ type: "selected", optionId: "opt-1" })
     expect(getAdapter()!.lastWrite).toEqual({

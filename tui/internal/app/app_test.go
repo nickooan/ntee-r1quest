@@ -31,6 +31,7 @@ type fakeClient struct {
 	aiStarted      []string
 	aiResumed      []string
 	aiPrompts      []string
+	aiPromptRefs   [][]runtime.AiPromptFileRef
 	aiDecisions    []string
 	snapshots      map[int64]runtime.SnapshotRecord
 	snapshotPuts   []int64
@@ -105,8 +106,9 @@ func (f *fakeClient) AiStart(_ context.Context, req runtime.AiStartRequest) erro
 	return nil
 }
 
-func (f *fakeClient) AiPrompt(_ context.Context, text string) error {
+func (f *fakeClient) AiPrompt(_ context.Context, text string, refs []runtime.AiPromptFileRef) error {
 	f.aiPrompts = append(f.aiPrompts, text)
+	f.aiPromptRefs = append(f.aiPromptRefs, refs)
 	return nil
 }
 
@@ -1530,7 +1532,7 @@ func TestAIRefAcceptAndSend(t *testing.T) {
 		t.Fatalf("ref should map to the absolute path, got %q want %q", m.aiRefs["deep.nts"], wantPath)
 	}
 
-	// Sending expands the pill for the agent but keeps it in the transcript.
+	// Sending keeps the pill in the text and attaches the file as a reference.
 	m = typeRunes(m, "explain this")
 	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd != nil {
@@ -1540,8 +1542,12 @@ func TestAIRefAcceptAndSend(t *testing.T) {
 		t.Fatalf("expected one prompt, got %v", fake.aiPrompts)
 	}
 	sent := fake.aiPrompts[0]
-	if !strings.Contains(sent, wantPath) || strings.Contains(sent, "[deep.nts]") {
-		t.Fatalf("sent prompt should carry the absolute path, got %q", sent)
+	if !strings.Contains(sent, "[deep.nts]") || strings.Contains(sent, wantPath) {
+		t.Fatalf("sent text should keep the pill and not inline the path, got %q", sent)
+	}
+	refs := fake.aiPromptRefs[0]
+	if len(refs) != 1 || refs[0].Path != wantPath || refs[0].Name != "deep.nts" {
+		t.Fatalf("the file should be attached as a reference, got %+v", refs)
 	}
 	last := m.aiMessages[len(m.aiMessages)-1]
 	if last.Role != "user" || !strings.Contains(last.Content, "[deep.nts]") {

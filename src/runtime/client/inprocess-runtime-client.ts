@@ -47,6 +47,7 @@ import type {
 } from "./runtime-client.ts"
 import type {
   AiPermissionDecision,
+  AiPromptFileRef,
   AiStartRequest,
   ExecuteRequest,
   ExecuteResult,
@@ -214,7 +215,7 @@ export class InProcessRuntimeClient implements RuntimeClient {
 
   readonly ai: AiClient = {
     start: (request) => this.startAi(request),
-    prompt: (text) => this.promptAi(text),
+    prompt: (text, refs) => this.promptAi(text, refs),
     respondPermission: (decision) => this.respondPermission(decision),
     stop: () => this.stopAi(),
   }
@@ -308,8 +309,11 @@ export class InProcessRuntimeClient implements RuntimeClient {
     }
   }
 
-  private async promptAi(text: string): Promise<void> {
-    await this.currentAdapter?.write(text)
+  private async promptAi(
+    text: string,
+    refs?: AiPromptFileRef[],
+  ): Promise<void> {
+    await this.currentAdapter?.write({ type: "prompt", text, refs })
   }
 
   private async respondPermission(

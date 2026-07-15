@@ -57,7 +57,7 @@ type runtimeClient interface {
 	SnapshotList(ctx context.Context, path string, limit int) ([]runtime.SnapshotMeta, error)
 	SnapshotDelete(seqs []int64) error
 	AiStart(ctx context.Context, req runtime.AiStartRequest) error
-	AiPrompt(ctx context.Context, text string) error
+	AiPrompt(ctx context.Context, text string, refs []runtime.AiPromptFileRef) error
 	AiRespondPermission(ctx context.Context, decision runtime.AiPermissionDecision) error
 	AiStop() error
 }
@@ -1472,7 +1472,7 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.aiLastActivity = time.Now()
 		m.aiTools = map[string]bool{}
 		m.aiThinking = true
-		return m, aiPromptCmd(m.client, t.Send)
+		return m, aiPromptCmd(m.client, t.Send, t.Refs)
 	case tea.KeyBackspace:
 		next, cursor, ok := input.RemoveBeforeCursor(m.aiInput, m.aiInputCursor)
 		if ok {
@@ -1645,11 +1645,11 @@ func aiThinkingTickCmd() tea.Cmd {
 	return tea.Tick(aiThinkingTick, func(time.Time) tea.Msg { return aiThinkingTickMsg{} })
 }
 
-func aiPromptCmd(client runtimeClient, text string) tea.Cmd {
+func aiPromptCmd(client runtimeClient, text string, refs []runtime.AiPromptFileRef) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := client.AiPrompt(ctx, text); err != nil {
+		if err := client.AiPrompt(ctx, text, refs); err != nil {
 			return AiErrorMsg{Err: err}
 		}
 		return nil
