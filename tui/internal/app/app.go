@@ -844,7 +844,8 @@ func (m Model) queryInputSuggestions(entries []filetree.FileTreeEntry) []filetre
 	if m.cachedInputsPrefix == m.command {
 		cached = m.cachedInputs
 	}
-	return filetree.BuildInputSuggestions(entries, m.command, cached, filetree.MaxInputSuggestions)
+	allRequests := filetree.BuildAllRequestEntries(m.config.Root)
+	return filetree.BuildInputSuggestions(entries, allRequests, m.command, cached, filetree.MaxInputSuggestions)
 }
 
 func suggestInputsCmd(client runtimeClient, prefix string) tea.Cmd {

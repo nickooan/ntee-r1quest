@@ -372,7 +372,9 @@ func (m Model) renderCommandSuggestions(width int) []string {
 		label := padTo(truncateRunes(" "+suggestions[i].Label, width), width)
 		if i == selected {
 			lines = append(lines, selectedEntryStyle.Render(label))
-		} else if suggestions[i].Source == "cache" {
+		} else if suggestions[i].Recent {
+			// Cache rows and file entries that absorbed a duplicate cache row —
+			// recently called either way, so both keep the cache color.
 			lines = append(lines, suggestionCacheStyle.Render(label))
 		} else {
 			lines = append(lines, suggestionFileStyle.Render(label))

@@ -789,6 +789,43 @@ func TestReloadAndClearCacheCommands(t *testing.T) {
 	}
 }
 
+func TestQueryFuzzyFindsRequestsInCollapsedDirectories(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "orders"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "orders", "get-orders-by-id.nts"), []byte("url x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeClient{result: runtime.ExecuteResult{Status: 200, StatusText: "OK"}}
+	m := New(fake, runtime.ConfigDTO{Root: root})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// "by-id" is neither a prefix of anything nor inside an expanded directory —
+	// the popup must still offer the nested request by substring, full path shown.
+	for _, r := range "by-id" {
+		m, _ = apply(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if !strings.Contains(m.View(), "orders/get-orders-by-id") {
+		t.Fatalf("fuzzy suggestion should appear in the popup:\n%s", m.View())
+	}
+
+	// Enter executes the suggested request directly.
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.pending {
+		t.Fatal("selecting the fuzzy suggestion should execute it")
+	}
+	if cmd != nil {
+		m, _ = apply(m, cmd())
+	}
+	if len(fake.recorded) == 0 || fake.recorded[len(fake.recorded)-1] != "orders/get-orders-by-id" {
+		t.Fatalf("should execute orders/get-orders-by-id; recorded=%v", fake.recorded)
+	}
+	if m.selectedCommand != "orders/get-orders-by-id" {
+		t.Fatalf("the request should be selected on the left; got %q", m.selectedCommand)
+	}
+}
+
 func TestQueryMergesCachedInputs(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "orders.nts"), []byte("u\n"), 0o644); err != nil {
@@ -823,9 +860,12 @@ func TestSelectingCachedInputResolvesAndExecutes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "orders", "get.nts"), []byte("url x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A cached input identical to an existing request path is deduped away (the
+	// file suggestion covers it), so use a partial typed input: it survives as a
+	// cache row and must still resolve to orders/get via prefix matching.
 	fake := &fakeClient{
 		result:       runtime.ExecuteResult{Status: 200, StatusText: "OK"},
-		cachedInputs: []string{"orders/get"},
+		cachedInputs: []string{"orders/ge"},
 	}
 	m := New(fake, runtime.ConfigDTO{Root: root})
 	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -842,12 +882,12 @@ func TestSelectingCachedInputResolvesAndExecutes(t *testing.T) {
 	sugs := m.queryInputSuggestions(m.treeEntries())
 	idx := -1
 	for i, s := range sugs {
-		if s.Source == "cache" && s.InsertText == "orders/get" {
+		if s.Source == "cache" && s.InsertText == "orders/ge" {
 			idx = i
 		}
 	}
 	if idx < 0 {
-		t.Fatalf("expected a cached suggestion for orders/get; got %+v", sugs)
+		t.Fatalf("expected a cached suggestion for orders/ge; got %+v", sugs)
 	}
 	m.inputSuggestIndex = idx
 

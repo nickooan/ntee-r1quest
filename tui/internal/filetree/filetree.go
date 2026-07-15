@@ -157,6 +157,64 @@ func BuildFileTreeEntries(root string, expanded map[string]bool) []FileTreeEntry
 	return entries
 }
 
+// maxRequestScanDepth bounds the BuildAllRequestEntries walk (symlink-loop guard).
+const maxRequestScanDepth = 16
+
+// BuildAllRequestEntries walks the whole root regardless of expansion state and
+// returns every .nts file as a "request" entry. This is the search corpus for
+// the query popup's substring/fuzzy stages, which must find files inside
+// collapsed directories.
+func BuildAllRequestEntries(root string) []FileTreeEntry {
+	if root == "" {
+		return nil
+	}
+	resolvedRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil
+	}
+
+	var entries []FileTreeEntry
+	var appendDir func(dirPath string, depth int)
+	appendDir = func(dirPath string, depth int) {
+		if depth > maxRequestScanDepth {
+			return
+		}
+		resolvedDir := filepath.Join(resolvedRoot, dirPath)
+		if !isInsideRoot(resolvedRoot, resolvedDir) {
+			return
+		}
+		children, err := readDirectorySorted(resolvedDir)
+		if err != nil {
+			return
+		}
+
+		for _, child := range children {
+			rel := child.name
+			if dirPath != "" {
+				rel = dirPath + "/" + child.name
+			}
+
+			if child.isDir {
+				appendDir(rel, depth+1)
+				continue
+			}
+			if !child.isFile || !strings.HasSuffix(child.name, ".nts") {
+				continue
+			}
+			entries = append(entries, FileTreeEntry{
+				Name:         child.name,
+				RelativePath: rel,
+				CommandValue: strings.TrimSuffix(rel, ".nts"),
+				Depth:        depth,
+				Type:         "request",
+			})
+		}
+	}
+
+	appendDir("", 0)
+	return entries
+}
+
 func splitNonEmpty(s, sep string) []string {
 	parts := strings.Split(s, sep)
 	out := parts[:0]

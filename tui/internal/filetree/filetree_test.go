@@ -52,6 +52,30 @@ func TestBuildFileTreeEntriesCollapsed(t *testing.T) {
 	}
 }
 
+func TestBuildAllRequestEntries(t *testing.T) {
+	root := writeTree(t)
+	entries := BuildAllRequestEntries(root)
+
+	// Every .nts file regardless of expansion, in walk order (dirs first, then
+	// files by name); directories and notes.txt excluded.
+	var commands []string
+	for _, e := range entries {
+		commands = append(commands, e.CommandValue)
+		if e.Type != "request" {
+			t.Fatalf("non-request entry: %+v", e)
+		}
+	}
+	want := []string{"folder-a/nested/deep", "folder-a/get-one", "top"}
+	if len(commands) != len(want) {
+		t.Fatalf("want %v, got %v", want, commands)
+	}
+	for i := range want {
+		if commands[i] != want[i] {
+			t.Fatalf("want %v, got %v", want, commands)
+		}
+	}
+}
+
 func TestBuildExpandedDirectoryPaths(t *testing.T) {
 	got := BuildExpandedDirectoryPaths("folder-a/nested/deep")
 	if !got["folder-a"] || !got["folder-a/nested"] || got["folder-a/nested/deep"] {
