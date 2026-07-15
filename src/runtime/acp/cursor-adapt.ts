@@ -123,6 +123,10 @@ const createCancelledPermissionResponse = (): RequestPermissionResponse => {
 }
 
 export class CursorAcpAdapter {
+  // cursor-agent is an external binary whose concurrent-prompt behavior is
+  // unverified — treated as not supporting mid-turn prompts, so clients queue.
+  readonly supportsMidTurnPrompts = false
+
   private readonly cwd: string
   private readonly args: string[]
   private readonly env: NodeJS.ProcessEnv

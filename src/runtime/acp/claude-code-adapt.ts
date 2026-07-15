@@ -125,6 +125,12 @@ const createCancelledPermissionResponse = (): RequestPermissionResponse => {
 }
 
 export class ClaudeCodeAcpAdapter {
+  // claude-agent-acp supports true mid-turn prompts: a `session/prompt` sent
+  // while a turn is running is injected into the live query input stream
+  // (steering); the superseded prompt request resolves `end_turn` at hand-off
+  // and the new one runs to the real turn end.
+  readonly supportsMidTurnPrompts = true
+
   private readonly cwd: string
   private readonly args: string[]
   private readonly env: NodeJS.ProcessEnv

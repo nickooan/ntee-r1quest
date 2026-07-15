@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -125,6 +124,21 @@ func (f *fakeClient) AiStop() error {
 func apply(m Model, msg tea.Msg) (Model, tea.Cmd) {
 	next, cmd := m.Update(msg)
 	return next.(Model), cmd
+}
+
+// drain runs a command to completion, unwrapping tea.Batch so nested commands
+// (e.g. the prompt dispatch batched with the thinking-animation ticker) each
+// actually execute against the fake client.
+func drain(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	switch msg := cmd().(type) {
+	case tea.BatchMsg:
+		for _, c := range msg {
+			drain(c)
+		}
+	}
 }
 
 func typeRunes(m Model, text string) Model {
@@ -1080,25 +1094,31 @@ func TestComputeThinking(t *testing.T) {
 	if m.computeThinking() {
 		t.Fatal("no pending turn → idle")
 	}
+	// The indicator is on for the whole turn, regardless of streaming gaps or
+	// tool activity — it turns off only when the turn is no longer pending.
 	m.aiPending = true
 	if !m.computeThinking() {
-		t.Fatal("pending with no reply yet → thinking")
+		t.Fatal("pending turn → thinking")
 	}
-	m.aiHasStreamed = true
-	m.aiLastActivity = time.Now()
-	if !m.computeThinking() {
-		t.Fatal("recent activity → thinking (quiet window)")
-	}
-	// A running tool keeps it on even past the quiet window.
-	m.aiLastActivity = time.Now().Add(-10 * time.Second)
-	m.aiTools = map[string]bool{"t1": true}
-	if !m.computeThinking() {
-		t.Fatal("in-progress tool → thinking")
-	}
-	// Streamed, no tools, quiet elapsed → idle.
-	m.aiTools = nil
+	m.aiPending = false
 	if m.computeThinking() {
-		t.Fatal("idle after the quiet window")
+		t.Fatal("turn done → idle")
+	}
+}
+
+func TestAiTurnDoneClearsThinking(t *testing.T) {
+	m := Model{aiPending: true, aiThinking: true, aiTicking: true, aiTurnID: 3}
+
+	// A stale completion from an earlier turn is ignored.
+	m2, _ := apply(m, AiTurnDoneMsg{ID: 2})
+	if !m2.aiPending || !m2.aiThinking {
+		t.Fatalf("stale turn-done must not clear the active turn; %+v", m2)
+	}
+
+	// The current turn's completion turns the indicator off.
+	m3, _ := apply(m, AiTurnDoneMsg{ID: 3})
+	if m3.aiPending || m3.aiThinking || m3.aiTicking {
+		t.Fatalf("turn-done should clear thinking state; %+v", m3)
 	}
 }
 
@@ -1135,9 +1155,7 @@ func TestAIModeCapturesAppCommands(t *testing.T) {
 	m.mode = modeAI
 	m = typeRunes(m, "what is @env?")
 	m, promptCmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
-	if promptCmd != nil {
-		promptCmd()
-	}
+	drain(promptCmd)
 	if len(fake.aiPrompts) != 1 || fake.aiPrompts[0] != "what is @env?" {
 		t.Fatalf("a normal message should reach the agent: %v", fake.aiPrompts)
 	}
@@ -1189,9 +1207,7 @@ func TestAICustomCommandExpandsArgs(t *testing.T) {
 
 	m = typeRunes(m, "/test foo bar")
 	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
-	if cmd != nil {
-		cmd()
-	}
+	drain(cmd)
 	// The expanded instruction is sent to the agent and shown in the chat.
 	if len(fake.aiPrompts) != 1 || fake.aiPrompts[0] != "run foo and bar" {
 		t.Fatalf("custom command should expand args for the agent; got %v", fake.aiPrompts)
@@ -1241,18 +1257,16 @@ func TestAIModeStreamingFlow(t *testing.T) {
 	if !m.aiThinking {
 		t.Fatal("should be thinking after sending a prompt")
 	}
-	if promptCmd != nil {
-		promptCmd()
-	}
+	drain(promptCmd)
 	if len(fake.aiPrompts) != 1 || fake.aiPrompts[0] != "hi" {
 		t.Fatalf("AiPrompt not dispatched: %v", fake.aiPrompts)
 	}
 
-	// Stream an agent reply. Thinking stays on within the quiet window (it does not
-	// clear on the first chunk) so the indicator persists while Claude works.
+	// Stream an agent reply. Thinking stays on for the whole turn — a streamed
+	// chunk (and any gap after it) never clears it.
 	m, _ = apply(m, AiUpdateMsg{Update: json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello"}}`)})
 	if !m.aiThinking {
-		t.Fatal("thinking should persist within the quiet window after a chunk")
+		t.Fatal("thinking should persist while the turn is in progress")
 	}
 	last := m.aiMessages[len(m.aiMessages)-1]
 	if last.Role != "assistant" || last.Content != "hello" {
@@ -1273,6 +1287,16 @@ func TestAIModeStreamingFlow(t *testing.T) {
 	}
 	if len(fake.aiDecisions) != 1 || fake.aiDecisions[0] != "a1" {
 		t.Fatalf("allow decision not dispatched: %v", fake.aiDecisions)
+	}
+
+	// The turn stays "thinking" through the whole exchange and only clears when
+	// the ACP turn completes (the ai/prompt request resolved → AiTurnDoneMsg).
+	if !m.aiThinking {
+		t.Fatal("thinking should still be on before the turn completes")
+	}
+	m, _ = apply(m, AiTurnDoneMsg{ID: m.aiTurnID})
+	if m.aiThinking || m.aiPending {
+		t.Fatalf("turn completion should clear thinking; thinking=%v pending=%v", m.aiThinking, m.aiPending)
 	}
 }
 
@@ -1535,9 +1559,7 @@ func TestAIRefAcceptAndSend(t *testing.T) {
 	// Sending keeps the pill in the text and attaches the file as a reference.
 	m = typeRunes(m, "explain this")
 	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
-	if cmd != nil {
-		cmd()
-	}
+	drain(cmd)
 	if len(fake.aiPrompts) != 1 {
 		t.Fatalf("expected one prompt, got %v", fake.aiPrompts)
 	}
@@ -1595,5 +1617,171 @@ func TestAIRefDirectoryAccept(t *testing.T) {
 	rootAbs, _ := filepath.Abs(root)
 	if m.aiRefs["folder"] != filepath.Join(rootAbs, "folder") {
 		t.Fatalf("dir ref should map to the directory path, got %v", m.aiRefs)
+	}
+}
+
+func TestAISteeringSendsMidTurn(t *testing.T) {
+	fake := &fakeClient{}
+	m := New(fake, runtime.ConfigDTO{AIAdaptor: "claude"})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.mode = modeAI
+	m, _ = apply(m, AiStartedMsg{SupportsSteering: true})
+	if !m.aiSteering {
+		t.Fatal("AiStartedMsg should set steering support")
+	}
+
+	m = typeRunes(m, "first ask")
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	drain(cmd)
+	firstTurn := m.aiTurnID
+
+	// Mid-turn Enter on a steering adapter sends immediately.
+	m = typeRunes(m, "btw check errors too")
+	m, cmd = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	drain(cmd)
+	if len(fake.aiPrompts) != 2 || fake.aiPrompts[1] != "btw check errors too" {
+		t.Fatalf("steering should dispatch immediately: %v", fake.aiPrompts)
+	}
+	if len(m.aiQueue) != 0 {
+		t.Fatalf("steering must not queue: %+v", m.aiQueue)
+	}
+	if m.aiMessages[len(m.aiMessages)-1].Content != "btw check errors too" {
+		t.Fatalf("steered tip should be in the transcript: %+v", m.aiMessages)
+	}
+	if m.aiTurnID != firstTurn+1 {
+		t.Fatalf("steering should advance the turn id; got %d", m.aiTurnID)
+	}
+
+	// The superseded turn's early end_turn (stale ID) must not clear thinking;
+	// the steered turn's completion does.
+	m, _ = apply(m, AiTurnDoneMsg{ID: firstTurn})
+	if !m.aiThinking {
+		t.Fatal("stale hand-off completion must not clear thinking")
+	}
+	m, _ = apply(m, AiTurnDoneMsg{ID: m.aiTurnID})
+	if m.aiThinking || m.aiPending {
+		t.Fatal("steered turn completion should clear thinking")
+	}
+}
+
+func TestAIQueueMidTurnOnNonSteeringAdapter(t *testing.T) {
+	fake := &fakeClient{}
+	m := New(fake, runtime.ConfigDTO{AIAdaptor: "codex"})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.mode = modeAI
+	m, _ = apply(m, AiStartedMsg{SupportsSteering: false})
+
+	m = typeRunes(m, "first ask")
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	drain(cmd)
+
+	// Mid-turn Enter queues instead of dispatching.
+	m = typeRunes(m, "btw tip one")
+	m, cmd = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	drain(cmd)
+	m = typeRunes(m, "and tip two")
+	m, cmd = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	drain(cmd)
+
+	if len(fake.aiPrompts) != 1 {
+		t.Fatalf("queued tips must not dispatch mid-turn: %v", fake.aiPrompts)
+	}
+	if len(m.aiQueue) != 2 || m.aiInput != "" {
+		t.Fatalf("tips should queue and clear the input; queue=%+v input=%q", m.aiQueue, m.aiInput)
+	}
+	for _, msg := range m.aiMessages {
+		if msg.Content == "btw tip one" {
+			t.Fatal("queued tip must not be in the transcript before it is sent")
+		}
+	}
+	if !strings.Contains(m.View(), "queued: btw tip one") {
+		t.Fatalf("queued tips should render as pinned rows:\n%s", m.View())
+	}
+
+	// Turn completes → both tips merge into ONE follow-up turn.
+	m, cmd = apply(m, AiTurnDoneMsg{ID: m.aiTurnID})
+	drain(cmd)
+	if len(fake.aiPrompts) != 2 || fake.aiPrompts[1] != "btw tip one\n\nand tip two" {
+		t.Fatalf("queued tips should merge into one follow-up: %v", fake.aiPrompts)
+	}
+	if len(m.aiQueue) != 0 || !m.aiPending || !m.aiThinking {
+		t.Fatalf("drain should keep the turn pending; queue=%d pending=%v", len(m.aiQueue), m.aiPending)
+	}
+	var found int
+	for _, msg := range m.aiMessages {
+		if msg.Role == "user" && (msg.Content == "btw tip one" || msg.Content == "and tip two") {
+			found++
+		}
+	}
+	if found != 2 {
+		t.Fatalf("sent tips should now be in the transcript: %+v", m.aiMessages)
+	}
+
+	// The follow-up turn's completion clears thinking.
+	m, _ = apply(m, AiTurnDoneMsg{ID: m.aiTurnID})
+	if m.aiPending || m.aiThinking {
+		t.Fatal("final completion should clear thinking")
+	}
+}
+
+func TestAIQueueCarriesRefsAndStaleGuard(t *testing.T) {
+	m, fake, root := aiRefTestModel(t)
+	m, _ = apply(m, AiStartedMsg{SupportsSteering: false})
+
+	m = typeRunes(m, "go")
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	drain(cmd)
+
+	// Queue a tip with a #ref pill mid-turn.
+	m = typeRunes(m, "#deep")
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter}) // accept ref
+	m = typeRunes(m, "matters")
+	m, cmd = apply(m, tea.KeyMsg{Type: tea.KeyEnter}) // queue
+	drain(cmd)
+	if len(m.aiQueue) != 1 || len(m.aiQueue[0].Refs) != 1 {
+		t.Fatalf("queued tip should carry its refs: %+v", m.aiQueue)
+	}
+
+	// A stale turn-done must not drain the queue.
+	m, cmd = apply(m, AiTurnDoneMsg{ID: m.aiTurnID - 1})
+	drain(cmd)
+	if len(m.aiQueue) != 1 || len(fake.aiPrompts) != 1 {
+		t.Fatalf("stale turn-done must not dequeue; queue=%d prompts=%v", len(m.aiQueue), fake.aiPrompts)
+	}
+
+	// The real completion drains with refs attached.
+	m, cmd = apply(m, AiTurnDoneMsg{ID: m.aiTurnID})
+	drain(cmd)
+	rootAbs, _ := filepath.Abs(root)
+	wantPath := filepath.Join(rootAbs, "folder", "deep.nts")
+	refs := fake.aiPromptRefs[len(fake.aiPromptRefs)-1]
+	if len(refs) != 1 || refs[0].Path != wantPath {
+		t.Fatalf("drained tip should attach its refs: %+v", refs)
+	}
+}
+
+func TestAIErrorDropsQueue(t *testing.T) {
+	fake := &fakeClient{}
+	m := New(fake, runtime.ConfigDTO{AIAdaptor: "codex"})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.mode = modeAI
+	m.aiActive = true
+
+	m = typeRunes(m, "go")
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	drain(cmd)
+	m = typeRunes(m, "queued tip")
+	m, cmd = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	drain(cmd)
+
+	m, _ = apply(m, AiErrorMsg{Err: context.DeadlineExceeded})
+	if len(m.aiQueue) != 0 {
+		t.Fatalf("error should drop the queue: %+v", m.aiQueue)
+	}
+	if !strings.Contains(m.errText, "queued messages dropped") {
+		t.Fatalf("dropping the queue should be surfaced: %q", m.errText)
+	}
+	if len(fake.aiPrompts) != 1 {
+		t.Fatalf("no ghost sends after error: %v", fake.aiPrompts)
 	}
 }

@@ -146,6 +146,11 @@ const createCancelledPermissionResponse = (): RequestPermissionResponse => {
 }
 
 export class CodexAcpAdapter {
+  // codex-acp does NOT support mid-turn prompts: a `session/prompt` sent while
+  // a turn is running replaces the active prompt and interrupts the running
+  // turn (activePrompts overwrite → promptShouldStop). Clients must queue.
+  readonly supportsMidTurnPrompts = false
+
   private readonly cwd: string
   private readonly args: string[]
   private readonly env: NodeJS.ProcessEnv

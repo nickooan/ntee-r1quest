@@ -101,7 +101,14 @@ export type AiConversation = unknown
 
 // Emitted once the adapter is ready (resumed = true when an existing session was
 // loaded, so the UI can add a history divider).
-export type AiSessionStarted = { sessionId?: string; resumed: boolean }
+export type AiSessionStarted = {
+  sessionId?: string
+  resumed: boolean
+  // Whether the adapter accepts `ai/prompt` while a turn is already running
+  // (true steering, e.g. Claude). When false the client must queue follow-ups
+  // until the current turn completes.
+  supportsSteering?: boolean
+}
 
 // Emitted when the session ends (agent exit, startup failure). `error` is set
 // for failures so the UI can surface it.

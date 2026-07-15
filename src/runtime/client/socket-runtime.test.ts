@@ -26,6 +26,7 @@ const makeConfig = (overrides: Partial<RuntimeConfig> = {}): RuntimeConfig => ({
 class FakeAdapter implements AcpAdapterInstance {
   currentSessionId: string | undefined = undefined
   lastWrite: CodexAcpWriteInput | undefined
+  readonly supportsMidTurnPrompts = false
 
   constructor(readonly options: CodexAcpAdapterOptions) {}
 
@@ -82,6 +83,7 @@ describe("socket runtime (end-to-end over a real UDS)", () => {
     await expect(started).resolves.toEqual({
       sessionId: undefined,
       resumed: false,
+      supportsSteering: false,
     })
   })
 
@@ -103,7 +105,10 @@ describe("socket runtime (end-to-end over a real UDS)", () => {
 
   test("ai.prompt reaches the adapter through the server", async () => {
     await client.ai.prompt("hello over the wire")
-    expect(adapter!.lastWrite).toBe("hello over the wire")
+    expect(adapter!.lastWrite).toEqual({
+      type: "prompt",
+      text: "hello over the wire",
+    })
   })
 
   test("recordInput is a fire-and-forget notification", () => {

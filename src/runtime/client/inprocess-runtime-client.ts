@@ -63,6 +63,8 @@ export type AcpAdapterInstance = {
   write(input: CodexAcpWriteInput): Promise<void>
   stop(): void
   readonly currentSessionId: string | undefined
+  // Whether ai/prompt may be sent while a turn is running (true steering).
+  readonly supportsMidTurnPrompts: boolean
 }
 
 export type AcpAdapterFactory = (
@@ -297,6 +299,7 @@ export class InProcessRuntimeClient implements RuntimeClient {
       this.handlers.onSessionStarted?.({
         sessionId,
         resumed: Boolean(resumeSessionId),
+        supportsSteering: adapter.supportsMidTurnPrompts,
       })
     } catch (error) {
       if (this.currentAdapter !== adapter) {

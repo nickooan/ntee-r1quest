@@ -77,6 +77,9 @@ type AiSessionUpdate struct {
 type AiSessionStarted struct {
 	SessionID string `json:"sessionId,omitempty"`
 	Resumed   bool   `json:"resumed"`
+	// Whether the adapter accepts ai/prompt while a turn is running (true
+	// steering, e.g. Claude). False → the TUI queues mid-turn messages.
+	SupportsSteering bool `json:"supportsSteering"`
 }
 
 // SerializedError mirrors the wire shape of an error (message + name).

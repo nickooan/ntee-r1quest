@@ -58,6 +58,7 @@ class FakeAdapter implements AcpAdapterInstance {
   currentSessionId: string | undefined = undefined
   lastWrite: CodexAcpWriteInput | undefined
   stopped = false
+  readonly supportsMidTurnPrompts = false
 
   constructor(readonly options: CodexAcpAdapterOptions) {}
 
@@ -97,7 +98,9 @@ describe("InProcessRuntimeClient.ai orchestration", () => {
     await client.ai.start({ adaptor: "claude" })
 
     expect(getAdapter()).toBeDefined()
-    expect(started).toEqual([{ sessionId: undefined, resumed: false }])
+    expect(started).toEqual([
+      { sessionId: undefined, resumed: false, supportsSteering: false },
+    ])
   })
 
   test("forwards adapter callbacks to the subscribed handlers", async () => {

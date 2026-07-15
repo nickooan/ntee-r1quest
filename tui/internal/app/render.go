@@ -767,11 +767,14 @@ func formatSessionTime(iso string) string {
 
 func (m Model) renderAI(width, height int) string {
 	// Reserve space for the popup at the bottom of the modal; the #reference
-	// popup takes precedence over the `/command` one.
+	// popup takes precedence over the `/command` one. Queued mid-turn tips
+	// (non-steering adapters) render as pinned rows just above the popup.
 	popup := m.renderAiRefSuggestions(width)
 	if len(popup) == 0 {
 		popup = m.renderAiCommandSuggestions(width)
 	}
+	queueRows := m.renderAiQueuedTips(width)
+	popup = append(queueRows, popup...)
 	transcriptHeight := max(1, height-len(popup))
 
 	pendingFrame := -1
@@ -816,6 +819,30 @@ func renderAiSegments(segments []view.HighlightSegment) string {
 		b.WriteString(segStyleFor(segment).Render(segment.Text))
 	}
 	return b.String()
+}
+
+// renderAiQueuedTips renders the mid-turn messages waiting on a non-steering
+// adapter: faint pinned rows above the input, moved into the transcript when
+// the turn completes and they are actually sent. Capped so a big queue can't
+// eat the modal.
+func (m Model) renderAiQueuedTips(width int) []string {
+	if len(m.aiQueue) == 0 {
+		return nil
+	}
+
+	const maxVisible = 3
+	visible := min(len(m.aiQueue), maxVisible)
+	lines := make([]string, 0, visible+1)
+	for _, q := range m.aiQueue[:visible] {
+		text, _, _ := strings.Cut(q.Display, "\n")
+		label := padTo(truncateRunes(" ⏳ queued: "+text, width), width)
+		lines = append(lines, gutterStyle.Render(label))
+	}
+	if rest := len(m.aiQueue) - visible; rest > 0 {
+		label := padTo(truncateRunes(fmt.Sprintf(" … +%d more", rest), width), width)
+		lines = append(lines, gutterStyle.Render(label))
+	}
+	return lines
 }
 
 // renderAiRefSuggestions renders the `#keyword` reference popup: files and
