@@ -52,20 +52,23 @@ func TestBuildFileTreeEntriesCollapsed(t *testing.T) {
 	}
 }
 
-func TestBuildAllRequestEntries(t *testing.T) {
+func TestBuildAllEntries(t *testing.T) {
 	root := writeTree(t)
-	entries := BuildAllRequestEntries(root)
+	mustWrite(t, filepath.Join(root, "folder-a", "data.ntd"))
+	entries := BuildAllEntries(root)
 
-	// Every .nts file regardless of expansion, in walk order (dirs first, then
-	// files by name); directories and notes.txt excluded.
+	// Directories, .nts requests, and .ntd files regardless of expansion, in
+	// walk order (dirs first, then files by name); notes.txt excluded.
+	types := map[string]string{}
 	var commands []string
 	for _, e := range entries {
 		commands = append(commands, e.CommandValue)
-		if e.Type != "request" {
-			t.Fatalf("non-request entry: %+v", e)
-		}
+		types[e.CommandValue] = e.Type
 	}
-	want := []string{"folder-a/nested/deep", "folder-a/get-one", "top"}
+	want := []string{
+		"folder-a/", "folder-a/nested/", "folder-a/nested/deep",
+		"folder-a/data.ntd", "folder-a/get-one", "top",
+	}
 	if len(commands) != len(want) {
 		t.Fatalf("want %v, got %v", want, commands)
 	}
@@ -73,6 +76,9 @@ func TestBuildAllRequestEntries(t *testing.T) {
 		if commands[i] != want[i] {
 			t.Fatalf("want %v, got %v", want, commands)
 		}
+	}
+	if types["folder-a/"] != "directory" || types["folder-a/data.ntd"] != "file" || types["top"] != "request" {
+		t.Fatalf("entry types: %+v", types)
 	}
 }
 

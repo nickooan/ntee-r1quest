@@ -157,14 +157,15 @@ func BuildFileTreeEntries(root string, expanded map[string]bool) []FileTreeEntry
 	return entries
 }
 
-// maxRequestScanDepth bounds the BuildAllRequestEntries walk (symlink-loop guard).
-const maxRequestScanDepth = 16
+// maxScanDepth bounds the BuildAllEntries walk (symlink-loop guard).
+const maxScanDepth = 16
 
-// BuildAllRequestEntries walks the whole root regardless of expansion state and
-// returns every .nts file as a "request" entry. This is the search corpus for
-// the query popup's substring/fuzzy stages, which must find files inside
-// collapsed directories.
-func BuildAllRequestEntries(root string) []FileTreeEntry {
+// BuildAllEntries walks the whole root regardless of expansion state and
+// returns every directory, .nts ("request") and .ntd ("file") entry. This is
+// the fuzzy-search corpus: the query popup filters it to requests, while the
+// AI-mode #reference search uses all of it. Fuzzy matching must find entries
+// inside collapsed directories, hence the full walk.
+func BuildAllEntries(root string) []FileTreeEntry {
 	if root == "" {
 		return nil
 	}
@@ -176,7 +177,7 @@ func BuildAllRequestEntries(root string) []FileTreeEntry {
 	var entries []FileTreeEntry
 	var appendDir func(dirPath string, depth int)
 	appendDir = func(dirPath string, depth int) {
-		if depth > maxRequestScanDepth {
+		if depth > maxScanDepth {
 			return
 		}
 		resolvedDir := filepath.Join(resolvedRoot, dirPath)
@@ -195,18 +196,35 @@ func BuildAllRequestEntries(root string) []FileTreeEntry {
 			}
 
 			if child.isDir {
+				entries = append(entries, FileTreeEntry{
+					Name:         child.name,
+					RelativePath: rel,
+					CommandValue: rel + "/",
+					Depth:        depth,
+					Type:         "directory",
+				})
 				appendDir(rel, depth+1)
 				continue
 			}
-			if !child.isFile || !strings.HasSuffix(child.name, ".nts") {
+			if !child.isFile {
 				continue
+			}
+			isRequest := strings.HasSuffix(child.name, ".nts")
+			if !isRequest && !strings.HasSuffix(child.name, ".ntd") {
+				continue
+			}
+			command := rel
+			entryType := "file"
+			if isRequest {
+				command = strings.TrimSuffix(rel, ".nts")
+				entryType = "request"
 			}
 			entries = append(entries, FileTreeEntry{
 				Name:         child.name,
 				RelativePath: rel,
-				CommandValue: strings.TrimSuffix(rel, ".nts"),
+				CommandValue: command,
 				Depth:        depth,
-				Type:         "request",
+				Type:         entryType,
 			})
 		}
 	}

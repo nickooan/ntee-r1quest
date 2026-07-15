@@ -3,6 +3,7 @@ package filetree
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -28,8 +29,8 @@ func TestResolveParentDirectoryCommand(t *testing.T) {
 
 // suggestTree builds a root with a collapsed orders/ directory holding a nested
 // request and a .ntd data file. Returns the visible (collapsed) entries and the
-// full .nts corpus.
-func suggestTree(t *testing.T) (entries, allRequests []FileTreeEntry) {
+// full corpus (dirs + .nts + .ntd).
+func suggestTree(t *testing.T) (entries, allEntries []FileTreeEntry) {
 	t.Helper()
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "orders"), 0o755); err != nil {
@@ -45,7 +46,33 @@ func suggestTree(t *testing.T) (entries, allRequests []FileTreeEntry) {
 			t.Fatal(err)
 		}
 	}
-	return BuildFileTreeEntries(root, nil), BuildAllRequestEntries(root)
+	return BuildFileTreeEntries(root, nil), BuildAllEntries(root)
+}
+
+func TestFuzzyMatchEntries(t *testing.T) {
+	_, allEntries := suggestTree(t)
+
+	// Name-substring hits rank before path-only hits; dirs and .ntd matchable.
+	got := FuzzyMatchEntries(allEntries, "orders")
+	if len(got) == 0 || !strings.Contains(strings.ToLower(got[0].Name), "orders") {
+		t.Fatalf("name hits should rank first, got %+v", got)
+	}
+	var haveDir, haveNtd bool
+	for _, e := range FuzzyMatchEntries(allEntries, "d") {
+		if e.Type == "directory" {
+			haveDir = true
+		}
+		if strings.HasSuffix(e.Name, ".ntd") {
+			haveNtd = true
+		}
+	}
+	if !haveDir || !haveNtd {
+		t.Fatalf("directories and .ntd files should be matchable; dir=%v ntd=%v", haveDir, haveNtd)
+	}
+
+	if FuzzyMatchEntries(allEntries, "  ") != nil {
+		t.Fatal("empty keyword should yield nil")
+	}
 }
 
 func TestBuildInputSuggestions(t *testing.T) {

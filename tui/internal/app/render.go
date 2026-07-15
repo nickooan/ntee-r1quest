@@ -766,8 +766,12 @@ func formatSessionTime(iso string) string {
 }
 
 func (m Model) renderAI(width, height int) string {
-	// Reserve space for the `/command` popup at the bottom of the modal.
-	popup := m.renderAiCommandSuggestions(width)
+	// Reserve space for the popup at the bottom of the modal; the #reference
+	// popup takes precedence over the `/command` one.
+	popup := m.renderAiRefSuggestions(width)
+	if len(popup) == 0 {
+		popup = m.renderAiCommandSuggestions(width)
+	}
 	transcriptHeight := max(1, height-len(popup))
 
 	pendingFrame := -1
@@ -812,6 +816,39 @@ func renderAiSegments(segments []view.HighlightSegment) string {
 		b.WriteString(segStyleFor(segment).Render(segment.Text))
 	}
 	return b.String()
+}
+
+// renderAiRefSuggestions renders the `#keyword` reference popup: files and
+// directories fuzzy-matched from the request root, shown with their full
+// relative paths.
+func (m Model) renderAiRefSuggestions(width int) []string {
+	ref, ok := m.activeAiRef()
+	if !ok {
+		return nil
+	}
+
+	const maxVisible = 6
+	selected := input.Clamp(m.aiRefSuggestIndex, 0, len(ref.matches)-1)
+	start := 0
+	if selected >= maxVisible {
+		start = selected - maxVisible + 1
+	}
+	end := min(start+maxVisible, len(ref.matches))
+
+	lines := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		entry := ref.matches[i]
+		label := padTo(truncateRunes(" "+entry.CommandValue, width), width)
+		switch {
+		case i == selected:
+			lines = append(lines, selectedEntryStyle.Render(label))
+		case entry.Type == "directory":
+			lines = append(lines, suggestionStyle.Render(label))
+		default:
+			lines = append(lines, suggestionFileStyle.Render(label))
+		}
+	}
+	return lines
 }
 
 // renderAiCommandSuggestions renders the `/command` popup (custom AI commands)

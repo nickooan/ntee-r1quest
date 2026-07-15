@@ -1435,3 +1435,159 @@ func TestFileHighlightCache(t *testing.T) {
 		t.Fatalf("discarded edits must not leak graphql flags: %v", m.graphqlLines)
 	}
 }
+
+func aiRefTestModel(t *testing.T) (Model, *fakeClient, string) {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "folder"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "folder", "deep.nts"), []byte("url x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeClient{}
+	m := New(fake, runtime.ConfigDTO{Root: root, AIAdaptor: "claude"})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.mode = modeAI
+	m.aiActive = true
+	return m, fake, root
+}
+
+func TestAIRefPopupTriggers(t *testing.T) {
+	m, _, _ := aiRefTestModel(t)
+
+	// A standalone #keyword opens the reference popup with the full path.
+	m = typeRunes(m, "#deep")
+	if !strings.Contains(m.View(), "folder/deep") {
+		t.Fatalf("reference popup should list the match:\n%s", m.View())
+	}
+
+	// Scenario 1: space between # and text → no macro.
+	m.aiInput, m.aiInputCursor = "", 0
+	m = typeRunes(m, "# deep")
+	if strings.Contains(m.View(), "folder/deep") {
+		t.Fatalf("'# deep' must not trigger the popup:\n%s", m.View())
+	}
+
+	// Scenario 3: glued # → no macro.
+	m.aiInput, m.aiInputCursor = "", 0
+	m = typeRunes(m, "abc#deep")
+	if strings.Contains(m.View(), "folder/deep") {
+		t.Fatalf("'abc#deep' must not trigger the popup:\n%s", m.View())
+	}
+}
+
+func TestAIRefEscDismisses(t *testing.T) {
+	m, _, _ := aiRefTestModel(t)
+
+	m = typeRunes(m, "#deep")
+	if !strings.Contains(m.View(), "folder/deep") {
+		t.Fatal("popup should be open before Esc")
+	}
+
+	// Scenario 2/4: Esc declines the promotion — text stays literal, still in
+	// AI mode, popup stays closed for this token.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.mode != modeAI {
+		t.Fatalf("first Esc should dismiss the popup, not leave AI mode; mode=%d", m.mode)
+	}
+	if m.aiInput != "#deep" {
+		t.Fatalf("dismissal must keep the literal text, got %q", m.aiInput)
+	}
+	if strings.Contains(m.View(), "folder/deep") {
+		t.Fatalf("popup should stay closed after Esc:\n%s", m.View())
+	}
+
+	// Editing the token re-enables the popup.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	if !strings.Contains(m.View(), "folder/deep") {
+		t.Fatalf("editing the token should reopen the popup:\n%s", m.View())
+	}
+
+	// With the popup dismissed again, Esc leaves AI mode as before.
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.mode != modeQuery {
+		t.Fatalf("second Esc should return to query mode; mode=%d", m.mode)
+	}
+}
+
+func TestAIRefAcceptAndSend(t *testing.T) {
+	m, fake, root := aiRefTestModel(t)
+
+	// Enter with the popup open promotes the token to a pill.
+	m = typeRunes(m, "#deep")
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.aiInput != "[deep.nts] " {
+		t.Fatalf("accept should replace the token with the pill, got %q", m.aiInput)
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPath := filepath.Join(rootAbs, "folder", "deep.nts")
+	if m.aiRefs["deep.nts"] != wantPath {
+		t.Fatalf("ref should map to the absolute path, got %q want %q", m.aiRefs["deep.nts"], wantPath)
+	}
+
+	// Sending expands the pill for the agent but keeps it in the transcript.
+	m = typeRunes(m, "explain this")
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		cmd()
+	}
+	if len(fake.aiPrompts) != 1 {
+		t.Fatalf("expected one prompt, got %v", fake.aiPrompts)
+	}
+	sent := fake.aiPrompts[0]
+	if !strings.Contains(sent, wantPath) || strings.Contains(sent, "[deep.nts]") {
+		t.Fatalf("sent prompt should carry the absolute path, got %q", sent)
+	}
+	last := m.aiMessages[len(m.aiMessages)-1]
+	if last.Role != "user" || !strings.Contains(last.Content, "[deep.nts]") {
+		t.Fatalf("transcript should keep the pill, got %+v", last)
+	}
+	if m.aiRefs != nil {
+		t.Fatalf("refs should clear after send, got %v", m.aiRefs)
+	}
+}
+
+func TestAIRefLabelCollisionFallsBackToPath(t *testing.T) {
+	m, _, root := aiRefTestModel(t)
+	for _, dir := range []string{"a", "b"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, dir, "x.nts"), []byte("url x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Accept a/x.nts, then b/x.nts: the second pill disambiguates with the path.
+	m = typeRunes(m, "#x")
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = typeRunes(m, "#x")
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.aiInput != "[x.nts] [b/x.nts] " {
+		t.Fatalf("colliding label should fall back to the relative path, got %q", m.aiInput)
+	}
+	if m.aiRefs["x.nts"] == m.aiRefs["b/x.nts"] {
+		t.Fatalf("refs should point at different files: %v", m.aiRefs)
+	}
+}
+
+func TestAIRefDirectoryAccept(t *testing.T) {
+	m, _, root := aiRefTestModel(t)
+
+	m = typeRunes(m, "#folder")
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.aiInput != "[folder] " {
+		t.Fatalf("directory accept should use the dir name, got %q", m.aiInput)
+	}
+	rootAbs, _ := filepath.Abs(root)
+	if m.aiRefs["folder"] != filepath.Join(rootAbs, "folder") {
+		t.Fatalf("dir ref should map to the directory path, got %v", m.aiRefs)
+	}
+}

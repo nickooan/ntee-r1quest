@@ -194,6 +194,13 @@ type Model struct {
 	aiScrollY      int
 	aiPermission   *view.Permission
 
+	// #reference pills: a standalone #keyword fuzzy-searches the request root
+	// (dirs + .nts + .ntd); accepting a match replaces it with a "[label]" pill
+	// that expands to its absolute path when the prompt is sent.
+	aiRefs            map[string]string // "[label]" → absolute path
+	aiRefSuggestIndex int
+	aiRefDismissed    string // exact "#token" dismissed via Esc; editing it re-enables
+
 	// "thinking" indicator state. A turn is pending from prompt-send; the
 	// indicator is on until a reply has streamed, all tool calls finish, and the
 	// quiet window passes (mirrors shouldShowAiThinking). aiTicking guards against
@@ -335,6 +342,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.aiPicking = false
 		m.aiPickerSessions = nil
 		m.aiPickerIndex = 0
+		m.clearAiRefs()
 		m.notice = "reloaded"
 		m.refreshResponseScrollLimits()
 		if wasAiActive {
@@ -390,6 +398,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.aiOffline = true
 		m.aiPending = false
 		m.aiThinking = false
+		m.clearAiRefs()
 		if msg.Err != nil {
 			m.errText = msg.Err.Error()
 		}
@@ -844,8 +853,8 @@ func (m Model) queryInputSuggestions(entries []filetree.FileTreeEntry) []filetre
 	if m.cachedInputsPrefix == m.command {
 		cached = m.cachedInputs
 	}
-	allRequests := filetree.BuildAllRequestEntries(m.config.Root)
-	return filetree.BuildInputSuggestions(entries, allRequests, m.command, cached, filetree.MaxInputSuggestions)
+	allEntries := filetree.BuildAllEntries(m.config.Root)
+	return filetree.BuildInputSuggestions(entries, allEntries, m.command, cached, filetree.MaxInputSuggestions)
 }
 
 func suggestInputsCmd(client runtimeClient, prefix string) tea.Cmd {
@@ -1396,20 +1405,41 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.aiSuggestIndex = 0
 	}
 
+	// `#keyword` reference popup; takes precedence over the slash popup.
+	ref, refOpen := m.activeAiRef()
+	if m.aiRefSuggestIndex >= len(ref.matches) {
+		m.aiRefSuggestIndex = 0
+	}
+
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 	case tea.KeyEsc:
+		// Decline promoting the #token to a reference: the text stays literal
+		// and the popup stays closed for this token until it is edited.
+		if refOpen {
+			m.aiRefDismissed = ref.token
+			m.aiRefSuggestIndex = 0
+			return m, nil
+		}
 		m.mode = modeQuery // the session keeps running in the runtime
 		return m, nil
 	case tea.KeyTab:
+		if refOpen {
+			m.acceptAiRef(ref)
+			return m, nil
+		}
 		// Accept the highlighted `/command` (inserts `/name ` ready for args).
 		if slashOpen {
 			m.acceptSlashCommand(slashMatches)
 		}
 		return m, nil
 	case tea.KeyEnter:
-		// Accept the highlighted `/command` instead of sending.
+		// Accept the highlighted reference / `/command` instead of sending.
+		if refOpen {
+			m.acceptAiRef(ref)
+			return m, nil
+		}
 		if slashOpen {
 			m.acceptSlashCommand(slashMatches)
 			return m, nil
@@ -1425,16 +1455,15 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.aiInputCursor = 0
 			return m.handleAppCommand(text)
 		}
-		// A `/name args` custom command expands to its configured instruction; the
-		// expanded text is both shown in the chat and sent to the agent.
-		prompt := text
-		if resolved, ok := command.ResolveCustomCommandPrompt(m.config.CustomCommands, text); ok {
-			prompt = resolved
-		}
-		m.aiMessages = append(m.aiMessages, view.ChatMessage{Role: "user", Content: prompt})
+		// Run the input through the prompt pipeline (custom-command expansion,
+		// reference-pill expansion, …): the transcript shows Display, the agent
+		// receives Send.
+		t := m.translateAiInput(text)
+		m.aiMessages = append(m.aiMessages, view.ChatMessage{Role: "user", Content: t.Display})
 		m.aiInput = ""
 		m.aiInputCursor = 0
 		m.aiScrollY = 0
+		m.clearAiRefs()
 		// Begin a pending turn: show "thinking" right away. The animation ticker is
 		// started by the first streamed update (startThinkingTick); until then the
 		// indicator shows statically so the user always sees that work is happening.
@@ -1443,13 +1472,14 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.aiLastActivity = time.Now()
 		m.aiTools = map[string]bool{}
 		m.aiThinking = true
-		return m, aiPromptCmd(m.client, prompt)
+		return m, aiPromptCmd(m.client, t.Send)
 	case tea.KeyBackspace:
 		next, cursor, ok := input.RemoveBeforeCursor(m.aiInput, m.aiInputCursor)
 		if ok {
 			m.aiInput = next
 			m.aiInputCursor = cursor
 			m.aiSuggestIndex = 0
+			m.aiRefSuggestIndex = 0
 		}
 		return m, nil
 	case tea.KeyLeft:
@@ -1459,7 +1489,13 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.aiInputCursor = input.MoveCursor(m.aiInput, m.aiInputCursor, 1)
 		return m, nil
 	case tea.KeyUp:
-		// Navigate the `/command` popup when open, else scroll older messages.
+		// Navigate the reference / `/command` popup when open, else scroll
+		// older messages.
+		if refOpen {
+			n := len(ref.matches)
+			m.aiRefSuggestIndex = (m.aiRefSuggestIndex - 1 + n) % n
+			return m, nil
+		}
 		if slashOpen {
 			n := len(slashMatches)
 			m.aiSuggestIndex = (m.aiSuggestIndex - 1 + n) % n
@@ -1468,6 +1504,10 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.aiScrollY++
 		return m, nil
 	case tea.KeyDown:
+		if refOpen {
+			m.aiRefSuggestIndex = (m.aiRefSuggestIndex + 1) % len(ref.matches)
+			return m, nil
+		}
 		if slashOpen {
 			m.aiSuggestIndex = (m.aiSuggestIndex + 1) % len(slashMatches)
 			return m, nil
@@ -1483,6 +1523,7 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.aiInput, m.aiInputCursor = input.InsertAtCursor(m.aiInput, m.aiInputCursor, text)
 		m.aiSuggestIndex = 0
+		m.aiRefSuggestIndex = 0
 		return m, nil
 	}
 	return m, nil

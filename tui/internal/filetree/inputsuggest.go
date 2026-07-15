@@ -22,13 +22,13 @@ const MaxInputSuggestions = 8
 // BuildInputSuggestions returns entries matching the typed command, ranked
 // exact > prefix > substring > subsequence, then cached typed inputs. Exact and
 // prefix stages match visible tree entries of any type (preserving directory
-// path navigation, like the TS buildInputSuggestions); the substring and
-// subsequence stages — a deliberate divergence from the TS port — search
-// allRequests, the full recursive .nts corpus, so keywords find requests inside
+// path navigation, like the TS buildInputSuggestions); the fuzzy stages — a
+// deliberate divergence from the TS port — search the .nts requests of
+// allEntries, the full recursive corpus, so keywords find requests inside
 // collapsed directories. Labels always show the full relative path. Deduped by
 // normalized CommandValue/InsertText and capped to limit. Empty or @-commands
 // yield nothing.
-func BuildInputSuggestions(entries, allRequests []FileTreeEntry, command string, cachedInputs []string, limit int) []InputSuggestion {
+func BuildInputSuggestions(entries, allEntries []FileTreeEntry, command string, cachedInputs []string, limit int) []InputSuggestion {
 	trimmed := strings.TrimSpace(command)
 	if trimmed == "" || strings.HasPrefix(trimmed, "@") {
 		return nil
@@ -51,26 +51,16 @@ func BuildInputSuggestions(entries, allRequests []FileTreeEntry, command string,
 		}
 	}
 
-	// Substring and subsequence stages over the full .nts corpus. Name hits rank
-	// above path-only hits; subsequence catches skipped-letter input ("gob" →
-	// "get-orders-by-id"). Exact/prefix hits here are skipped: either the entry is
-	// visible (already collected above) or shares its CommandValue with a visible
-	// one, and the seen map dedupes the rest.
-	var nameSubstr, pathSubstr, subseq []FileTreeEntry
-	for _, entry := range allRequests {
-		cmd := strings.ToLower(entry.CommandValue)
-		name := strings.ToLower(entry.Name)
-		switch {
-		case strings.Contains(name, normalized):
-			nameSubstr = append(nameSubstr, entry)
-		case strings.Contains(cmd, normalized):
-			pathSubstr = append(pathSubstr, entry)
-		case isSubsequence(cmd, normalized) || isSubsequence(name, normalized):
-			subseq = append(subseq, entry)
+	// Fuzzy stages search only .nts requests in the corpus (the corpus also
+	// carries directories and .ntd data files for the AI #reference search).
+	// Exact/prefix hits reappearing here are absorbed by the seen map below.
+	var requests []FileTreeEntry
+	for _, entry := range allEntries {
+		if entry.Type == "request" {
+			requests = append(requests, entry)
 		}
 	}
-
-	ranked := append(append(append(append(exact, prefix...), nameSubstr...), pathSubstr...), subseq...)
+	ranked := append(append(exact, prefix...), FuzzyMatchEntries(requests, trimmed)...)
 
 	// Normalized cached inputs, so entry suggestions that absorb a duplicate
 	// cache row can still be flagged (and rendered) as recently called.
@@ -126,6 +116,32 @@ func BuildInputSuggestions(entries, allRequests []FileTreeEntry, command string,
 		})
 	}
 	return suggestions
+}
+
+// FuzzyMatchEntries ranks corpus entries against keyword: name-substring hits
+// first, then CommandValue (path) substring hits, then subsequence matches
+// ("gob" → "get-orders-by-id"). Case-insensitive with \→/ normalization; an
+// empty keyword yields nil. Walk order is preserved within each bucket.
+func FuzzyMatchEntries(corpus []FileTreeEntry, keyword string) []FileTreeEntry {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(keyword), "\\", "/"))
+	if normalized == "" {
+		return nil
+	}
+
+	var nameSubstr, pathSubstr, subseq []FileTreeEntry
+	for _, entry := range corpus {
+		cmd := strings.ToLower(entry.CommandValue)
+		name := strings.ToLower(entry.Name)
+		switch {
+		case strings.Contains(name, normalized):
+			nameSubstr = append(nameSubstr, entry)
+		case strings.Contains(cmd, normalized):
+			pathSubstr = append(pathSubstr, entry)
+		case isSubsequence(cmd, normalized) || isSubsequence(name, normalized):
+			subseq = append(subseq, entry)
+		}
+	}
+	return append(append(nameSubstr, pathSubstr...), subseq...)
 }
 
 // isSubsequence reports whether all runes of needle appear in haystack in
