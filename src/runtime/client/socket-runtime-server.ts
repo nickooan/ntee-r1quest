@@ -14,6 +14,7 @@ import { RpcEvent, RpcMethod, serializeError } from "./protocol.ts"
 import type { RuntimeClient } from "./runtime-client.ts"
 import type {
   AiPermissionDecision,
+  AiPromptFileRef,
   AiStartRequest,
   ExecuteRequest,
 } from "./types.ts"
@@ -144,9 +145,14 @@ export class SocketRuntimeServer {
       case RpcMethod.AiStart:
         await this.client.ai.start(params as AiStartRequest)
         return null
-      case RpcMethod.AiPrompt:
-        await this.client.ai.prompt((params as { text: string }).text)
+      case RpcMethod.AiPrompt: {
+        const { text, refs } = params as {
+          text: string
+          refs?: AiPromptFileRef[]
+        }
+        await this.client.ai.prompt(text, refs)
         return null
+      }
       case RpcMethod.AiRespondPermission:
         await this.client.ai.respondPermission(params as AiPermissionDecision)
         return null

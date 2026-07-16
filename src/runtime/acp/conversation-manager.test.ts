@@ -194,4 +194,32 @@ describe("AcpConversationManager", () => {
 
     expect(onError).toHaveBeenCalledWith(asyncError)
   })
+
+  test("tolerates overlapping conversations (mid-turn steering)", () => {
+    const manager = createManager()
+    const response: PromptResponse = { stopReason: "end_turn" }
+
+    // A steering prompt creates B while A is still pending.
+    const a = manager.createConversation("session-1", "first")
+    const b = manager.createConversation("session-1", "steer tip")
+
+    // Streamed updates attribute to the newest pending conversation (B).
+    manager.recordConversationUpdate(createMessageUpdate("chunk"))
+
+    // A resolves early at hand-off (end_turn); B is unaffected and stays active.
+    manager.completeConversation(a.id, response)
+    let byId = new Map(manager.promptConversations.map((c) => [c.id, c]))
+    expect(byId.get(a.id)?.status).toBe("completed")
+    expect(byId.get(b.id)?.status).toBe("pending")
+    expect(byId.get(b.id)?.updates).toHaveLength(1)
+
+    // Later updates keep flowing to B, and B completes independently.
+    manager.recordConversationUpdate(createMessageUpdate("more"))
+    manager.completeConversation(b.id, response)
+    byId = new Map(manager.promptConversations.map((c) => [c.id, c]))
+    expect(byId.get(b.id)?.status).toBe("completed")
+    expect(byId.get(b.id)?.updates).toHaveLength(2)
+    expect(byId.get(a.id)?.updates).toHaveLength(0)
+    expect(manager.unfinishedPromptConversations).toEqual([])
+  })
 })

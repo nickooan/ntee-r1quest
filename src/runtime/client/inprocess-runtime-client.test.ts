@@ -58,6 +58,7 @@ class FakeAdapter implements AcpAdapterInstance {
   currentSessionId: string | undefined = undefined
   lastWrite: CodexAcpWriteInput | undefined
   stopped = false
+  readonly supportsMidTurnPrompts = false
 
   constructor(readonly options: CodexAcpAdapterOptions) {}
 
@@ -97,7 +98,9 @@ describe("InProcessRuntimeClient.ai orchestration", () => {
     await client.ai.start({ adaptor: "claude" })
 
     expect(getAdapter()).toBeDefined()
-    expect(started).toEqual([{ sessionId: undefined, resumed: false }])
+    expect(started).toEqual([
+      { sessionId: undefined, resumed: false, supportsSteering: false },
+    ])
   })
 
   test("forwards adapter callbacks to the subscribed handlers", async () => {
@@ -134,8 +137,12 @@ describe("InProcessRuntimeClient.ai orchestration", () => {
     const { client, getAdapter } = makeAiClient()
     await client.ai.start({ adaptor: "claude" })
 
-    await client.ai.prompt("hello")
-    expect(getAdapter()!.lastWrite).toBe("hello")
+    await client.ai.prompt("hello", [{ name: "f.nts", path: "/root/f.nts" }])
+    expect(getAdapter()!.lastWrite).toEqual({
+      type: "prompt",
+      text: "hello",
+      refs: [{ name: "f.nts", path: "/root/f.nts" }],
+    })
 
     await client.ai.respondPermission({ type: "selected", optionId: "opt-1" })
     expect(getAdapter()!.lastWrite).toEqual({

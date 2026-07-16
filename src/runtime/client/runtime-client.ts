@@ -21,6 +21,7 @@ import type {
   AiConversation,
   AiPermissionDecision,
   AiPermissionRequest,
+  AiPromptFileRef,
   AiSessionStarted,
   AiSessionStopped,
   AiSessionUpdate,
@@ -53,7 +54,7 @@ export type RuntimeEventHandlers = {
 // completes. Only one session is active at a time.
 export type AiClient = {
   start(request: AiStartRequest): Promise<void>
-  prompt(text: string): Promise<void>
+  prompt(text: string, refs?: AiPromptFileRef[]): Promise<void>
   respondPermission(decision: AiPermissionDecision): Promise<void>
   stop(): void
 }

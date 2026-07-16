@@ -19,12 +19,14 @@ import {
   type SessionNotification,
   type SessionUpdate,
 } from "@agentclientprotocol/sdk"
+import type { AiPromptFileRef } from "../client/types.ts"
 import { APP_NAME, VERSION } from "../version.ts"
 import {
   AcpConversationManager,
   type AcpConversation,
   type AcpConversationStatus,
 } from "./conversation-manager.ts"
+import { buildPromptContent } from "./prompt-content.ts"
 
 export type CursorAcpResponse = {
   sessionId: string
@@ -51,6 +53,7 @@ export type CursorAcpWriteInput =
   | {
       type: "prompt"
       text: string
+      refs?: AiPromptFileRef[]
     }
   | {
       type: "permission"
@@ -120,6 +123,10 @@ const createCancelledPermissionResponse = (): RequestPermissionResponse => {
 }
 
 export class CursorAcpAdapter {
+  // cursor-agent is an external binary whose concurrent-prompt behavior is
+  // unverified — treated as not supporting mid-turn prompts, so clients queue.
+  readonly supportsMidTurnPrompts = false
+
   private readonly cwd: string
   private readonly args: string[]
   private readonly env: NodeJS.ProcessEnv
@@ -297,7 +304,7 @@ export class CursorAcpAdapter {
     }
 
     if (input.type === "prompt") {
-      return this.sendPrompt(input.text)
+      return this.sendPrompt(input.text, input.refs)
     }
 
     return this.resolvePermission(input.decision)
@@ -325,7 +332,10 @@ export class CursorAcpAdapter {
     this.conversationManager.resetActiveConversation()
   }
 
-  private async sendPrompt(text: string): Promise<PromptResponse> {
+  private async sendPrompt(
+    text: string,
+    refs?: AiPromptFileRef[],
+  ): Promise<PromptResponse> {
     const trimmedText = text.trim()
 
     if (!trimmedText) {
@@ -340,12 +350,7 @@ export class CursorAcpAdapter {
       throw new Error("Cursor ACP session is not initialized.")
     }
 
-    const prompt: ContentBlock[] = [
-      {
-        type: "text",
-        text: trimmedText,
-      },
-    ]
+    const prompt: ContentBlock[] = buildPromptContent(trimmedText, refs)
     const conversation = this.conversationManager.createConversation(
       this.sessionId,
       trimmedText,

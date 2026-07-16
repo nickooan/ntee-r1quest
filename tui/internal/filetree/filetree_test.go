@@ -52,6 +52,36 @@ func TestBuildFileTreeEntriesCollapsed(t *testing.T) {
 	}
 }
 
+func TestBuildAllEntries(t *testing.T) {
+	root := writeTree(t)
+	mustWrite(t, filepath.Join(root, "folder-a", "data.ntd"))
+	entries := BuildAllEntries(root)
+
+	// Directories, .nts requests, and .ntd files regardless of expansion, in
+	// walk order (dirs first, then files by name); notes.txt excluded.
+	types := map[string]string{}
+	var commands []string
+	for _, e := range entries {
+		commands = append(commands, e.CommandValue)
+		types[e.CommandValue] = e.Type
+	}
+	want := []string{
+		"folder-a/", "folder-a/nested/", "folder-a/nested/deep",
+		"folder-a/data.ntd", "folder-a/get-one", "top",
+	}
+	if len(commands) != len(want) {
+		t.Fatalf("want %v, got %v", want, commands)
+	}
+	for i := range want {
+		if commands[i] != want[i] {
+			t.Fatalf("want %v, got %v", want, commands)
+		}
+	}
+	if types["folder-a/"] != "directory" || types["folder-a/data.ntd"] != "file" || types["top"] != "request" {
+		t.Fatalf("entry types: %+v", types)
+	}
+}
+
 func TestBuildExpandedDirectoryPaths(t *testing.T) {
 	got := BuildExpandedDirectoryPaths("folder-a/nested/deep")
 	if !got["folder-a"] || !got["folder-a/nested"] || got["folder-a/nested/deep"] {

@@ -130,7 +130,7 @@ func (m Model) renderStatusLine() string {
 			return promptStyle.Render("@ai") + " resume session   ↑/↓ choose · enter confirm · esc cancel"
 		}
 		if m.aiPermission != nil {
-			return promptStyle.Render("Permission:") + " " + m.aiPermission.Title + "   [y] allow · [n] reject"
+			return m.renderPermissionBanner()
 		}
 		// Input on the top row, key hints on a faint row beneath it (the AI
 		// layout accounts for the extra line via the status line's height).
@@ -151,6 +151,20 @@ func (m Model) renderStatusLine() string {
 		// crowds what the user is typing.
 		return withNotice(line, m.notice) + "\n" + gutterStyle.Render(modeSwitchHint(m.mode))
 	}
+}
+
+// renderPermissionBanner renders a pending tool-permission request as a loud
+// three-row banner (terminals can't scale fonts, so prominence comes from a
+// highlighted badge, bold title, and colored actions): a black-on-yellow
+// "PERMISSION REQUEST" badge, the requested action in bold, and green
+// [y] allow / red [n] reject.
+func (m Model) renderPermissionBanner() string {
+	width := max(1, m.width)
+	badge := permissionBadgeStyle.Render(" ⚠ PERMISSION REQUEST ")
+	title := permissionTitleStyle.Render(truncateRunes(" "+m.aiPermission.Title, width))
+	actions := " " + permissionAllowStyle.Render("[y] allow") +
+		gutterStyle.Render("  ·  ") + permissionRejectStyle.Render("[n] reject")
+	return badge + "\n" + title + "\n" + actions
 }
 
 // modeSwitchHint is a compact "shift+tab → <next mode>" hint so the Shift+Tab
@@ -372,7 +386,9 @@ func (m Model) renderCommandSuggestions(width int) []string {
 		label := padTo(truncateRunes(" "+suggestions[i].Label, width), width)
 		if i == selected {
 			lines = append(lines, selectedEntryStyle.Render(label))
-		} else if suggestions[i].Source == "cache" {
+		} else if suggestions[i].Recent {
+			// Cache rows and file entries that absorbed a duplicate cache row —
+			// recently called either way, so both keep the cache color.
 			lines = append(lines, suggestionCacheStyle.Render(label))
 		} else {
 			lines = append(lines, suggestionFileStyle.Render(label))
@@ -391,6 +407,11 @@ func (m Model) renderResponse(width, height int) string {
 // so the key handler can clamp scroll against the real content size.
 func (m Model) responseViewportDims() (int, int) {
 	bodyHeight := max(3, m.height-4)
+	// Mirror View: the status line can span multiple rows (query mode adds a
+	// hint row beneath the input) and the body shrinks by those extra rows.
+	// Without this the scroll clamp is computed against a pane one row taller
+	// than what is rendered, leaving the last line(s) unreachable.
+	bodyHeight = max(3, bodyHeight-strings.Count(m.renderStatusLine(), "\n"))
 	sidebarWidth := input.Clamp(m.width/4, 14, max(14, m.width-24))
 	mainWidth := max(3, m.width-sidebarWidth-1)
 	return mainWidth - 4, bodyHeight - 2
@@ -764,8 +785,15 @@ func formatSessionTime(iso string) string {
 }
 
 func (m Model) renderAI(width, height int) string {
-	// Reserve space for the `/command` popup at the bottom of the modal.
-	popup := m.renderAiCommandSuggestions(width)
+	// Reserve space for the popup at the bottom of the modal; the #reference
+	// popup takes precedence over the `/command` one. Queued mid-turn tips
+	// (non-steering adapters) render as pinned rows just above the popup.
+	popup := m.renderAiRefSuggestions(width)
+	if len(popup) == 0 {
+		popup = m.renderAiCommandSuggestions(width)
+	}
+	queueRows := m.renderAiQueuedTips(width)
+	popup = append(queueRows, popup...)
 	transcriptHeight := max(1, height-len(popup))
 
 	pendingFrame := -1
@@ -810,6 +838,63 @@ func renderAiSegments(segments []view.HighlightSegment) string {
 		b.WriteString(segStyleFor(segment).Render(segment.Text))
 	}
 	return b.String()
+}
+
+// renderAiQueuedTips renders the mid-turn messages waiting on a non-steering
+// adapter: faint pinned rows above the input, moved into the transcript when
+// the turn completes and they are actually sent. Capped so a big queue can't
+// eat the modal.
+func (m Model) renderAiQueuedTips(width int) []string {
+	if len(m.aiQueue) == 0 {
+		return nil
+	}
+
+	const maxVisible = 3
+	visible := min(len(m.aiQueue), maxVisible)
+	lines := make([]string, 0, visible+1)
+	for _, q := range m.aiQueue[:visible] {
+		text, _, _ := strings.Cut(q.Display, "\n")
+		label := padTo(truncateRunes(" ⏳ queued: "+text, width), width)
+		lines = append(lines, gutterStyle.Render(label))
+	}
+	if rest := len(m.aiQueue) - visible; rest > 0 {
+		label := padTo(truncateRunes(fmt.Sprintf(" … +%d more", rest), width), width)
+		lines = append(lines, gutterStyle.Render(label))
+	}
+	return lines
+}
+
+// renderAiRefSuggestions renders the `#keyword` reference popup: files and
+// directories fuzzy-matched from the request root, shown with their full
+// relative paths.
+func (m Model) renderAiRefSuggestions(width int) []string {
+	ref, ok := m.activeAiRef()
+	if !ok {
+		return nil
+	}
+
+	const maxVisible = 6
+	selected := input.Clamp(m.aiRefSuggestIndex, 0, len(ref.matches)-1)
+	start := 0
+	if selected >= maxVisible {
+		start = selected - maxVisible + 1
+	}
+	end := min(start+maxVisible, len(ref.matches))
+
+	lines := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		entry := ref.matches[i]
+		label := padTo(truncateRunes(" "+entry.CommandValue, width), width)
+		switch {
+		case i == selected:
+			lines = append(lines, selectedEntryStyle.Render(label))
+		case entry.Type == "directory":
+			lines = append(lines, suggestionStyle.Render(label))
+		default:
+			lines = append(lines, suggestionFileStyle.Render(label))
+		}
+	}
+	return lines
 }
 
 // renderAiCommandSuggestions renders the `/command` popup (custom AI commands)
@@ -918,4 +1003,11 @@ var (
 	sessionHintStyle     = lipgloss.NewStyle().Faint(true)
 	sessionSelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Background(lipgloss.Color("22")).Bold(true)
 	overlayHintStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
+
+	// Tool-permission banner: black-on-yellow badge, bold title, green allow /
+	// red reject actions.
+	permissionBadgeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("11")).Bold(true)
+	permissionTitleStyle  = lipgloss.NewStyle().Bold(true)
+	permissionAllowStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true)
+	permissionRejectStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
 )

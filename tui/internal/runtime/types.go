@@ -52,6 +52,14 @@ type AiStartRequest struct {
 	ResumeSessionID string `json:"resumeSessionId,omitempty"`
 }
 
+// AiPromptFileRef mirrors client AiPromptFileRef: a file/directory attached to
+// an AI prompt, sent as an ACP resource_link content block (name + absolute
+// path) rather than inlined into the message text.
+type AiPromptFileRef struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
 // AiPermissionDecision mirrors AiPermissionDecision.
 type AiPermissionDecision struct {
 	Type     string `json:"type"`
@@ -69,6 +77,9 @@ type AiSessionUpdate struct {
 type AiSessionStarted struct {
 	SessionID string `json:"sessionId,omitempty"`
 	Resumed   bool   `json:"resumed"`
+	// Whether the adapter accepts ai/prompt while a turn is running (true
+	// steering, e.g. Claude). False → the TUI queues mid-turn messages.
+	SupportsSteering bool `json:"supportsSteering"`
 }
 
 // SerializedError mirrors the wire shape of an error (message + name).

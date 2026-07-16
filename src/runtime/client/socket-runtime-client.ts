@@ -133,8 +133,8 @@ export class SocketRuntimeClient implements RuntimeClient {
     start: async (request) => {
       await this.connection.request(RpcMethod.AiStart, request)
     },
-    prompt: async (text) => {
-      await this.connection.request(RpcMethod.AiPrompt, { text })
+    prompt: async (text, refs) => {
+      await this.connection.request(RpcMethod.AiPrompt, { text, refs })
     },
     respondPermission: async (decision) => {
       await this.connection.request(RpcMethod.AiRespondPermission, decision)

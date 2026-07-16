@@ -74,7 +74,10 @@ func run(node, script, root, ai, env string) error {
 			program.Send(app.AiUpdateMsg{Update: update.Update})
 		},
 		OnSessionStarted: func(started runtime.AiSessionStarted) {
-			program.Send(app.AiStartedMsg{Resumed: started.Resumed})
+			program.Send(app.AiStartedMsg{
+				Resumed:          started.Resumed,
+				SupportsSteering: started.SupportsSteering,
+			})
 		},
 		OnSessionStopped: func(stopped runtime.AiSessionStopped) {
 			var err error

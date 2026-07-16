@@ -18,62 +18,28 @@ npx ntee-r1quest -r ./example/request
 
 ### Highlights
 
-- 📁 **Plain-text collections** — `.nts` requests and `.ntd` data you can version
-  control and review.
-- 🤖 **Collaborate with your local AI agent** — in `@ai` mode, pair with Claude
-  Code, Codex, or Cursor right inside the app. The agent can write and edit
-  requests, trigger them, and have the results reflected live in the Result pane,
-  so you build and debug API flows together.
+- 📁 **Plain-text collections** — `.nts` requests and `.ntd` data you can
+  version control and review.
+- 🤖 **Collaborate with your local AI agent** — pair with Claude Code, Codex,
+  or Cursor in `@ai` mode: reference files with `#name`, keep typing while the
+  agent thinks, and watch results land in the Result pane.
+- 🔎 **Fuzzy search everywhere** — type any part of a request name and nested
+  files pop up from collapsed folders (`gob` finds `get-orders-by-id`).
 - 🖥️ **Modal terminal UI (Go / Bubble Tea)** — run, view, edit, search, and
-  browse history without leaving the keyboard. The Go front-end drives a
-  TypeScript runtime that owns the parser, cache, and AI adapters.
-- 🔁 **Reusable data + environment macros**, now with defaults: `@i(key or …)`,
+  browse history without leaving the keyboard.
+- 🔁 **Reusable data + environment macros** with defaults: `@i(key or …)`,
   `@env(KEY or …)`, plus file uploads via `@f(…)`.
 - ⚡ **One-shot execution** (`-p`) for scripts and CI, with env injection
-  (`-env`) and trace tagging (`-ti`).
-- 🕘 **History & cache** — browse past request/response pairs (grouped by trace),
-  with input history and editor autosuggestions.
-- 🧩 **GraphQL-friendly**, with an AI plugin (skills) for Claude Code, Codex, and
-  Cursor.
-
-## Index
-
-**Getting started**
-
-- [Quick Start](#quick-start)
-- [CLI Reference](#cli-reference)
-
-**Using the app**
-
-- [Terminal Modes](#terminal-modes)
-- [Key Manual](#key-manual)
-- [Request History and Cache](#request-history-and-cache)
-- [AI Adapter](#ai-adapter)
-- [AI Debug Log](#ai-debug-log)
-- [Config](#config)
-- [ntee-db](#ntee-db)
-
-**Writing requests**
-
-- [Collection Structure](#collection-structure)
-- [`.ntd` Definition Files](#ntd-definition-files)
-- [`.nts` Request Files](#nts-request-files)
-- [Joint Chain Files](#joint-chain-files-jointnts)
-- [Macros](#macros)
-- [Examples](#examples)
-- [GraphQL Requests](#graphql-requests)
-
-**Development & tooling**
-
-- [Local CLI and Development](#local-cli-and-development)
-- [R1Quest AI Plugin](#r1quest-ai-plugin)
+  (`-env`), trace tagging (`-ti`), and joint chain files.
+- 🕘 **History & cache** — past request/response pairs grouped by trace, input
+  history, and editor autosuggestions.
+- 🧩 **GraphQL-friendly**, with an AI plugin (skills) for Claude Code, Codex,
+  and Cursor.
 
 ## Quick Start
 
-`ntee-r1quest` targets **Node.js 24 or newer** (`node --version`) and runs on
-**macOS and Linux only**. Windows is not supported — some features (such as
-`@report` clipboard copy) shell out to platform tools that are unavailable
-there; use WSL if you are on Windows.
+`ntee-r1quest` targets **Node.js 24 or newer** and runs on **macOS and Linux
+only** (some features shell out to platform tools; use WSL on Windows).
 
 Run a request collection with `npx`:
 
@@ -81,8 +47,8 @@ Run a request collection with `npx`:
 npx ntee-r1quest -r ./example/request
 ```
 
-Inside the app, type a request path (without `.nts`) and press Enter — nested
-paths work too:
+Inside the app, type any part of a request name and press Enter — the popup
+fuzzy-matches across the whole collection:
 
 ```text
 @query >example
@@ -90,31 +56,23 @@ paths work too:
 ```
 
 If `-r` is omitted, `ntee-r1quest` looks for `.r1qconfig.yaml`, then falls back
-to the current directory as the request root.
-
-First-time setup — create the home config with a short wizard (when
-`~/.ntee-r1quest/r1qconfig.yaml` is missing):
+to the current directory as the request root. First-time setup — create the
+home config with a short wizard:
 
 ```bash
 npx ntee-r1quest --init
 ```
 
-### Install from source
-
-You can also install directly from source and link it into your global npm. The
-script clones the Codeberg repo into `~/.ntee-r1quest/source`, builds, and links
-the `r1q` / `ntee-r1quest` commands:
+**Install from source** (clones into `~/.ntee-r1quest/source`, builds, and
+links the `r1q` / `ntee-r1quest` commands; requires git, Node.js 24+, npm, and
+Go 1.24+):
 
 ```bash
 curl -fsSL https://codeberg.org/nickoan/ntee-r1quest/raw/branch/main/install.sh | sh
 ```
 
-Re-run the same command any time to **update** to the latest source (it pulls and
-rebuilds in place — no re-link needed). Pin a specific version with
-`NTEE_REF=v0.13.3`, or clone from a mirror with `NTEE_REPO=<url>`. Requires
-`git`, Node.js 24+, `npm`, and the Go toolchain 1.24+ (Go builds the terminal UI
-binary); only `ntee-r1quest` is built from source — dependencies still come from
-your configured registry.
+Re-run the same command any time to update in place. Pin a version with
+`NTEE_REF=v0.13.3`, or clone from a mirror with `NTEE_REPO=<url>`.
 
 ## CLI Reference
 
@@ -147,27 +105,16 @@ r1q -r ./example/request -p users/get -env '{"API_TOKEN":"abc"}' -ti task-42
 r1q -r ./example -p request/queries/query-user-post.joint
 ```
 
-`-p` also accepts [joint chain files](#joint-chain-files-jointnts); for a
-chain, `-ti` overrides the trace id declared in the file and `-env` seeds the
-chain's env before the first step.
+`-p` also accepts joint chain files (`-ti` overrides the declared trace id,
+`-env` seeds the chain env), and a one-shot run can notify an open terminal app
+over the `sock` socket — see the
+[configuration guide](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/configuration.md).
 
-A one-shot run can also notify an open terminal app — see [`sock`](#config).
+## The terminal app in 60 seconds
 
-## Terminal Modes
-
-The status line at the bottom shows the current mode and its keys, for example:
-
-```text
-@query >
-@view   ↑/↓ scroll · e edit · s search · esc back
-@edit   a.nts   editing   Ctrl+S save · Ctrl+F find · Ctrl+J/O jump/back · Ctrl+Z undo · esc discard
-@search /uuid/   3/5   ↑/↓ next · esc back
-@history 2/8   ↑/↓ scroll · shift+↑/↓ select · s search · esc back
-@ai >
-```
-
-Switch modes by typing a mode command and pressing Enter. Commands that take an
-argument accept it inline (`@v folder/get`, `@h task-42`):
+Everything happens in modes, switched by typing a command (inline arguments
+work: `@v folder/get`, `@h task-42`) or cycling **Shift+Tab**
+(`@query → @history → @ai`):
 
 | Command    | Alias | Purpose                                                     |
 | ---------- | ----- | ----------------------------------------------------------- |
@@ -178,1176 +125,94 @@ argument accept it inline (`@v folder/get`, `@h task-42`):
 | `@history` | `@h`  | Browse cached request/response history.                     |
 | `@ai`      |       | Open the AI chat.                                           |
 
-`@view` / `@edit` open the highlighted file when given no argument, or the file
-at the given path (`@v folder/get`). In query mode you can also append the
-command to a path — `folder/get @v` or `readme.md @e` — to open that file
-directly.
+In `@query`, type any part of a name — matching is fuzzy across the whole
+collection, suggestions show full paths, and Enter runs the pick. The editor
+(`@e`) has contextual completions, undo/redo, buffer search, and Ctrl+J/O
+jump-to-reference. In `@ai`, reference files with `#name` (they travel to the
+agent as real file links), keep typing while the agent thinks — steered into
+the live turn on Claude, queued for the next turn on Codex/Cursor — and answer
+tool-permission banners with `y`/`n`. Action commands round it out: `@copy`,
+`@reload`, `@clean-cache`, `@exit`.
 
-Action commands run a task instead of switching modes:
+**Full guide — every mode and key:**
+[docs/terminal-app.md](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/terminal-app.md)
 
-| Command        | Alias     | Action                                                              |
-| -------------- | --------- | ------------------------------------------------------------------- |
-| `@copy`        | `@report` | Copy the Result pane content to the clipboard.                      |
-| `@reload`      |           | Re-resolve config (root, AI adapter, custom commands) and adopt it. |
-| `@clean-cache` | `@cc`     | Clear input history and request history.                            |
-| `@exit`        | `@quit`   | Exit the app.                                                       |
+## Writing requests in 60 seconds
 
-`@copy` (alias `@report`) copies exactly what the Result pane shows — the
-response, an open file, or a history record. On success the status line shows a
-green `copied`; if there is nothing to copy or no clipboard tool is available it
-shows `copy failed`. Clipboard support is macOS and Linux only (see
-[Quick Start](#quick-start)).
+`.ntd` files hold reusable data; `.nts` files declare requests that `ref` them:
 
-Press **Shift+Tab** to cycle the three main modes:
-
-```text
-@query -> @history -> @ai -> @query
+```ntd
+// data/example.ntd
+host: "https://jsonplaceholder.typicode.com"
+path: /todos/1
+content-type: application/json
+token: @env(API_TOKEN or "dev-token")
 ```
 
-`@view`, `@edit`, and `@search` are entered explicitly (by command, or via the
-shortcuts in [Key Manual](#key-manual)); press **Esc** to leave them.
+```nts
+// get-todo.nts
+ref ./data/example.ntd
 
-## Key Manual
+url "@i(host)@i(path)"
+type get
 
-### Global
-
-| Key       | Action                                                   |
-| --------- | -------------------------------------------------------- |
-| Shift+Tab | Cycle the main modes: `@query` → `@history` → `@ai`.     |
-| Enter     | Submit the current mode's input or act on the selection. |
-| Esc       | Leave the current mode (to query, or up a directory).    |
-| Ctrl+C    | Quit the app.                                            |
-
-### Query Mode
-
-Type a request path (without `.nts`). Matches appear in a suggestion popup, and
-the sidebar highlights the matching entry.
-
-| Key                      | Action                                                                                                                                                                |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Type a path              | Filter requests/files; a suggestion popup lists matches.                                                                                                              |
-| Enter                    | Act on the highlighted entry by type: **enter** a directory, **run** a request (`.nts`), or **ask to view** any other file. A path that matches nothing does nothing. |
-| Up / Down                | Navigate the suggestion popup when open; otherwise scroll the Result pane.                                                                                            |
-| Left / Right             | Scroll the Result pane horizontally.                                                                                                                                  |
-| Shift+Up / Shift+Down    | Move the selection on the left (sidebar / popup). The selected value is mirrored into the input bar and the popup.                                                    |
-| Shift+Left / Shift+Right | Move the input cursor.                                                                                                                                                |
-| Esc                      | Go up to the parent directory.                                                                                                                                        |
-
-- Selecting a non-`.nts` file opens a confirm overlay (“not a r1q executable —
-  view it?”): **y / Enter** opens it in view mode; **n / Esc** cancels (input
-  cleared, file stays selected).
-- Opening a binary/native file shows a “not a readable file” overlay; press
-  **Enter** to dismiss (selection preserved).
-- `<path> @v` / `<path> @e` opens that file directly in view / edit mode.
-
-### View Mode
-
-Read a file in the Result pane.
-
-| Key       | Action                  |
-| --------- | ----------------------- |
-| Up / Down | Scroll the file.        |
-| `e`       | Edit the file.          |
-| `s`       | Search within the file. |
-| Esc       | Return to query mode.   |
-
-### Edit Mode
-
-Edit the open file in place. (The Go front-end is the sole writer of
-`.nts`/`.ntd` files; the runtime only reads them.)
-
-| Key             | Action                                                                                                                                                                                                                                 |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Type text       | Insert at the cursor (replaces the current selection, if any).                                                                                                                                                                         |
-| Enter           | Insert a newline.                                                                                                                                                                                                                      |
-| Left / Right    | Move the cursor; a long line scrolls horizontally to keep the cursor in view.                                                                                                                                                          |
-| Up / Down       | Move the cursor between lines; navigate the completion popup while open.                                                                                                                                                               |
-| Tab             | Accept the highlighted completion.                                                                                                                                                                                                     |
-| Backspace       | Delete before the cursor, or delete the selection.                                                                                                                                                                                     |
-| Ctrl+A          | Select the word under the cursor; press again to grow to the `key:` / value segment, then to the whole line.                                                                                                                           |
-| Ctrl+F          | Search the buffer; Enter in search jumps the cursor to the match (scrolling off-screen matches into view).                                                                                                                             |
-| Ctrl+Z / Ctrl+Y | Undo / redo. History is coalesced by edit burst and persisted (up to 50 snapshots per file) via ntee-db.                                                                                                                               |
-| Ctrl+S          | Save the file (stays in edit mode).                                                                                                                                                                                                    |
-| Ctrl+J          | Jump to the file referenced by the selection or cursor token — a `ref` path, `@run(...)` target, `@f(...)` file, or `@i(key)` (lands on the line defining the key in the winning `.ntd`, cursor at column 0). Requires a saved buffer. |
-| Ctrl+O          | Jump back to where the last Ctrl+J left from (up to 20 hops). The trail ends when you leave edit mode.                                                                                                                                 |
-| Esc             | Clear the selection; if there is none, discard unsaved changes and return to view mode.                                                                                                                                                |
-
-The status line shows a yellow **`editing`** badge while there are unsaved
-changes and a green **`saved`** badge once the buffer matches disk.
-
-Completions appear while typing request keywords, header names and values,
-macros, definition keys, or `ref` paths, and adapt to the file being edited —
-request `.nts`, joint chain, or `.ntd` definition:
-
-- `hea` suggests `header`.
-- `header cont` suggests header names such as `content-type` (with a trailing `, `).
-- `header content-type, ` suggests common values such as
-  `application/json; charset=utf-8`; `authorization ` schemes such as `Bearer `,
-  `cache-control` values such as `no-store`, and so on.
-- `type ` suggests HTTP methods; `auth ` suggests `bearer` / `basic`.
-- `@` suggests macros such as `@i`, `@f`, and `@i(key)` values from referenced
-  `.ntd` files (`@env` is offered only in `.ntd` buffers, where it is valid).
-- `@i(` suggests referenced `.ntd` keys; `@f(` suggests files next to the
-  request.
-- `ref ../d` suggests matching directories and `.ntd` files.
-- In a joint chain file the pool swaps to chain statements: `-` on a new line
-  offers the `-> @run()` / `-> @pick()` step templates, `@` offers
-  `@joint`/`@pick`/`@run`/`@i`, and `@run(` completes sibling `.nts` scripts
-  (extension omitted). Request keywords like `url`/`type`/`header` disappear —
-  they cannot parse in a joint file.
-- Each row shows a faint kind tag (`macro`, `header`, `definition`, ...) on the
-  right when the pane is wide enough.
-
-### Search Mode
-
-Search the current Result or reviewed file. Pass the query inline (`@s uuid`,
-`@search order id`) or type it after entering. From edit mode, Ctrl+F opens
-search over the buffer — there, Enter commits: it moves the editor cursor to the
-focused match and returns to editing (instead of stepping to the next match).
-
-| Key          | Action                                   |
-| ------------ | ---------------------------------------- |
-| Type a query | Build the query; matches highlight live. |
-| Down / Enter | Jump to the next match.                  |
-| Up           | Jump to the previous match.              |
-| Esc          | Return to the mode you searched from.    |
-
-The status line shows the `current/total` match count. Search launched from
-`@history` keeps the history list on the left.
-
-### History Mode
-
-Use `@history` (or `@h`) to browse previously run requests. The left pane lists
-cached endpoints; the right pane shows the formatted request/response for the
-selected one, with its duration in the header. See
-[Request History and Cache](#request-history-and-cache) for what gets recorded.
-
-Pass a trace id inline to view only that trace's calls, numbered in order:
-`@h <traceId>` (bare `@h` / `@history` shows all endpoints).
-
-| Key                   | Action                                   |
-| --------------------- | ---------------------------------------- |
-| Shift+Up / Shift+Down | Select an endpoint on the left.          |
-| Up / Down             | Scroll the selected record on the right. |
-| `s`                   | Search the selected record.              |
-| Esc                   | Return to query mode.                    |
-
-### AI Mode
-
-Use `@ai` to chat with a local terminal AI agent (Claude Code, Codex, or Cursor)
-through an ACP adapter. The agent can read, write, and run requests, with the
-results reflected in the Result pane.
-
-On entering `@ai`, if prior sessions exist a **session picker** appears:
-
-| Key   | Action                                  |
-| ----- | --------------------------------------- |
-| ↑ / ↓ | Choose “New session” or a past session. |
-| Enter | Start / resume the selected session.    |
-| Esc   | Cancel back to query mode.              |
-
-In the chat:
-
-| Key                  | Action                                         |
-| -------------------- | ---------------------------------------------- |
-| Type a prompt        | Compose a message.                             |
-| Enter                | Send.                                          |
-| Ctrl+J               | Insert a newline (compose multi-line prompts). |
-| Shift+↑/↓ or Opt+↑/↓ | Move the input cursor between lines.           |
-| Up / Down            | Scroll the transcript (↑ older, ↓ newer).      |
-| `y` / `n`            | Answer a permission request when shown.        |
-| Esc                  | Leave AI mode; the session keeps running.      |
-
-While the agent works, a “_&lt;Agent&gt;_ is thinking…” indicator shows — the
-name follows your `-ai` adapter (e.g. “Codex is thinking…”).
-
-#### Custom AI commands
-
-Define reusable prompts as `custom-ai-commands` in `.r1qconfig.yaml` (see
-[Config](#config)) and invoke them in AI mode by typing `/` followed by the
-command name and arguments:
-
-```text
-/for-test one two three
+header accept, @i(content-type)
+auth bearer @i(token)
 ```
 
-Arguments are positional: `$1`, `$2`, `$3`, ... in the command's `instruction`
-are replaced with the words after the command name. The example above expands an
-`instruction` of `asdgasdfasd $1 asdgasdfasgd $2 asdgasdfg $3` into
-`asdgasdfasd one asdgasdfasgd two asdgasdfg three`, and that expanded text is
-both shown in the chat and sent to the AI. Placeholders without a matching
-argument expand to an empty string, and an unknown `/command` is sent as-is.
+Macros do the wiring: `@i(key)` reads referenced data (with `or` defaults),
+`@env(KEY)` reads environment variables (`.ntd`-only), and `@f(path)` uploads
+files in the body. Joint chain files (`@joint()` + `-> @run(...)` /
+`-> @pick(...)`) run several requests as one traced flow, feeding picked
+response values into later steps. GraphQL fits naturally — keep the operation
+and variables in a `.ntd`, the HTTP request in a `.nts`.
 
-As you type `/`, a suggestion popup lists commands whose name matches what you
-have typed so far. Custom commands work only in AI mode.
+**Full reference — grammar, rules, joint chains, macros, GraphQL, examples:**
+[docs/writing-requests.md](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/writing-requests.md)
 
-| Key       | Action                                                      |
-| --------- | ----------------------------------------------------------- |
-| Up / Down | Move the highlighted command while the popup is visible.    |
-| Tab       | Accept the highlighted command (inserts `/name ` for args). |
-| Enter     | Accept the highlighted command while the popup is visible.  |
+## Config in 60 seconds
 
-## Request History and Cache
-
-`ntee-r1quest` keeps a small local cache under `~/.ntee-r1quest/cache/` so your
-inputs and successful calls persist across sessions. Writes are best-effort and
-never block the app; `@`-mode commands are never cached.
-
-**Input suggestions.** As you type a request path in `@query`, a popup above the
-command line offers prefix matches — current-directory files and folders in
-**yellow**, and previously run inputs from the cache in **green**. Pick one with
-the popup (Up/Down) or the sidebar (Shift+Up/Down); the selection is mirrored
-into the input bar.
-
-**Request history.** Every successful request is recorded by endpoint
-(`/path [method]`, or `Operation [type]` for GraphQL). Browse it in
-[History Mode](#history-mode): the latest request/response for each endpoint,
-formatted with status and duration. A repeat call to the same endpoint replaces
-its previous entry.
-
-**Trace grouping.** Tag one-shot runs with `-ti <id>` (see
-[CLI Reference](#cli-reference)) to record them under a shared trace. In History
-Mode, `@h <id>` lists just that trace's calls **in the order they ran** — handy
-for reviewing a multi-step flow. A [joint chain](#joint-chain-files-jointnts)
-records every step (including intermediates the terminal never displays) under
-its trace id automatically.
-
-**Clearing.** Run `@clean-cache` (or `@cc`) to wipe both input history and
-request history (the cache lives under `~/.ntee-r1quest/cache/`).
-
-## AI Adapter
-
-Choose an AI adapter with `-ai`:
-
-```bash
-npx ntee-r1quest -r ./example/request -ai codex
-```
-
-or:
-
-```bash
-npx ntee-r1quest -r ./example/request -ai claude
-```
-
-or:
-
-```bash
-npx ntee-r1quest -r ./example/request -ai cursor
-```
-
-Supported adapters:
-
-- `codex`
-- `claude` for Claude Code
-- `cursor` for Cursor CLI
-
-The Cursor adapter requires the Cursor CLI `agent` command to be installed and
-authenticated. It starts Cursor as an ACP server with `agent acp`.
-
-If `-ai` is not provided, `ntee-r1quest` reads `.r1qconfig.yaml`. If no adapter
-is declared, `@ai` shows a configuration error instead of choosing one
-implicitly.
-
-### AI Debug Log
-
-For diagnosing AI sessions (for example a "thinking" indicator that seems stuck),
-set the `R1QUEST_ACP_DEBUG` environment variable to record the ACP exchange to a
-file:
-
-```bash
-# Logs to ~/.ntee-r1quest/acp-debug.log
-R1QUEST_ACP_DEBUG=1 r1q -r ./example/request -ai claude
-
-# Or write to a specific path
-R1QUEST_ACP_DEBUG=/tmp/acp.log r1q -r ./example/request -ai claude
-```
-
-Each line is timestamped and records the prompt lifecycle, so you can follow a
-turn end to end:
-
-- `prompt_sent` / `prompt_resolved` (with `stopReason`) / `prompt_failed` — the
-  turn opening and closing.
-- `session_update` — every update the agent streams, with its `kind` and (for
-  tool calls) `title` and `status`.
-- `permission_requested` / `permission_active` / `permission_resolved` — the
-  permission lifecycle.
-
-The log is disabled unless the variable is set, is best-effort, and never affects
-the app. Reproduce the issue, then read the file (for example
-`tail -f ~/.ntee-r1quest/acp-debug.log`).
-
-## Config
-
-Config lookup checks the current directory first:
-
-```text
-./.r1qconfig.yaml
-```
-
-When a request root is resolved, its config is also loaded:
-
-```text
-<request-root>/.r1qconfig.yaml
-```
-
-Then it checks the home config:
-
-```text
-~/.ntee-r1quest/r1qconfig.yaml
-```
-
-`.r1qconfig.yml` is also accepted. `.r1qconfig.json` is not a valid config file
-name.
-
-Example:
+`.r1qconfig.yaml` is looked up in the current directory, the request root, and
+`~/.ntee-r1quest/`; precedence is
+`flags > root config > cwd config > home config`.
 
 ```yaml
 root: ~/example-api-collection
 ai: codex
 sock: /tmp/ntee-r1quest.sock
 custom-suggestions:
-  - some-style-id
   - x-trace-token
 custom-ai-commands:
   - name: for-test
     description: use for testing
-    instruction: asdgasdfasd $1 asdgasdfasgd $2 asdgasdfg $3
+    instruction: run $1 then compare with $2
 ```
 
-### How config sources combine
+`sock` lets one-shot runs hand their results to an open app (which owns the
+history store); `custom-ai-commands` become `/name args` prompts in AI mode.
 
-Up to three config files are read and combined: the request-root directory's
-config, the current directory's config, and the home config. They are not
-deep-merged — each setting is resolved with this precedence (highest first):
+**Full guide — lookup, merging rules, every field, storage (ntee-db):**
+[docs/configuration.md](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/configuration.md)
 
-```text
-command-line flags  >  <request-root>/.r1qconfig.yaml  >  ./.r1qconfig.yaml  >  ~/.ntee-r1quest/r1qconfig.yaml
-```
+## Documentation
 
-(The `root` value itself is resolved from the current directory and home config
-before the request-root config is loaded.)
+| Guide                                                                                                  | Covers                                                             |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| [Terminal app](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/terminal-app.md)         | Modes, full key manual, history & cache, AI chat/adapter/debug log |
+| [Writing requests](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/writing-requests.md) | `.ntd` / `.nts` grammar, joint chains, macros, GraphQL, examples   |
+| [Configuration](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/configuration.md)       | `.r1qconfig.yaml` lookup & merging, `sock`, ntee-db storage        |
+| [Development](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/development.md)           | Architecture, building from source, tests, the R1Quest AI plugin   |
+| [Release notes](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/releases)               | What changed in each version                                       |
 
-How each field combines:
+## Development
 
-- **Scalars** (`root`, `ai`, `sock`) are not merged. The first source that
-  defines a non-empty value wins; later sources are ignored. A command-line flag
-  (`-r`, `-ai`) always overrides config.
-- **`custom-suggestions`** is a **union** of every source, deduplicated. All
-  entries from all configs are offered.
-- **`custom-ai-commands`** is merged **by command name**, and the first
-  occurrence of a name wins. A `for-test` defined in the request-root config
-  therefore shadows a `for-test` of the same name in the home config.
+The UI is a Go / Bubble Tea binary; the TypeScript runtime (parser, cache,
+AI/ACP adapters) runs alongside it, speaking JSON-RPC over a Unix socket.
+`npm run build` produces the full publishable `dist/`; `npm test` and
+`npm run test:tui` run the TypeScript and Go suites. See
+[docs/development.md](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/development.md)
+for the details and the bundled Claude Code / Codex / Cursor plugin.
 
-### Field reference
+## License
 
-`custom-suggestions` adds user-defined editor suggestions for request header
-keys and object body keys.
-
-`custom-ai-commands` defines reusable AI prompts invoked with `/name args` in AI
-mode. Each entry needs a `name` and an `instruction`; `description` is optional
-and shown in the suggestion popup. Positional placeholders (`$1`, `$2`, ...) in
-the `instruction` are filled with the arguments typed after the command name.
-Entries missing a `name` or `instruction` are skipped. See
-[Custom AI commands](#custom-ai-commands).
-
-When `sock` is set, the terminal app listens on that Unix socket for external
-request events. A `-p` execution posts its formatted response to the socket when
-available, so an open terminal app can highlight the matching request and show
-the result. `r1q --init` sets a default socket path under the OS temp directory
-(e.g. `/tmp/ntee-r1quest.sock`).
-
-The event also carries the **full call record**, which matters for history:
-the request history store is **single-writer** — while a terminal app is open
-it holds an exclusive lock, so a one-shot run cannot write history directly.
-Instead, the one-shot hands its call record over the socket and the open app
-(the lock holder) persists it, so history stays complete and the app sees the
-call immediately. The two paths are mutually exclusive by construction:
-
-- **App open + `sock` configured** — the app records the call (and highlights
-  the request). The one-shot's own write is a clean no-op.
-- **No app running** — the one-shot records history directly; the socket post
-  quietly does nothing.
-- **App open but `sock` not configured** — the one-shot's calls are not added
-  to history for that overlap (the store is locked and there is no hand-off
-  channel); everything else works normally. Configure `sock` to avoid this.
-
-## ntee-db
-
-r1quest uses [**ntee-db**](https://github.com/nickooan/ntee-db), an embedded storage engine — a small, fast,
-pure-Go log-structured key–value store with prefix search and secondary indexes,
-including capped, self-evicting retention (`maxPerValue`). It runs in-process (no
-separate database server or daemon), loaded into the Node runtime through a
-native binding, and is the single store behind everything the app persists
-locally:
-
-- **Request history / response cache** — the latest call per endpoint, plus full
-  trace collections (see [Request History and Cache](#request-history-and-cache)).
-- **Input history** — the query/view suggestions offered while typing.
-- **AI sessions** — resumable agent session ids per adapter.
-- **Edit-mode version snapshots** — the coalesced undo/redo timeline (Ctrl+Z /
-  Ctrl+Y), capped at 50 versions per file.
-
-It's tuned for this workload: caller-synchronous appends (so a one-shot CLI run
-persists before it exits), fast prefix/index scans for the History list, and
-automatic per-key retention with no manual cleanup. For the design, the Node
-binding API, and head-to-head benchmarks against `lmdb` and `better-sqlite3`,
-see the [ntee-db repository](https://github.com/nickooan/ntee-db) (npm package [`ntee-db`](https://www.npmjs.com/package/ntee-db)).
-
-## Collection Structure
-
-A request collection usually looks like this:
-
-```text
-my-requests/
-  data/
-    common.ntd
-    auth.ntd
-  files/
-    upload.txt
-  get-user.nts
-  create-user.nts
-  folders/
-    get-posts.nts
-```
-
-- `.nts` files declare executable HTTP requests.
-- `.ntd` files hold reusable data loaded by `ref`.
-- Other files can be used by `@f(path)` for uploads.
-
-## `.ntd` Definition Files
-
-`.ntd` files hold reusable data. `.nts` files load them with `ref` and read
-values with `@i(key)`.
-
-Example:
-
-```ntd
-host: "https://jsonplaceholder.typicode.com"
-path: /todos/1
-content-type: application/json
-token: @env(API_TOKEN)
-enabled: true
-age: 2
-tags: ["api", "example"]
-profile: {
-  name: "r1quest"
-}
-```
-
-Supported value types:
-
-- string
-- number
-- boolean
-- null
-- array
-- object
-- `@env(KEY)` / `@env(KEY or <default>)` environment variable macro — standalone
-  or embedded inside a bare value (e.g. `path: /todos/@env(id or 1)`)
-
-Rules and cautions:
-
-- Wrap URLs in double quotes. Unquoted `http://` or `https://` contains `//`,
-  which starts a comment.
-- Bare values default to strings unless they are `true`, `false`, `null`, or a
-  number.
-- Keys may be bare identifiers such as `content-type`, or quoted strings when
-  needed.
-- `.ntd` files can use `@env(KEY)`, but cannot use `@i(...)` or `@f(...)`.
-- `@env(...)` may stand alone as a value **or** be embedded inside a bare
-  (unquoted) value, where it resolves and is spliced into the surrounding text,
-  e.g. `path: /todos/@env(id or 1)` → `/todos/1`. Embedding works only in bare
-  values — inside a quoted string the `@env(...)` text stays literal.
-- Comments start with `//`.
-
-Good:
-
-```ntd
-host: "https://httpbin.org"
-```
-
-Problematic:
-
-```ntd
-host: https://httpbin.org
-```
-
-## `.nts` Request Files
-
-`.nts` files declare one HTTP request.
-
-Example:
-
-```nts
-ref ../data/example.ntd
-
-url "@i(host)@i(path)"
-type get
-
-header accept, @i(content-type)
-header content-type, @i(content-type)
-```
-
-Supported declarations:
-
-- `ref ./path/to/file.ntd`
-- `url "https://example.com/path"`
-- `type get`
-- `header content-type, application/json`
-- `auth bearer token`
-- `authorization basic token`
-- `body ...`
-
-References must appear before other request statements:
-
-```nts
-ref ../data/example.ntd
-```
-
-The path is resolved relative to the `.nts` file.
-
-URL:
-
-```nts
-url "@i(host)@i(path)"
-```
-
-The URL declaration expects a quoted string. You can interpolate `@i(...)`
-macros inside the string.
-
-Method:
-
-```nts
-type post
-```
-
-Common HTTP methods such as `get`, `post`, `put`, `patch`, and `delete` are
-supported.
-
-Authorization:
-
-```nts
-auth bearer @i(token)
-```
-
-or:
-
-```nts
-authorization basic @i(credentials)
-```
-
-Headers:
-
-```nts
-header accept, application/json
-header content-type, @i(content-type)
-```
-
-Header keys are normalized to lowercase at compile time. Header macro values
-must resolve to primitive values: string, number, boolean, or null.
-
-JSON object body:
-
-```nts
-body {
-  name: "r1quest"
-  enabled: true
-  tags: ["api", "example"]
-}
-```
-
-JSON array body:
-
-```nts
-body [
-  { name: "first" },
-  { name: "second" }
-]
-```
-
-Plain text body:
-
-```nts
-body "plain text body"
-```
-
-Multiline text body:
-
-```nts
-body "line one
-line two
-line three"
-```
-
-Multipart file upload body:
-
-```nts
-ref ../data/example-upload.ntd
-
-url "@i(host)/post"
-type post
-
-header content-type, @i(content-type)
-
-body {
-  name: "r1quest"
-  file: @f(../files/example.txt)
-}
-```
-
-Rules and cautions:
-
-- `ref` paths are resolved relative to the `.nts` file.
-- `@env(...)` cannot be used in `.nts` files — it is a compile error
-  (`Unsupported macro operator: env`). Read env values in a `.ntd` and reference
-  them with `@i(...)`. See [`@env(KEY)`](#envkey).
-- `@f(...)` is only valid inside request body values.
-- `@f(...)` takes a literal file path, not an `@i(...)` macro.
-- File paths in `@f(...)` are resolved relative to the `.nts` file.
-- `@f(...)` cannot be used in headers or authorization.
-- `@f(...)` cannot be used as the entire body by itself.
-- Comments start with `//`.
-
-## Joint Chain Files (`.joint.nts`)
-
-A joint file chains existing `.nts` requests into one run: each step executes
-in order, values picked from a response feed the next request, every call is
-recorded to history under one trace id, and **only the final response is
-printed**. Declaring `@joint(...)` makes the file a chain — it can no longer
-contain `url`, `type`, `header`, `auth`, or `body` statements. The `.joint.nts`
-suffix is a naming convention, not a requirement; any `.nts` file with a
-`@joint(...)` declaration is a chain.
-
-The shipped example (`example/request/queries/query-user-post.joint.nts`):
-
-```nts
-ref ../../data/example.ntd
-
-@joint('example-user-post-chain')
-
--> @pick(content: @i(content-type)) // optional leading pick: context values only
--> @run(query-user)
--> @pick(userId: data.user.id)
--> @run(query-user-posts)
--> @pick(postId: data.user.posts.data[0].id)
--> @run(query-post)
-```
-
-Run it like any one-shot request:
-
-```bash
-r1q -r ./example -p request/queries/query-user-post.joint
-```
-
-The output is the final step's response followed by a summary line with the
-trace id — inspect the whole chain, including intermediate steps, with
-`@h example-user-post-chain` in the terminal app.
-
-**Structure**
-
-- `ref` lines come first, then `@joint(<trace-id>)`, then one or more steps.
-- The trace id may be single- or double-quoted, or omitted: `@joint()`
-  generates one (`joint-<timestamp>-<token>`). The CLI `-ti` flag takes
-  precedence over the declared id.
-- A step is `-> @run(<path>)`, optionally preceded by `-> @pick(...)`. The
-  pick binds to the run that follows it, so a trailing `@pick` with no `@run`
-  is a parse error.
-- `@run` paths resolve relative to the joint file (`.nts` optional), so
-  `@run(query-user)` and `@run(../folder-2/create-post)` both work.
-
-**Picking values**
-
-`@pick(key: <source>, ...)` merges values into the chain env, which later
-steps read through the ordinary `@env(...)` mechanism in their `ref`'d `.ntd`
-files. Two kinds of source:
-
-- a **json path** into the previous step's response body — dot segments plus
-  `[n]` indexes, e.g. `data.user.posts.data[0].id`;
-- an **`@i(key)` macro** (with optional `or` default) reading the joint file's
-  own `ref`'d context.
-
-Values accumulate across steps (a key picked at step 1 is still available at
-step 3); later picks win on duplicate keys, and picked values override
-same-named keys from `-env`. Non-string values are JSON-stringified, matching
-`-env` coercion. The first step's pick runs before any response exists, so it
-may only use `@i(...)` sources.
-
-For the chain above, `example/graphql/query-user-posts.ntd` reads the picked
-value with a default so the request still works standalone:
-
-```ntd
-variables: {
-  id: @env(userId or "1")
-  page: 1
-  limit: 5
-}
-```
-
-**The rule of `@joint`**
-
-Every step must be an `application/json` request returning a JSON response
-(a body-less response such as `204 No Content` is allowed). A joint file
-cannot `@run` another joint file. Violations stop the chain before the
-offending request is sent.
-
-**Failure behavior**
-
-The chain stops at the first failing step — compile error, non-2xx response,
-non-JSON content, or an unresolvable json path. The run prints
-`Joint step N/M (<target>) failed.` plus the failing response or error and
-exits non-zero. Steps that already ran are in history under the trace id.
-
-**Terminal app behavior**
-
-Joint files also run directly inside the terminal app — select or type the
-joint file's path in `@query` mode and press Enter like any request. The
-results pane shows only the final response, with the trace id and a
-`Joint chain: N steps completed` footer; every step is in history under the
-trace id. If a step fails with an HTTP response, that response is shown with a
-`Joint step N/M (<target>) failed.` banner.
-
-When a chain runs from the CLI (`-p`) while the app is open, intermediate
-steps are persisted to history but do not touch the results pane; only the
-chain's final response (or a failing step) is displayed.
-
-## Macros
-
-At a glance — which macro is allowed where:
-
-| Macro       | `.ntd` files | `.nts` files          | Defaults (`or`)   |
-| ----------- | ------------ | --------------------- | ----------------- |
-| `@i(key)`   | ❌ no        | ✅ yes                | ✅ value position |
-| `@env(KEY)` | ✅ yes       | ❌ no (compile error) | ✅ value position |
-| `@f(path)`  | ❌ no        | ✅ body values only   | —                 |
-
-`or` defaults apply in **value position** (body, header, auth, `.ntd` values),
-not inside quoted strings — there, only plain `@i(key)` interpolates.
-
-### `@i(key)`
-
-Reads a value from referenced `.ntd` definition data.
-
-Use it in `.nts` files:
-
-- quoted URL strings
-- authorization credentials
-- header values
-- body values
-- plain text/bare string interpolation
-
-Example:
-
-```ntd
-host: "https://httpbin.org"
-path: /post
-content-type: application/json
-```
-
-```nts
-ref ../data/example.ntd
-
-url "@i(host)@i(path)"
-type post
-
-header content-type, @i(content-type)
-```
-
-`@i(...)` is not supported inside `.ntd` files.
-
-**Defaults.** Use `@i(key or <value>)` to fall back when the key is missing from
-the referenced `.ntd` files. The default must be an immediate string, number, or
-boolean — never another macro:
-
-```nts
-header accept, @i(accept or "application/json")
-
-body {
-  age: @i(age or 20)
-  deleted: @i(deleted or true)
-}
-```
-
-Defaults apply in **value position** (headers, auth, body). They do **not** apply
-inside a quoted string — including the `url` value — where only plain `@i(key)`
-interpolates. Put a macro that needs a default in value position, or resolve it
-in the `.ntd` (e.g. `id: @env(ID or 1)`) and reference it plainly with `@i(id)`.
-
-### `@env(KEY)`
-
-Reads an environment variable.
-
-Use it only in `.ntd` files:
-
-```ntd
-token: @env(API_TOKEN)
-```
-
-Then reference it from `.nts` with `@i(...)`:
-
-```nts
-ref ../data/auth.ntd
-
-url "https://api.example.com/me"
-type get
-
-auth bearer @i(token)
-```
-
-> **`@env` is `.ntd`-only.** Writing `@env(...)` anywhere in a `.nts` file — a
-> value, a header, or inside a string — is a **compile error**
-> (`Unsupported macro operator: env`), not literal text. To use an environment
-> variable in a request, define it in a `.ntd` (as above) and read it with
-> `@i(...)`.
-
-**Defaults.** Use `@env(KEY or <value>)` to fall back when the variable is unset.
-The default must be an immediate string, number, or boolean:
-
-```ntd
-port: @env(PORT or 8080)
-token: @env(API_TOKEN or "dev-token")
-debug: @env(DEBUG or false)
-```
-
-If the variable is unset and there is no default, compilation throws an error.
-To supply values at run time without exporting them, pass
-[`-env`](#cli-reference): `-env '{"API_TOKEN":"abc"}'` (values merge over
-`process.env` and win on duplicate keys).
-
-**Embedding in bare values.** `@env(...)` can also appear **inside** a bare
-(unquoted) value. It resolves and is spliced into the surrounding text, so you
-can build paths and identifiers from environment variables:
-
-```ntd
-path: /todos/@env(TODO_ID or 1)
-path-between: /todos/@env(TODO_ID or 1)/comments
-```
-
-With `TODO_ID` unset these compile to `/todos/1` and `/todos/1/comments`; with
-`TODO_ID=42` they become `/todos/42` and `/todos/42/comments`. A standalone
-`@env(...)` keeps its native type (e.g. a number default stays a number), while
-an embedded one is stringified into the value.
-
-> Embedding works only in **bare** values. Inside a **quoted** string the
-> `@env(...)` text is treated as literal characters — `path: "/todos/@env(id)"`
-> stores `/todos/@env(id)` verbatim. Likewise a literal `@` that is not a valid
-> `@env(...)` macro (e.g. `/users/@me`) is preserved as-is.
-
-### `@f(path)`
-
-Loads a local file as a request body value.
-
-Use it only in `.nts` body values:
-
-```nts
-body {
-  file: @f(../files/example.txt)
-}
-```
-
-For form uploads, set the request content type to multipart form data:
-
-```nts
-header content-type, multipart/form-data
-```
-
-## Examples
-
-Run the bundled examples from this repository:
-
-```bash
-npm install
-npm run build:ts
-npm run start
-```
-
-`npm run start` runs the compiled app with `example/request` as the request root.
-
-Try:
-
-```text
-@query >example
-```
-
-or:
-
-```text
-@query >example-upload
-```
-
-The repo includes JSONPlaceholder examples:
-
-```text
-example/data/example.ntd
-example/data/example-1.ntd
-example/data/example-2.ntd
-example/request/example.nts
-example/request/folder-1/create-post.nts
-example/request/folder-1/get-post.nts
-example/request/folder-2/delete-post.nts
-example/request/folder-2/update-post.nts
-```
-
-It also includes a multipart upload example using httpbin:
-
-```text
-example/data/example-upload.ntd
-example/request/example-upload.nts
-example/files/example.txt
-```
-
-The repo also includes GraphQLZero examples that split GraphQL operation text
-and variables into `.ntd` files, then execute them from resolver `.nts` files:
-
-```text
-example/graphql/query-post.ntd
-example/graphql/query-user.ntd
-example/graphql/query-user-posts.ntd
-example/graphql/query-album-photos.ntd
-example/graphql/mutation-create-post.ntd
-example/request/queries/query-post.nts
-example/request/queries/query-user.nts
-example/request/queries/query-user-posts.nts
-example/request/queries/query-album-photos.nts
-example/request/mutations/mutation-create-post.nts
-```
-
-Try one without opening the terminal UI:
-
-```bash
-r1q -r ./example -p request/queries/query-post.nts
-```
-
-or run the mutation example:
-
-```bash
-r1q -r ./example -p request/mutations/mutation-create-post.nts
-```
-
-## GraphQL Requests
-
-GraphQL requests work well when `.ntd` files hold the operation and variables,
-while `.nts` files hold the HTTP request.
-
-Query definition:
-
-```ntd
-query GetPost($id: ID!) {
-  post(id: $id) {
-    id
-    title
-    body
-  }
-}
-variables: {
-  id: "1"
-}
-```
-
-Mutation definition:
-
-```ntd
-mutation CreatePost($input: CreatePostInput!) {
-  createPost(input: $input) {
-    id
-    title
-  }
-}
-variables: {
-  input: {
-    title: "R1Quest GraphQL example"
-    body: "Created from a GraphQL mutation example."
-  }
-}
-```
-
-Resolver request:
-
-```nts
-ref ../../graphql/query-post.ntd
-
-url "https://graphqlzero.almansi.me/api"
-type post
-
-header accept, application/json
-header content-type, application/json
-
-body {
-  query: @i(query)
-  variables: @i(variables)
-}
-```
-
-For mutations, send the operation with `@i(mutation)`:
-
-```nts
-body {
-  query: @i(mutation)
-  variables: @i(variables)
-}
-```
-
-`.nts` files may reference multiple `.ntd` files. This is useful when shared
-auth, host, or token values already live in another definition file:
-
-```nts
-ref ../../data/auth.ntd
-ref ../../graphql/query-private-user.ntd
-
-url "https://api.example.com/graphql"
-type post
-
-header accept, application/json
-header content-type, application/json
-auth bearer @i(token)
-
-body {
-  query: @i(query)
-  variables: @i(variables)
-}
-```
-
-When multiple refs define the same key, later refs overwrite earlier refs.
-
-## Local CLI and Development
-
-Install the published package globally:
-
-```bash
-npm install -g ntee-r1quest
-```
-
-The package name is `ntee-r1quest`, and the CLI command is `r1q`:
-
-```bash
-r1q -r ./example/request
-```
-
-Choose an AI adapter with:
-
-```bash
-r1q -r ./example/request -ai claude
-```
-
-### How it runs
-
-The terminal UI is a **Go / Bubble Tea** binary; the **TypeScript runtime**
-(parser, cache, AI/ACP adapters) runs as a separate process and the two speak
-JSON-RPC over a per-run Unix-domain socket. The `r1q` entry point handles
-one-shot flags (`--version`, `--init`, `-p`, `--install-claude-plugin`) in
-TypeScript, then launches the Go binary for the interactive session. The Go
-binary is the only interactive UI; on a platform it isn't built for, use one-shot
-mode (`-p`) — there is no longer a fallback UI.
-
-### Building from source
-
-```bash
-npm install
-npm run build           # TypeScript runtime + cross-compiled Go binaries → dist/
-npm link
-r1q -r ./example/request
-```
-
-Build scripts:
-
-| Script              | Builds                                                             |
-| ------------------- | ------------------------------------------------------------------ |
-| `npm run build:ts`  | TypeScript runtime + assets → `dist/` (no Go binary).              |
-| `npm run build:tui` | Cross-compiled `dist/bin/r1q-tui-<os>-<arch>` for each platform.   |
-| `npm run build`     | `build:ts` + `build:tui` (the full publishable `dist/`).           |
-| `npm run start:go`  | Build everything and run the Go UI against the example collection. |
-
-Building the Go binaries requires the Go toolchain (1.24+); macOS and Linux on
-`amd64`/`arm64` are shipped. Run the test suites with `npm test` (TypeScript),
-`npm run test:tui` (Go), and `npm run test:tui-int` (cross-language socket
-integration).
-
-## R1Quest AI Plugin
-
-This repo includes a local Claude Code marketplace containing the R1Quest AI
-plugin. The plugin provides skills for generating, understanding, running, and
-editing `ntee-r1quest` projects.
-
-Available skills:
-
-- `openapi-r1quest-generator`: Generate request projects from Swagger/OpenAPI
-  v3 YAML or JSON files.
-- `r1quest-language-runtime`: Understand `.ntd` and `.nts` syntax, macros
-  (including `or` defaults), request keywords, config behavior, and one-shot
-  `-p` / `-env` / `-ti` execution.
-- `r1quest-one-shot-runner`: Locate and run named requests — a single request,
-  or an ordered task where earlier responses feed later ones via `-env` and a
-  shared `-ti` trace id.
-- `r1quest-project-editor`: Scan and safely update an existing request root.
-- `r1quest-graphql-generator`: Generate GraphQL query and mutation examples.
-- `graphql-schema-r1quest-generator`: Generate a GraphQL request project from a
-  GraphQL schema or introspection JSON file.
-
-The Claude plugin uses a marketplace root with the plugin stored under
-`plugin/`:
-
-```text
-skills/r1quest-ai-plugin/             # marketplace root
-  .claude-plugin/
-    marketplace.json
-  plugin/
-    .claude-plugin/
-      plugin.json
-    skills/
-      openapi-r1quest-generator/
-      r1quest-language-runtime/
-      r1quest-one-shot-runner/
-      r1quest-project-editor/
-      r1quest-graphql-generator/
-      graphql-schema-r1quest-generator/
-```
-
-The plugin marketplace is bundled with the package (under `dist/`), so the
-simplest install is:
-
-```bash
-r1q --install-claude-plugin
-```
-
-This registers the bundled marketplace and installs the plugin into Claude Code
-via the `claude` CLI (Claude Code must be installed). Equivalently, add the
-marketplace and install it by hand from a source checkout:
-
-```bash
-/plugin marketplace add ./skills/r1quest-ai-plugin
-/plugin install r1quest-ai-plugin@r1quest-ai
-```
-
-The installed skills appear under the plugin namespace.
-
-To use individual skills with Codex, import them from the plugin's `skills`
-directory:
-
-```bash
-mkdir -p ~/.codex/skills
-cp -R skills/r1quest-ai-plugin/plugin/skills/* ~/.codex/skills/
-```
-
-Or with `CODEX_HOME`:
-
-```bash
-mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-cp -R skills/r1quest-ai-plugin/plugin/skills/* "${CODEX_HOME:-$HOME/.codex}/skills/"
-```
-
-To use individual skills globally with Cursor CLI:
-
-```bash
-mkdir -p ~/.cursor/skills
-cp -R skills/r1quest-ai-plugin/plugin/skills/* ~/.cursor/skills/
-```
-
-Or install them only for the current project:
-
-```bash
-mkdir -p .cursor/skills
-cp -R skills/r1quest-ai-plugin/plugin/skills/* .cursor/skills/
-```
-
-Once installed, ask Claude Code, Codex, or Cursor to generate requests from
-OpenAPI, generate requests from a GraphQL schema, explain `.ntd`/`.nts` syntax,
-run one-shot `-p` requests, or update files in an existing request root.
+See [LICENSE](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/LICENSE).

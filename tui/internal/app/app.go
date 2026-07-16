@@ -26,11 +26,8 @@ import (
 
 const executeTimeout = 60 * time.Second
 
-// "AI is thinking" indicator pacing (mirrors ai-controller.ts).
-const (
-	aiThinkingTick  = 500 * time.Millisecond
-	aiThinkingQuiet = 3 * time.Second
-)
+// aiThinkingTick paces the "AI is thinking" animation frames.
+const aiThinkingTick = 500 * time.Millisecond
 
 type mode int
 
@@ -57,7 +54,7 @@ type runtimeClient interface {
 	SnapshotList(ctx context.Context, path string, limit int) ([]runtime.SnapshotMeta, error)
 	SnapshotDelete(seqs []int64) error
 	AiStart(ctx context.Context, req runtime.AiStartRequest) error
-	AiPrompt(ctx context.Context, text string) error
+	AiPrompt(ctx context.Context, text string, refs []runtime.AiPromptFileRef) error
 	AiRespondPermission(ctx context.Context, decision runtime.AiPermissionDecision) error
 	AiStop() error
 }
@@ -84,11 +81,19 @@ type aiSessionsLoadedMsg struct {
 
 // AI messages — sent from the supervisor's event handlers (main) into the
 // program, so they are exported.
-type AiStartedMsg struct{ Resumed bool }
+type AiStartedMsg struct {
+	Resumed          bool
+	SupportsSteering bool
+}
 type AiStoppedMsg struct{ Err error }
 type AiErrorMsg struct{ Err error }
 type AiUpdateMsg struct{ Update json.RawMessage }
 type AiPermissionMsg struct{ Raw json.RawMessage }
+
+// AiTurnDoneMsg fires when the ai/prompt request resolves — the ACP turn
+// completed. ID is the turn it belongs to, so a late completion can't clear a
+// turn the user has since restarted.
+type AiTurnDoneMsg struct{ ID int }
 
 // ExternalEventMsg is sent by the supervisor when another r1q run posts a result.
 type ExternalEventMsg struct{ Event runtime.ExternalRequestEvent }
@@ -194,16 +199,32 @@ type Model struct {
 	aiScrollY      int
 	aiPermission   *view.Permission
 
-	// "thinking" indicator state. A turn is pending from prompt-send; the
-	// indicator is on until a reply has streamed, all tool calls finish, and the
-	// quiet window passes (mirrors shouldShowAiThinking). aiTicking guards against
-	// scheduling duplicate timers.
+	// #reference pills: a standalone #keyword fuzzy-searches the request root
+	// (dirs + .nts + .ntd); accepting a match replaces it with a "[label]" pill
+	// that expands to its absolute path when the prompt is sent.
+	aiRefs            map[string]string // "[label]" → absolute path
+	aiRefSuggestIndex int
+	aiRefDismissed    string // exact "#token" dismissed via Esc; editing it re-enables
+
+	// "thinking" indicator state. A turn is pending from prompt-send until the
+	// ai/prompt request resolves (the ACP turn completes with a stop reason),
+	// errors, or the session stops. The indicator stays on for the whole turn —
+	// gaps in streaming no longer switch it off early. aiTurnID tags the active
+	// turn so a stale AiTurnDoneMsg can't clear a newer one; aiTicking guards
+	// against scheduling duplicate animation timers.
 	aiPending       bool
-	aiHasStreamed   bool
-	aiLastActivity  time.Time
+	aiTurnID        int
 	aiTools         map[string]bool
 	aiTicking       bool
 	aiThinkingFrame int
+
+	// Mid-turn messages. aiSteering: the adapter accepts ai/prompt while a turn
+	// runs (Claude) — Enter mid-turn sends immediately, injected into the live
+	// turn. Otherwise Enter mid-turn appends to aiQueue (entries already
+	// translated, pills → refs), drained into ONE merged follow-up turn on
+	// AiTurnDoneMsg and dropped on error/stop/reload.
+	aiSteering bool
+	aiQueue    []translation
 
 	// Session picker shown on the first @ai when past sessions exist. Row 0 is
 	// "New session"; rows below resume aiPickerSessions[index-1] (newest-first).
@@ -329,12 +350,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.aiScrollY = 0
 		m.aiPermission = nil
 		m.aiPending = false
-		m.aiHasStreamed = false
 		m.aiTools = nil
 		m.aiTicking = false
+		m.aiSteering = false
+		m.aiQueue = nil
 		m.aiPicking = false
 		m.aiPickerSessions = nil
 		m.aiPickerIndex = 0
+		m.clearAiRefs()
 		m.notice = "reloaded"
 		m.refreshResponseScrollLimits()
 		if wasAiActive {
@@ -376,6 +399,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case AiStartedMsg:
 		m.aiActive = true
 		m.aiOffline = false
+		m.aiSteering = msg.SupportsSteering
 		// On resume the past conversation is replayed as sessionUpdate events;
 		// drop a divider after it so new turns are distinguishable from history.
 		if msg.Resumed {
@@ -390,6 +414,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.aiOffline = true
 		m.aiPending = false
 		m.aiThinking = false
+		m.aiSteering = false
+		m.aiQueue = nil
+		m.clearAiRefs()
 		if msg.Err != nil {
 			m.errText = msg.Err.Error()
 		}
@@ -399,17 +426,50 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.aiPending = false
 		m.aiThinking = false
 		m.errText = msg.Err.Error()
+		if len(m.aiQueue) > 0 {
+			m.aiQueue = nil
+			m.errText += " (queued messages dropped)"
+		}
 		return m, nil
 
 	case AiUpdateMsg:
 		m.aiMessages = view.AppendACPResponse(m.aiMessages, msg.Update)
-		// Activity keeps the thinking indicator alive for this turn.
-		m.aiHasStreamed = true
-		m.aiLastActivity = time.Now()
 		m.trackToolStatus(msg.Update)
 		m.aiThinking = m.computeThinking()
 		m.aiScrollY = 0
 		return m, m.startThinkingTick()
+
+	case AiTurnDoneMsg:
+		// The ACP turn finished. Ignore a stale completion from a turn the user
+		// already superseded (aiTurnID advanced on the newer send).
+		if msg.ID != m.aiTurnID {
+			return m, nil
+		}
+		if len(m.aiQueue) > 0 {
+			// Deliver the tips queued mid-turn as ONE merged follow-up turn (they
+			// enter the transcript now — at actual send time). Mode-independent:
+			// the session keeps running even if the user left AI mode.
+			var sends []string
+			var refs []runtime.AiPromptFileRef
+			seen := map[string]bool{}
+			for _, q := range m.aiQueue {
+				m.aiMessages = append(m.aiMessages, view.ChatMessage{Role: "user", Content: q.Display})
+				sends = append(sends, q.Send)
+				for _, r := range q.Refs {
+					if !seen[r.Path] {
+						seen[r.Path] = true
+						refs = append(refs, r)
+					}
+				}
+			}
+			m.aiQueue = nil
+			m.aiTurnID++
+			return m, aiPromptCmd(m.client, strings.Join(sends, "\n\n"), refs, m.aiTurnID)
+		}
+		m.aiPending = false
+		m.aiThinking = false
+		m.aiTicking = false
+		return m, nil
 
 	case aiThinkingTickMsg:
 		m.aiThinkingFrame++
@@ -844,7 +904,8 @@ func (m Model) queryInputSuggestions(entries []filetree.FileTreeEntry) []filetre
 	if m.cachedInputsPrefix == m.command {
 		cached = m.cachedInputs
 	}
-	return filetree.BuildInputSuggestions(entries, m.command, cached, filetree.MaxInputSuggestions)
+	allEntries := filetree.BuildAllEntries(m.config.Root)
+	return filetree.BuildInputSuggestions(entries, allEntries, m.command, cached, filetree.MaxInputSuggestions)
 }
 
 func suggestInputsCmd(client runtimeClient, prefix string) tea.Cmd {
@@ -1395,20 +1456,41 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.aiSuggestIndex = 0
 	}
 
+	// `#keyword` reference popup; takes precedence over the slash popup.
+	ref, refOpen := m.activeAiRef()
+	if m.aiRefSuggestIndex >= len(ref.matches) {
+		m.aiRefSuggestIndex = 0
+	}
+
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 	case tea.KeyEsc:
+		// Decline promoting the #token to a reference: the text stays literal
+		// and the popup stays closed for this token until it is edited.
+		if refOpen {
+			m.aiRefDismissed = ref.token
+			m.aiRefSuggestIndex = 0
+			return m, nil
+		}
 		m.mode = modeQuery // the session keeps running in the runtime
 		return m, nil
 	case tea.KeyTab:
+		if refOpen {
+			m.acceptAiRef(ref)
+			return m, nil
+		}
 		// Accept the highlighted `/command` (inserts `/name ` ready for args).
 		if slashOpen {
 			m.acceptSlashCommand(slashMatches)
 		}
 		return m, nil
 	case tea.KeyEnter:
-		// Accept the highlighted `/command` instead of sending.
+		// Accept the highlighted reference / `/command` instead of sending.
+		if refOpen {
+			m.acceptAiRef(ref)
+			return m, nil
+		}
 		if slashOpen {
 			m.acceptSlashCommand(slashMatches)
 			return m, nil
@@ -1424,31 +1506,44 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.aiInputCursor = 0
 			return m.handleAppCommand(text)
 		}
-		// A `/name args` custom command expands to its configured instruction; the
-		// expanded text is both shown in the chat and sent to the agent.
-		prompt := text
-		if resolved, ok := command.ResolveCustomCommandPrompt(m.config.CustomCommands, text); ok {
-			prompt = resolved
-		}
-		m.aiMessages = append(m.aiMessages, view.ChatMessage{Role: "user", Content: prompt})
+		// Run the input through the prompt pipeline (custom-command expansion,
+		// reference-pill expansion, …): the transcript shows Display, the agent
+		// receives Send.
+		t := m.translateAiInput(text)
 		m.aiInput = ""
 		m.aiInputCursor = 0
+		m.clearAiRefs()
+		if m.aiPending {
+			if m.aiSteering {
+				// True steering (Claude): inject into the live turn now. The
+				// superseded prompt request resolves end_turn with a stale ID,
+				// which the AiTurnDoneMsg guard ignores.
+				m.aiMessages = append(m.aiMessages, view.ChatMessage{Role: "user", Content: t.Display})
+				m.aiScrollY = 0
+				m.aiTurnID++
+				return m, aiPromptCmd(m.client, t.Send, t.Refs, m.aiTurnID)
+			}
+			// Queue: delivered as a follow-up turn when the current one completes.
+			m.aiQueue = append(m.aiQueue, t)
+			return m, nil
+		}
+		m.aiMessages = append(m.aiMessages, view.ChatMessage{Role: "user", Content: t.Display})
 		m.aiScrollY = 0
-		// Begin a pending turn: show "thinking" right away. The animation ticker is
-		// started by the first streamed update (startThinkingTick); until then the
-		// indicator shows statically so the user always sees that work is happening.
+		// Begin a pending turn: show "thinking" right away. It stays on until the
+		// turn completes (AiTurnDoneMsg), errors, or the session stops — the
+		// animation ticker starts on the first streamed chunk.
 		m.aiPending = true
-		m.aiHasStreamed = false
-		m.aiLastActivity = time.Now()
+		m.aiTurnID++
 		m.aiTools = map[string]bool{}
 		m.aiThinking = true
-		return m, aiPromptCmd(m.client, prompt)
+		return m, aiPromptCmd(m.client, t.Send, t.Refs, m.aiTurnID)
 	case tea.KeyBackspace:
 		next, cursor, ok := input.RemoveBeforeCursor(m.aiInput, m.aiInputCursor)
 		if ok {
 			m.aiInput = next
 			m.aiInputCursor = cursor
 			m.aiSuggestIndex = 0
+			m.aiRefSuggestIndex = 0
 		}
 		return m, nil
 	case tea.KeyLeft:
@@ -1458,7 +1553,13 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.aiInputCursor = input.MoveCursor(m.aiInput, m.aiInputCursor, 1)
 		return m, nil
 	case tea.KeyUp:
-		// Navigate the `/command` popup when open, else scroll older messages.
+		// Navigate the reference / `/command` popup when open, else scroll
+		// older messages.
+		if refOpen {
+			n := len(ref.matches)
+			m.aiRefSuggestIndex = (m.aiRefSuggestIndex - 1 + n) % n
+			return m, nil
+		}
 		if slashOpen {
 			n := len(slashMatches)
 			m.aiSuggestIndex = (m.aiSuggestIndex - 1 + n) % n
@@ -1467,6 +1568,10 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.aiScrollY++
 		return m, nil
 	case tea.KeyDown:
+		if refOpen {
+			m.aiRefSuggestIndex = (m.aiRefSuggestIndex + 1) % len(ref.matches)
+			return m, nil
+		}
 		if slashOpen {
 			m.aiSuggestIndex = (m.aiSuggestIndex + 1) % len(slashMatches)
 			return m, nil
@@ -1482,6 +1587,7 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.aiInput, m.aiInputCursor = input.InsertAtCursor(m.aiInput, m.aiInputCursor, text)
 		m.aiSuggestIndex = 0
+		m.aiRefSuggestIndex = 0
 		return m, nil
 	}
 	return m, nil
@@ -1546,20 +1652,14 @@ func reverseSessions(sessions []runtime.AiSessionRecord) []runtime.AiSessionReco
 	return out
 }
 
-// computeThinking decides whether the "AI is thinking" indicator is on for the
-// current turn (mirrors shouldShowAiThinking): busy until a reply has streamed,
-// while any tool call runs, and within the quiet window after the last activity.
+// computeThinking decides whether the "AI is thinking" indicator is on. A turn
+// is pending from prompt-send until the ai/prompt request resolves (turn
+// complete), errors, or the session stops — so the indicator is simply on for
+// the whole turn. This replaces the old streamed/quiet-window heuristic, which
+// switched off during long gaps between streamed chunks even though the agent
+// had not finished responding.
 func (m Model) computeThinking() bool {
-	if !m.aiPending {
-		return false
-	}
-	if !m.aiHasStreamed {
-		return true
-	}
-	if len(m.aiTools) > 0 {
-		return true
-	}
-	return time.Since(m.aiLastActivity) < aiThinkingQuiet
+	return m.aiPending
 }
 
 // trackToolStatus keeps the set of in-progress tool calls current so a long
@@ -1603,14 +1703,15 @@ func aiThinkingTickCmd() tea.Cmd {
 	return tea.Tick(aiThinkingTick, func(time.Time) tea.Msg { return aiThinkingTickMsg{} })
 }
 
-func aiPromptCmd(client runtimeClient, text string) tea.Cmd {
+func aiPromptCmd(client runtimeClient, text string, refs []runtime.AiPromptFileRef, turnID int) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := client.AiPrompt(ctx, text); err != nil {
+		// No deadline: the request resolves when the ACP turn completes, which is
+		// unbounded (agentic runs can take minutes). A stuck turn is cleared by the
+		// session stopping/erroring or the user leaving AI mode.
+		if err := client.AiPrompt(context.Background(), text, refs); err != nil {
 			return AiErrorMsg{Err: err}
 		}
-		return nil
+		return AiTurnDoneMsg{ID: turnID}
 	}
 }
 

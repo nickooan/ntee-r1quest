@@ -122,8 +122,8 @@ func (c *Client) AiStart(ctx context.Context, req AiStartRequest) error {
 	return err
 }
 
-func (c *Client) AiPrompt(ctx context.Context, text string) error {
-	_, err := c.conn.Request(ctx, MethodAiPrompt, map[string]string{"text": text})
+func (c *Client) AiPrompt(ctx context.Context, text string, refs []AiPromptFileRef) error {
+	_, err := c.conn.Request(ctx, MethodAiPrompt, map[string]any{"text": text, "refs": refs})
 	return err
 }
 
