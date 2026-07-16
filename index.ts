@@ -144,6 +144,11 @@ const runPathArgument = async (
       process.stdout.write(
         `\nJoint chain: ${result.stepCount} steps completed, trace ${result.traceId} — search history with @h ${result.traceId}\n`,
       )
+    } else {
+      // Terminate the one-shot output so the shell prompt starts on a fresh
+      // line (the body ends with "}" and no newline). CLI-only: the content
+      // handed to an open app via postToOpenApp is unchanged.
+      process.stdout.write("\n")
     }
 
     await postToOpenApp(
