@@ -130,7 +130,7 @@ func (m Model) renderStatusLine() string {
 			return promptStyle.Render("@ai") + " resume session   ↑/↓ choose · enter confirm · esc cancel"
 		}
 		if m.aiPermission != nil {
-			return promptStyle.Render("Permission:") + " " + m.aiPermission.Title + "   [y] allow · [n] reject"
+			return m.renderPermissionBanner()
 		}
 		// Input on the top row, key hints on a faint row beneath it (the AI
 		// layout accounts for the extra line via the status line's height).
@@ -151,6 +151,20 @@ func (m Model) renderStatusLine() string {
 		// crowds what the user is typing.
 		return withNotice(line, m.notice) + "\n" + gutterStyle.Render(modeSwitchHint(m.mode))
 	}
+}
+
+// renderPermissionBanner renders a pending tool-permission request as a loud
+// three-row banner (terminals can't scale fonts, so prominence comes from a
+// highlighted badge, bold title, and colored actions): a black-on-yellow
+// "PERMISSION REQUEST" badge, the requested action in bold, and green
+// [y] allow / red [n] reject.
+func (m Model) renderPermissionBanner() string {
+	width := max(1, m.width)
+	badge := permissionBadgeStyle.Render(" ⚠ PERMISSION REQUEST ")
+	title := permissionTitleStyle.Render(truncateRunes(" "+m.aiPermission.Title, width))
+	actions := " " + permissionAllowStyle.Render("[y] allow") +
+		gutterStyle.Render("  ·  ") + permissionRejectStyle.Render("[n] reject")
+	return badge + "\n" + title + "\n" + actions
 }
 
 // modeSwitchHint is a compact "shift+tab → <next mode>" hint so the Shift+Tab
@@ -393,6 +407,11 @@ func (m Model) renderResponse(width, height int) string {
 // so the key handler can clamp scroll against the real content size.
 func (m Model) responseViewportDims() (int, int) {
 	bodyHeight := max(3, m.height-4)
+	// Mirror View: the status line can span multiple rows (query mode adds a
+	// hint row beneath the input) and the body shrinks by those extra rows.
+	// Without this the scroll clamp is computed against a pane one row taller
+	// than what is rendered, leaving the last line(s) unreachable.
+	bodyHeight = max(3, bodyHeight-strings.Count(m.renderStatusLine(), "\n"))
 	sidebarWidth := input.Clamp(m.width/4, 14, max(14, m.width-24))
 	mainWidth := max(3, m.width-sidebarWidth-1)
 	return mainWidth - 4, bodyHeight - 2
@@ -984,4 +1003,11 @@ var (
 	sessionHintStyle     = lipgloss.NewStyle().Faint(true)
 	sessionSelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Background(lipgloss.Color("22")).Bold(true)
 	overlayHintStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
+
+	// Tool-permission banner: black-on-yellow badge, bold title, green allow /
+	// red reject actions.
+	permissionBadgeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("11")).Bold(true)
+	permissionTitleStyle  = lipgloss.NewStyle().Bold(true)
+	permissionAllowStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true)
+	permissionRejectStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
 )

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1783,5 +1784,62 @@ func TestAIErrorDropsQueue(t *testing.T) {
 	}
 	if len(fake.aiPrompts) != 1 {
 		t.Fatalf("no ghost sends after error: %v", fake.aiPrompts)
+	}
+}
+
+func TestPermissionBannerIsProminent(t *testing.T) {
+	m := New(&fakeClient{}, runtime.ConfigDTO{AIAdaptor: "claude"})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.mode = modeAI
+	m.aiActive = true
+
+	m, _ = apply(m, AiPermissionMsg{Raw: json.RawMessage(`{"toolCall":{"title":"curl -s https://example.com"},"options":[{"optionId":"a1","kind":"allow_once"},{"optionId":"r1","kind":"reject_once"}]}`)})
+	if m.aiPermission == nil {
+		t.Fatal("permission should be pending")
+	}
+	got := m.View()
+	for _, want := range []string{"PERMISSION REQUEST", "curl -s https://example.com", "[y] allow", "[n] reject"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("banner missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestQueryScrollReachesResponseBottom(t *testing.T) {
+	m := New(&fakeClient{}, runtime.ConfigDTO{})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 120, Height: 20})
+
+	// A response tall enough to need scrolling, ending in a closing brace.
+	res := runtime.ExecuteResult{Status: 200, StatusText: "OK"}
+	body := "{\n"
+	for i := 0; i < 40; i++ {
+		body += fmt.Sprintf("  \"k%d\": %d,\n", i, i)
+	}
+	body += "  \"last\": true\n}"
+	res.Body = json.RawMessage(body)
+	m.response = &res
+	m.refreshResponseScrollLimits()
+
+	// Scroll to the clamp limit, exactly as the ↓ key does.
+	for i := 0; i < m.lastMaxScrollY+5; i++ {
+		m, _ = apply(m, tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if m.scrollY != m.lastMaxScrollY {
+		t.Fatalf("scroll should stop at the limit; scrollY=%d max=%d", m.scrollY, m.lastMaxScrollY)
+	}
+
+	// The very last content line must be visible at max scroll — the clamp must
+	// match the height the pane is actually rendered with (View subtracts the
+	// query hint row from the body; the clamp math must too).
+	width, height := m.responseViewportDims()
+	content := m.responseContent(width)
+	lines := strings.Split(content, "\n")
+	lastLine := strings.TrimSpace(lines[len(lines)-1])
+	visible := m.renderResponse(width, height)
+	if !strings.Contains(visible, lastLine) {
+		t.Fatalf("last content line %q not reachable at max scroll:\n%s", lastLine, visible)
+	}
+	if !strings.Contains(m.View(), lastLine) {
+		t.Fatalf("full View at max scroll should show the last line %q", lastLine)
 	}
 }
