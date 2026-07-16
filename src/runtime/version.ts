@@ -1,2 +1,2 @@
 export const APP_NAME = "ntee-r1quest"
-export const VERSION = "0.20.1"
+export const VERSION = "0.21.0"
