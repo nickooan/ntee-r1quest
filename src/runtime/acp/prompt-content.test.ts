@@ -3,7 +3,9 @@ import { buildPromptContent } from "./prompt-content.ts"
 
 describe("buildPromptContent", () => {
   test("text only when there are no refs", () => {
-    expect(buildPromptContent("hello")).toEqual([{ type: "text", text: "hello" }])
+    expect(buildPromptContent("hello")).toEqual([
+      { type: "text", text: "hello" },
+    ])
     expect(buildPromptContent("hello", [])).toEqual([
       { type: "text", text: "hello" },
     ])
