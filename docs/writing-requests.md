@@ -87,14 +87,14 @@ header content-type, @i(content-type)
 
 Supported declarations:
 
-| Declaration                            | Notes                                                                                       |
-| -------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `ref ./path/to/file.ntd`               | Must appear before other statements; path relative to the `.nts` file. Multiple refs allowed. |
-| `url "https://example.com/path"`       | Quoted string; `@i(...)` interpolates inside it.                                            |
-| `type get`                             | HTTP method: `get`, `post`, `put`, `patch`, `delete`, …                                     |
-| `header content-type, application/json`| Keys normalized to lowercase; macro values must resolve to primitives.                      |
-| `auth bearer <token>`                  | Or `authorization basic <credentials>`.                                                     |
-| `body ...`                             | JSON object/array, plain or multiline text, or multipart (below).                           |
+| Declaration                             | Notes                                                                                         |
+| --------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `ref ./path/to/file.ntd`                | Must appear before other statements; path relative to the `.nts` file. Multiple refs allowed. |
+| `url "https://example.com/path"`        | Quoted string; `@i(...)` interpolates inside it.                                              |
+| `type get`                              | HTTP method: `get`, `post`, `put`, `patch`, `delete`, …                                       |
+| `header content-type, application/json` | Keys normalized to lowercase; macro values must resolve to primitives.                        |
+| `auth bearer <token>`                   | Or `authorization basic <credentials>`.                                                       |
+| `body ...`                              | JSON object/array, plain or multiline text, or multipart (below).                             |
 
 Body forms:
 

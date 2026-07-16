@@ -115,7 +115,7 @@ Edit the open file in place. (The Go front-end is the sole writer of
 `.nts`/`.ntd` files; the runtime only reads them.)
 
 | Key             | Action                                                                                                                                                                                                                                 |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Type text       | Insert at the cursor (replaces the current selection, if any).                                                                                                                                                                         |
 | Enter           | Insert a newline.                                                                                                                                                                                                                      |
 | Left / Right    | Move the cursor; a long line scrolls horizontally to keep the cursor in view.                                                                                                                                                          |
@@ -207,15 +207,15 @@ On entering `@ai`, if prior sessions exist a **session picker** appears:
 
 In the chat:
 
-| Key                  | Action                                         |
-| -------------------- | ---------------------------------------------- |
-| Type a prompt        | Compose a message.                             |
-| `#keyword`           | Reference a file — see below.                  |
-| Enter                | Send (or accept the open suggestion popup).    |
-| Ctrl+J               | Insert a newline (compose multi-line prompts). |
-| Shift+↑/↓ or Opt+↑/↓ | Move the input cursor between lines.           |
-| Up / Down            | Scroll the transcript (↑ older, ↓ newer).      |
-| `y` / `n`            | Answer a permission request when shown.        |
+| Key                  | Action                                                                  |
+| -------------------- | ----------------------------------------------------------------------- |
+| Type a prompt        | Compose a message.                                                      |
+| `#keyword`           | Reference a file — see below.                                           |
+| Enter                | Send (or accept the open suggestion popup).                             |
+| Ctrl+J               | Insert a newline (compose multi-line prompts).                          |
+| Shift+↑/↓ or Opt+↑/↓ | Move the input cursor between lines.                                    |
+| Up / Down            | Scroll the transcript (↑ older, ↓ newer).                               |
+| `y` / `n`            | Answer a permission request when shown.                                 |
 | Esc                  | Dismiss the open popup, else leave AI mode (the session keeps running). |
 
 While the agent works, a "_&lt;Agent&gt;_ is thinking…" indicator shows — the

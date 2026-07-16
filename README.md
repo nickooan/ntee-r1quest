@@ -196,13 +196,13 @@ history store); `custom-ai-commands` become `/name args` prompts in AI mode.
 
 ## Documentation
 
-| Guide                                                                                                                | Covers                                                             |
-| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| [Terminal app](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/terminal-app.md)                       | Modes, full key manual, history & cache, AI chat/adapter/debug log |
-| [Writing requests](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/writing-requests.md)               | `.ntd` / `.nts` grammar, joint chains, macros, GraphQL, examples   |
-| [Configuration](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/configuration.md)                     | `.r1qconfig.yaml` lookup & merging, `sock`, ntee-db storage        |
-| [Development](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/development.md)                         | Architecture, building from source, tests, the R1Quest AI plugin   |
-| [Release notes](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/releases)                             | What changed in each version                                       |
+| Guide                                                                                                  | Covers                                                             |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| [Terminal app](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/terminal-app.md)         | Modes, full key manual, history & cache, AI chat/adapter/debug log |
+| [Writing requests](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/writing-requests.md) | `.ntd` / `.nts` grammar, joint chains, macros, GraphQL, examples   |
+| [Configuration](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/configuration.md)       | `.r1qconfig.yaml` lookup & merging, `sock`, ntee-db storage        |
+| [Development](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/development.md)           | Architecture, building from source, tests, the R1Quest AI plugin   |
+| [Release notes](https://codeberg.org/nickoan/ntee-r1quest/src/branch/main/docs/releases)               | What changed in each version                                       |
 
 ## Development
 
