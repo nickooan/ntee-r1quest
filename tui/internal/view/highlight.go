@@ -358,11 +358,14 @@ func highlightString(token string) []HighlightSegment {
 	return segments
 }
 
-// HighlightLine renders a line of r1quest (default) or graphql into colored
-// segments. Mirrors highlightLine.
+// HighlightLine renders a line of r1quest (default), graphql, or a formatted
+// response ("response") into colored segments. Mirrors highlightLine.
 func HighlightLine(line, language string) []HighlightSegment {
 	if language == "graphql" {
 		return highlightGraphqlLine(line)
+	}
+	if language == "response" {
+		return highlightResponseLine(line)
 	}
 
 	var segments []HighlightSegment

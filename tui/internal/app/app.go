@@ -912,7 +912,7 @@ func suggestInputsCmd(client runtimeClient, prefix string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		inputs, err := client.SuggestInputs(ctx, prefix, filetree.MaxInputSuggestions)
+		inputs, err := client.SuggestInputs(ctx, prefix, filetree.MaxCachedInputSuggestions)
 		if err != nil {
 			return cachedInputsMsg{prefix: prefix, inputs: nil}
 		}

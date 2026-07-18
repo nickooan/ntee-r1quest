@@ -16,8 +16,15 @@ type InputSuggestion struct {
 	Entry      FileTreeEntry
 }
 
-// MaxInputSuggestions caps the popup, matching the TS default.
-const MaxInputSuggestions = 8
+// MaxInputSuggestions caps the suggestion list. Deliberately large: the popup
+// renders a small window around the selection, and ↑/↓ must be able to walk
+// through every match (e.g. all files of a typed directory), not just the
+// first screenful.
+const MaxInputSuggestions = 200
+
+// MaxCachedInputSuggestions caps the typed-history suggestions requested from
+// the runtime (the old popup-sized limit).
+const MaxCachedInputSuggestions = 8
 
 // BuildInputSuggestions returns entries matching the typed command, ranked
 // exact > prefix > substring > subsequence, then cached typed inputs. Exact and
