@@ -809,7 +809,14 @@ func (m Model) renderAI(width, height int) string {
 		pendingFrame = m.aiThinkingFrame
 	}
 	agent := agentDisplayName(m.config.AIAdaptor)
-	lines := view.BuildVisibleAiMessageLines(m.aiMessages, transcriptHeight, width, m.aiScrollY, pendingFrame, m.aiOffline, agent)
+	// Freshly resumed session: show just the tail of the replayed history in
+	// the top ~30% of the pane (divider last), leaving the rest clear for the
+	// new conversation instead of a wall of history pinned to the bottom.
+	buildHeight := transcriptHeight
+	if m.aiHistoryAnchor && m.aiScrollY == 0 {
+		buildHeight = max(1, transcriptHeight*3/10)
+	}
+	lines := view.BuildVisibleAiMessageLines(m.aiMessages, buildHeight, width, m.aiScrollY, pendingFrame, m.aiOffline, agent)
 
 	rows := make([]string, 0, len(lines)+len(popup))
 	for _, line := range lines {
