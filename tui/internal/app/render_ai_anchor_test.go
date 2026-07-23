@@ -39,12 +39,13 @@ func TestResumedHistoryAnchorsToTopThird(t *testing.T) {
 	}
 }
 
-// Scrolling releases the anchor and returns to the full bottom-pinned view.
+// Scrolling (Shift+↑ — plain ↑ moves the input cursor) releases the anchor
+// and returns to the full bottom-pinned view.
 func TestAnchorClearedByScroll(t *testing.T) {
 	m := aiHistoryModel(true)
 	m.mode = modeAI
-	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyUp})
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyShiftUp})
 	if m.aiHistoryAnchor {
-		t.Fatal("scroll should clear the history anchor")
+		t.Fatal("keyboard scroll should clear the history anchor")
 	}
 }

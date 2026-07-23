@@ -134,9 +134,11 @@ func (m Model) renderStatusLine() string {
 		}
 		// Input on the top row, key hints on a faint row beneath it (the AI
 		// layout accounts for the extra line via the status line's height).
-		input := renderMultilineInput("@ai >", m.aiInput, m.aiInputCursor)
-		hint := gutterStyle.Render("Ctrl+J newline · enter send · ↑/↓ scroll · esc back · " + modeSwitchHint(m.mode))
-		return input + "\n" + hint
+		input := renderMultilineInput("@ai >", m.aiInput, m.aiInputCursor, aiInputWrapWidth(m.width), m.aiSel)
+		hint := gutterStyle.Render("Ctrl+J newline · enter send · shift+↑/↓ scroll · esc back · " + modeSwitchHint(m.mode))
+		// Notices (e.g. @copy's "copied") ride the hint row so they are
+		// visible in AI mode without adding a screen row.
+		return input + "\n" + withNotice(hint, m.notice)
 	default:
 		// While navigating (shift+arrow / popup), the input bar reflects the
 		// selected entry; typing returns to the editable typed command.
@@ -666,39 +668,58 @@ func renderEditLine(line string, cx, width int, sel *selRange) string {
 	return b.String()
 }
 
+// aiInputIndent is the column where AI input text begins: the "@ai >" prompt
+// plus one space, matched by the continuation-row indent. The mouse click
+// mapping in mouse.go relies on it.
+const aiInputIndent = 6
+
+// aiInputWrapWidth is the soft-wrap width of the AI input at terminal width w:
+// the indent is subtracted and one cell is reserved for the end-of-row cursor
+// so the terminal never auto-wraps. Single source of truth for the renderer,
+// the ↑/↓ cursor movement, and the mouse click mapping.
+func aiInputWrapWidth(w int) int { return max(1, w-aiInputIndent-1) }
+
 // renderMultilineInput renders a (possibly multi-line) input with a styled
-// prompt on the first line and aligned continuation lines, placing the cursor on
-// its line. promptText is unstyled (used for width); styling is applied here.
-func renderMultilineInput(promptText, text string, cursor int) string {
+// prompt on the first row and aligned continuation rows, soft-wrapping each
+// logical line at wrapWidth so long input grows downward instead of
+// overflowing off-screen. Every emitted row is joined with a real '\n', so the
+// status-height math (strings.Count) and the mouse geometry stay exact.
+// promptText is unstyled (used for width); styling is applied here. An active
+// sel range renders highlighted (across wrapped rows) instead of a cursor.
+func renderMultilineInput(promptText, text string, cursor, wrapWidth int, sel *selRange) string {
 	runes := []rune(text)
 	cursor = input.Clamp(cursor, 0, len(runes))
+	rows := input.WrapRows(text, wrapWidth)
+	curRow, curCol := input.CursorRowCol(rows, cursor)
 
-	// Cursor line index + column from newline counting.
-	lineIdx, col := 0, 0
-	for i := 0; i < cursor; i++ {
-		if runes[i] == '\n' {
-			lineIdx++
-			col = 0
-		} else {
-			col++
-		}
-	}
-
-	lines := strings.Split(text, "\n")
 	indent := strings.Repeat(" ", len([]rune(promptText))+1)
-	out := make([]string, len(lines))
-	for i, ln := range lines {
+	out := make([]string, len(rows))
+	for i, r := range rows {
 		lead := indent
 		if i == 0 {
 			lead = promptStyle.Render(promptText) + " "
 		}
-		if i == lineIdx {
-			out[i] = lead + renderInputLine(ln, col)
-		} else {
-			out[i] = lead + ln
+		switch {
+		case sel != nil:
+			out[i] = lead + renderSelectedRow(runes, r, *sel)
+		case i == curRow:
+			out[i] = lead + renderInputLine(string(runes[r.Start:r.End]), curCol)
+		default:
+			out[i] = lead + string(runes[r.Start:r.End])
 		}
 	}
 	return strings.Join(out, "\n")
+}
+
+// renderSelectedRow renders one wrapped row with the part inside the selection
+// range highlighted.
+func renderSelectedRow(runes []rune, row input.WrapRow, sel selRange) string {
+	s := input.Clamp(sel.start, row.Start, row.End)
+	e := input.Clamp(sel.end, row.Start, row.End)
+	if s >= e {
+		return string(runes[row.Start:row.End])
+	}
+	return string(runes[row.Start:s]) + selectionStyle.Render(string(runes[s:e])) + string(runes[e:row.End])
 }
 
 func renderInputLine(text string, cursor int) string {

@@ -64,7 +64,7 @@ func run(node, script, root, ai, env string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	program := tea.NewProgram(app.New(client, config), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	program := tea.NewProgram(app.New(client, config), tea.WithAltScreen())
 
 	client.Subscribe(runtime.EventHandlers{
 		OnExternalEvent: func(event runtime.ExternalRequestEvent) {
