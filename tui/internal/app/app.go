@@ -249,6 +249,21 @@ func New(client runtimeClient, config runtime.ConfigDTO) Model {
 func (m Model) Init() tea.Cmd { return nil }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Mouse capture is scoped to edit mode: toggling it here, at the single
+	// choke point every mode transition passes through, keeps native terminal
+	// text selection working in all the other modes.
+	wasEdit := m.mode == modeEdit
+	nm, cmd := m.update(msg)
+	if mm, ok := nm.(Model); ok && (mm.mode == modeEdit) != wasEdit {
+		if mm.mode == modeEdit {
+			return nm, tea.Batch(cmd, tea.EnableMouseCellMotion)
+		}
+		return nm, tea.Batch(cmd, tea.DisableMouse)
+	}
+	return nm, cmd
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -509,6 +524,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = m.refreshFileHighlights()
 		}
 		return m, nil
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
 
 	case tea.KeyMsg:
 		// Shift+Tab quick-switches between the primary modes from anywhere.
