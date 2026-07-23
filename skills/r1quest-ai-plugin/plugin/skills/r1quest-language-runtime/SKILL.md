@@ -70,7 +70,7 @@ Supported request statements:
 
 - `ref <path>` loads a `.ntd` file. Put all refs before other statements.
 - `url <value>` sets the request URL.
-- `type <method>` sets the HTTP method, such as `get`, `post`, `put`, or
+- `type <method>` sets the HTTP method: `get`, `post`, `put`, `patch`, or
   `delete`.
 - `header <key>, <value>` adds a request header. Header keys compile to
   lowercase.
@@ -178,6 +178,10 @@ Optional flags:
   group together in the app's history (`@h <id>`). Optional; omit it to leave the
   call untagged.
 
+Other flags: `--version` prints the CLI version, `--init` starts the
+interactive home-config wizard (requires a live terminal — never run it from an
+agent), and `--install-claude-plugin` installs this plugin into Claude Code.
+
 ## Validation Workflow
 
 When checking a request:
@@ -189,8 +193,9 @@ When checking a request:
 3. Read all referenced `.ntd` files.
 4. Check that all `@i(key)` macros are defined by referenced `.ntd` files, or
    carry an `or` default.
-5. Check that `@env(KEY)` variables are available (ambient, via `-env`, or an
-   `or` default), or clearly report they are required.
+5. Treat an `@env(KEY)` variable as satisfied only when it will be passed via
+   `-env`, it carries an `or` default, or the user has confirmed it is exported
+   in their shell. Otherwise report it as required — do not assume it is set.
 6. Check that every `@f(path)` target exists and is only used in `body`.
 7. Prefer `r1q -r <root> -p <request>` for one-shot verification when the user
    wants to run the request.

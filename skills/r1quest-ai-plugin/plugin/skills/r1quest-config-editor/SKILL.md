@@ -26,11 +26,11 @@ Rules:
 - The home config file is `r1qconfig.yaml` (no leading dot) inside the
   `~/.ntee-r1quest/` directory.
 
-Create the home config interactively when it is missing:
-
-```bash
-npx ntee-r1quest --init
-```
+`npx ntee-r1quest --init` creates the home config through an interactive
+wizard. It requires a live terminal — NEVER run it from an agent or script.
+When the home config is missing, create the `~/.ntee-r1quest/` directory and
+write `r1qconfig.yaml` into it directly, and mention `--init` to the user only
+as a manual alternative.
 
 ## How Sources Combine
 
@@ -60,6 +60,7 @@ Per-field combination:
 root: ~/example-api-collection
 ai: codex
 sock: /tmp/ntee-r1quest.sock
+session-cleanup-period: 7
 custom-suggestions:
   - some-style-id
   - x-trace-token
@@ -73,7 +74,10 @@ custom-ai-commands:
   directory; a relative path resolves against the config file's directory.
 - `ai` — AI adapter: `codex`, `claude`, or `cursor`.
 - `sock` — Unix socket path. When set, an open terminal app listens for external
-  request events, and `-p` one-shot runs post their formatted response to it.
+  request events, and `-p` one-shot runs post their formatted response to it. A
+  relative path resolves against the config file's directory.
+- `session-cleanup-period` — number of days an AI session is kept before it is
+  cleaned up at startup. Must be a positive number; defaults to `7` when unset.
 - `custom-suggestions` — extra editor suggestions offered for request header
   keys and object body keys.
 - `custom-ai-commands` — reusable AI prompts invoked in AI mode as
@@ -138,11 +142,13 @@ custom-ai-commands:
 After editing:
 
 1. Re-read the changed file and confirm it parses as YAML.
-2. Confirm `ai` is one of `codex`, `claude`, or `cursor`.
-3. Confirm each `custom-ai-commands` entry has a non-empty `name` and
+2. Confirm `ai` is one of `codex`, `claude`, or `cursor` — any other value is
+   rejected at startup.
+3. Confirm `session-cleanup-period`, if present, is a positive number.
+4. Confirm each `custom-ai-commands` entry has a non-empty `name` and
    `instruction`, and that `$N` placeholders match the arguments the user
    intends to pass.
-4. Confirm `root` and `sock` paths are correct, noting `~` and relative-path
+5. Confirm `root` and `sock` paths are correct, noting `~` and relative-path
    resolution.
-5. State which config file the values will come from given the precedence rules
+6. State which config file the values will come from given the precedence rules
    when multiple files define the same setting.

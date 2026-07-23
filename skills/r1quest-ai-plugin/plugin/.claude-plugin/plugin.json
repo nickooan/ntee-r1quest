@@ -1,6 +1,6 @@
 {
   "name": "r1quest-ai-plugin",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "AI skills for generating, understanding, running, and editing ntee-r1quest request projects.",
   "author": {
     "name": "ntee-r1quest"

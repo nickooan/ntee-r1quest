@@ -197,6 +197,10 @@ type Model struct {
 	aiOffline      bool
 	aiActive       bool
 	aiScrollY      int
+	// aiHistoryAnchor: freshly resumed session — render only the tail of the
+	// replayed history (~30% of the pane) at the top instead of a full
+	// bottom-pinned transcript. Cleared on scroll, send, or new stream events.
+	aiHistoryAnchor bool
 	aiPermission   *view.Permission
 
 	// #reference pills: a standalone #keyword fuzzy-searches the request root
@@ -406,6 +410,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if n := len(m.aiMessages); n > 0 && m.aiMessages[n-1].Role != "divider" {
 				m.aiMessages = append(m.aiMessages, view.ChatMessage{Role: "divider"})
 			}
+			m.aiHistoryAnchor = true
 		}
 		return m, nil
 
@@ -437,6 +442,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.trackToolStatus(msg.Update)
 		m.aiThinking = m.computeThinking()
 		m.aiScrollY = 0
+		m.aiHistoryAnchor = false // a live turn returns to the bottom-pinned view
 		return m, m.startThinkingTick()
 
 	case AiTurnDoneMsg:
@@ -912,7 +918,7 @@ func suggestInputsCmd(client runtimeClient, prefix string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		inputs, err := client.SuggestInputs(ctx, prefix, filetree.MaxInputSuggestions)
+		inputs, err := client.SuggestInputs(ctx, prefix, filetree.MaxCachedInputSuggestions)
 		if err != nil {
 			return cachedInputsMsg{prefix: prefix, inputs: nil}
 		}
@@ -1520,6 +1526,7 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// which the AiTurnDoneMsg guard ignores.
 				m.aiMessages = append(m.aiMessages, view.ChatMessage{Role: "user", Content: t.Display})
 				m.aiScrollY = 0
+				m.aiHistoryAnchor = false
 				m.aiTurnID++
 				return m, aiPromptCmd(m.client, t.Send, t.Refs, m.aiTurnID)
 			}
@@ -1529,6 +1536,7 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.aiMessages = append(m.aiMessages, view.ChatMessage{Role: "user", Content: t.Display})
 		m.aiScrollY = 0
+		m.aiHistoryAnchor = false
 		// Begin a pending turn: show "thinking" right away. It stays on until the
 		// turn completes (AiTurnDoneMsg), errors, or the session stops — the
 		// animation ticker starts on the first streamed chunk.
@@ -1566,6 +1574,7 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.aiScrollY++
+		m.aiHistoryAnchor = false
 		return m, nil
 	case tea.KeyDown:
 		if refOpen {
@@ -1579,6 +1588,7 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.aiScrollY > 0 {
 			m.aiScrollY--
 		}
+		m.aiHistoryAnchor = false
 		return m, nil
 	case tea.KeyRunes, tea.KeySpace:
 		text := string(msg.Runes)

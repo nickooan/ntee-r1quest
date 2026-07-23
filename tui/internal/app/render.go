@@ -252,7 +252,11 @@ func (m Model) renderHistory(width, height int) string {
 	}
 	content := view.FormatHistoryEntry(record, width)
 	vp := view.BuildTerminalViewport(content, width, height, m.historyScrollX, m.historyScrollY)
-	return strings.Join(vp.Lines, "\n")
+	rows := make([]string, 0, len(vp.Lines))
+	for _, line := range vp.Lines {
+		rows = append(rows, renderHighlighted(line, "response", width))
+	}
+	return strings.Join(rows, "\n")
 }
 
 func (m Model) renderSearch(width, height int) string {
@@ -400,7 +404,11 @@ func (m Model) renderCommandSuggestions(width int) []string {
 func (m Model) renderResponse(width, height int) string {
 	content := m.responseContent(width)
 	vp := view.BuildTerminalViewport(content, width, height, m.scrollX, m.scrollY)
-	return strings.Join(vp.Lines, "\n")
+	rows := make([]string, 0, len(vp.Lines))
+	for _, line := range vp.Lines {
+		rows = append(rows, renderHighlighted(line, "response", width))
+	}
+	return strings.Join(rows, "\n")
 }
 
 // responseViewportDims mirrors the width/height math in View for the result pane,
@@ -801,7 +809,14 @@ func (m Model) renderAI(width, height int) string {
 		pendingFrame = m.aiThinkingFrame
 	}
 	agent := agentDisplayName(m.config.AIAdaptor)
-	lines := view.BuildVisibleAiMessageLines(m.aiMessages, transcriptHeight, width, m.aiScrollY, pendingFrame, m.aiOffline, agent)
+	// Freshly resumed session: show just the tail of the replayed history in
+	// the top ~30% of the pane (divider last), leaving the rest clear for the
+	// new conversation instead of a wall of history pinned to the bottom.
+	buildHeight := transcriptHeight
+	if m.aiHistoryAnchor && m.aiScrollY == 0 {
+		buildHeight = max(1, transcriptHeight*3/10)
+	}
+	lines := view.BuildVisibleAiMessageLines(m.aiMessages, buildHeight, width, m.aiScrollY, pendingFrame, m.aiOffline, agent)
 
 	rows := make([]string, 0, len(lines)+len(popup))
 	for _, line := range lines {
@@ -949,65 +964,85 @@ func pad(s string, width int) string {
 	return s
 }
 
+// Gruvbox-dark palette, matching ntee-editor's color style. Truecolor hex;
+// termenv degrades to 256 colors on lesser terminals.
+var (
+	colGruvFg        = lipgloss.Color("#ebdbb2") // cream
+	colGruvBg        = lipgloss.Color("#282828")
+	colGruvSelection = lipgloss.Color("#504945") // bg2
+	colGruvSuggestBg = lipgloss.Color("#3c3836") // bg1
+	colGruvBorder    = lipgloss.Color("#3c3836")
+	colGruvGutter    = lipgloss.Color("#7c6f64") // bg4
+	colGruvGray      = lipgloss.Color("#928374")
+	colGruvRed       = lipgloss.Color("#fb4934")
+	colGruvGreen     = lipgloss.Color("#b8bb26")
+	colGruvYellow    = lipgloss.Color("#fabd2f")
+	colGruvBlue      = lipgloss.Color("#83a598")
+	colGruvPurple    = lipgloss.Color("#d3869b")
+	colGruvAqua      = lipgloss.Color("#8ec07c")
+	colGruvOrange    = lipgloss.Color("#fe8019")
+)
+
+// colorFor maps the highlighter's color names onto the gruvbox palette.
 func colorFor(name string) lipgloss.Color {
 	switch name {
 	case "red":
-		return lipgloss.Color("1")
+		return colGruvRed
 	case "green":
-		return lipgloss.Color("2")
+		return colGruvGreen
 	case "yellow":
-		return lipgloss.Color("3")
+		return colGruvYellow
 	case "blue":
-		return lipgloss.Color("4")
+		return colGruvBlue
 	case "magenta":
-		return lipgloss.Color("5")
+		return colGruvPurple
 	case "cyan":
-		return lipgloss.Color("6")
+		return colGruvAqua
 	case "white":
-		return lipgloss.Color("7")
+		return colGruvFg
 	case "gray":
-		return lipgloss.Color("8")
+		return colGruvGray
 	default:
 		return lipgloss.Color("")
 	}
 }
 
 var (
-	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	paneStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder())
-	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
-	cursorStyle = lipgloss.NewStyle().Reverse(true)
-	gutterStyle = lipgloss.NewStyle().Faint(true)
+	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(colGruvAqua)
+	paneStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colGruvBorder)
+	promptStyle = lipgloss.NewStyle().Foreground(colGruvAqua).Bold(true)
+	cursorStyle = lipgloss.NewStyle().Foreground(colGruvBg).Background(colGruvFg)
+	gutterStyle = lipgloss.NewStyle().Foreground(colGruvGutter)
 
-	selectedEntryStyle = lipgloss.NewStyle().Reverse(true)
-	dirStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
-	requestStyle       = lipgloss.NewStyle()
-	fileStyle          = lipgloss.NewStyle().Faint(true)
+	selectedEntryStyle = lipgloss.NewStyle().Foreground(colGruvFg).Background(colGruvSelection)
+	dirStyle           = lipgloss.NewStyle().Foreground(colGruvAqua).Bold(true)
+	requestStyle       = lipgloss.NewStyle().Foreground(colGruvFg)
+	fileStyle          = lipgloss.NewStyle().Foreground(colGruvGray)
 
-	searchMatchStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("7"))
-	searchFocusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("3")).Bold(true)
-	selectionStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("4"))
+	searchMatchStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#000000")).Background(colGruvYellow)
+	searchFocusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#000000")).Background(colGruvOrange).Bold(true)
+	selectionStyle     = lipgloss.NewStyle().Foreground(colGruvFg).Background(colGruvSelection)
 
 	aiUserStyle          = lipgloss.NewStyle().Bold(true)
-	suggestionStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("8"))
-	suggestionFileStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	suggestionCacheStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	previewStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	noticeStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	editingStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Bold(true) // yellow: unsaved edits
-	savedStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true) // green: in sync with disk
-	editErrStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true) // red: transient edit-mode error
-	aiModalStyle         = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("11"))
+	suggestionStyle      = lipgloss.NewStyle().Foreground(colGruvFg).Background(colGruvSuggestBg)
+	suggestionFileStyle  = lipgloss.NewStyle().Foreground(colGruvYellow)
+	suggestionCacheStyle = lipgloss.NewStyle().Foreground(colGruvGreen)
+	previewStyle         = lipgloss.NewStyle().Foreground(colGruvAqua)
+	noticeStyle          = lipgloss.NewStyle().Foreground(colGruvGreen)
+	editingStyle         = lipgloss.NewStyle().Foreground(colGruvYellow).Bold(true) // unsaved edits
+	savedStyle           = lipgloss.NewStyle().Foreground(colGruvGreen).Bold(true)  // in sync with disk
+	editErrStyle         = lipgloss.NewStyle().Foreground(colGruvRed).Bold(true)    // transient edit-mode error
+	aiModalStyle         = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colGruvGray)
 
-	sessionTitleStyle    = lipgloss.NewStyle().Bold(true)
-	sessionHintStyle     = lipgloss.NewStyle().Faint(true)
-	sessionSelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Background(lipgloss.Color("22")).Bold(true)
-	overlayHintStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
+	sessionTitleStyle    = lipgloss.NewStyle().Bold(true).Foreground(colGruvFg)
+	sessionHintStyle     = lipgloss.NewStyle().Foreground(colGruvGray)
+	sessionSelectedStyle = lipgloss.NewStyle().Foreground(colGruvFg).Background(colGruvSelection).Bold(true)
+	overlayHintStyle     = lipgloss.NewStyle().Foreground(colGruvYellow).Bold(true)
 
-	// Tool-permission banner: black-on-yellow badge, bold title, green allow /
+	// Tool-permission banner: black-on-gold badge, bold title, green allow /
 	// red reject actions.
-	permissionBadgeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("11")).Bold(true)
-	permissionTitleStyle  = lipgloss.NewStyle().Bold(true)
-	permissionAllowStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true)
-	permissionRejectStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
+	permissionBadgeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#000000")).Background(colGruvYellow).Bold(true)
+	permissionTitleStyle  = lipgloss.NewStyle().Bold(true).Foreground(colGruvFg)
+	permissionAllowStyle  = lipgloss.NewStyle().Foreground(colGruvGreen).Bold(true)
+	permissionRejectStyle = lipgloss.NewStyle().Foreground(colGruvRed).Bold(true)
 )

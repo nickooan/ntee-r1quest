@@ -162,6 +162,10 @@ body {
 Rules:
 
 - GraphQL requests should use `type post`.
+- The body macro MUST match the `.ntd` shorthand head: a `query ...` operation
+  defines the `query` key (wire `query: @i(query)`), while a `mutation ...`
+  operation defines the `mutation` key (wire `query: @i(mutation)`). Mixing
+  them up leaves the macro undefined.
 - Always set `header content-type, application/json`.
 - Use `header accept, application/json`.
 - Use `auth bearer @i(token)` when the API needs a bearer token.
@@ -187,8 +191,9 @@ Before generating files:
 3. Keep sample operations small and cheap.
 4. Include both a simple entity query and one nested relationship query when the
    API supports it.
-5. Include a mutation only when the API supports unauthenticated or documented
-   safe test mutations.
+5. Generating a mutation file is always fine, but NEVER execute a mutation
+   unless the API documents it as a safe test mutation or the user explicitly
+   confirms the run.
 
 Avoid guessing schema names when documentation is available. If schema access is
 blocked, say which parts are inferred.

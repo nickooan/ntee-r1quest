@@ -43,9 +43,11 @@ Prefer `rg --files` and `rg` for discovery.
 When updating `.ntd` files:
 
 - Preserve existing key names if requests already reference them.
-- Update shared values in the most specific existing `.ntd` file that already
-  owns that concept.
-- Add new keys near related keys.
+- Update a value in the `.ntd` file where its key is already defined — never
+  redefine the same key in a second file.
+- For a new key: put it in the operation-specific `.ntd` when exactly one
+  request needs it, or in the shared `.ntd` referenced by all affected requests
+  when 2 or more need it. Place it next to related existing keys.
 - Quote strings containing `://`, `//`, commas, braces, brackets, or newlines.
 - Use `@env(KEY)` for secrets, tokens, and environment-specific credentials. It
   may stand alone or be embedded inside a bare (unquoted) value — e.g.
@@ -59,7 +61,7 @@ When updating `.nts` files:
 - Never use `@env(...)` in a `.nts` file — it is a compile error. Move the env
   value into a `.ntd` and reference it with `@i(...)`.
 - Use `@f(path)` only inside body values.
-- Keep header keys lowercase-friendly and expect runtime normalization.
+- Write header keys in lowercase; the compiler lowercases them anyway.
 - Do not duplicate data literals in many `.nts` files when an `.ntd` key is the
   clearer shared source.
 
@@ -96,8 +98,9 @@ After editing:
 2. Confirm referenced files exist.
 3. Confirm every changed or added `@i(key)` is defined by a referenced `.ntd`.
 4. Confirm every changed or added `@f(path)` exists relative to its `.nts` file.
-5. Run focused tests or the local compiler if available.
-6. If the user wants to execute the request, use `r1q -r <root> -p <request>`.
+5. If the user wants to execute the request, run
+   `r1q -r <root> -p <request>` (or `npx ntee-r1quest -r <root> -p <request>`
+   when `r1q` is not installed). There is no separate compile-only command.
 
 Report changed files, validation performed, and any required environment
 variables or placeholder files.
