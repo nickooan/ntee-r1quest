@@ -81,7 +81,10 @@ Rules:
 ## Schema Support
 
 Parse the schema with a structured GraphQL parser or introspection parser when
-available. Do not parse real schemas with ad hoc line splitting.
+one is available. Do not parse real schemas with ad hoc line splitting. If no
+structured parser is available, read the SDL carefully
+definition-by-definition instead, and state in the final report that the
+schema was parsed manually.
 
 Support these schema definitions:
 
@@ -145,8 +148,10 @@ Rules:
 - Generate one `.ntd` file per root operation field.
 - Use lowercase kebab-case file names.
 - Always include `variables: {}` even when empty.
-- Keep selections shallow: scalar fields plus one level of useful nested
-  `id`/`name` fields.
+- Keep selections shallow and deterministic: select ALL scalar and enum fields
+  of the return type (depth 1); for each object-typed field, select only its
+  `id` and `name` fields when they exist (depth 2); never select deeper than
+  depth 2.
 - Avoid recursive cycles.
 
 ## Request `.nts` Files
@@ -213,12 +218,16 @@ Root fields:
 Selection rules:
 
 - Scalar return: request the field directly.
-- Object return: select useful scalar fields such as `id`, `name`, `title`,
-  `email`, status fields, and timestamps.
-- List/connection return: include common pagination args and select
-  `nodes`/`edges.node` when the schema uses connection naming.
-- Interface/union return: use inline fragments for a small set of concrete
-  types when possible.
+- Object return: apply the depth rule above — all scalar/enum fields at depth
+  1, only `id`/`name` at depth 2.
+- List/connection return: pass exactly the pagination arguments the field
+  declares in the schema (`first`/`after` for connection-style fields,
+  `limit`/`offset`/`page` otherwise) — never invent arguments the schema does
+  not declare. For connection types, select `nodes { ... }` when the type has
+  a `nodes` field, otherwise `edges { node { ... } }`.
+- Interface/union return: when the interface/union has 3 or fewer concrete
+  object types, emit an inline fragment per type; otherwise select
+  `__typename` plus the fields the interface itself declares.
 
 Variable examples:
 

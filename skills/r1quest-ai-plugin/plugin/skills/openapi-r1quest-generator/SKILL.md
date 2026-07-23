@@ -43,8 +43,9 @@ Rules:
 
 - Put shared values in `data/common.ntd`.
 - Put auth-related values in `data/auth.ntd` when auth exists.
-- Put operation-specific body/query/header examples in `data/<operation-name>.ntd`
-  when the operation needs reusable data.
+- Placement rule: a value used by 2 or more operations goes in a shared `.ntd`
+  file (`data/common.ntd`, `data/auth.ntd`, or a shared per-path file); a value
+  used by exactly one operation goes in `data/<operation-name>.ntd`.
 - Put duplicated Swagger/OpenAPI path, query, header, and cookie parameters in
   `.ntd` files and reference them with `@i(...)` from every generated `.nts`
   that uses them.
@@ -107,7 +108,8 @@ Deduplicate at these levels:
 - Shared host, base paths, content types, accept headers, auth values, common
   headers, and API key names -> `data/common.ntd` or `data/auth.ntd`.
 - Path-level parameters used by multiple methods under the same path -> a shared
-  `.ntd` file for that path or `data/common.ntd` when broadly reused.
+  `.ntd` file for that path; move them to `data/common.ntd` when operations
+  under 2 or more different paths use them.
 - Referenced `components.parameters` or Swagger v2 global `parameters` used by
   multiple operations -> one `.ntd` key with a stable kebab-case name.
 - Repeated query parameters across list/search operations -> shared `.ntd` keys
@@ -128,8 +130,9 @@ limit: 20
 url "@i(host)/tenants/@i(tenant-id)/properties?page=@i(page)&limit=@i(limit)"
 ```
 
-Only create operation-specific `.ntd` keys when the value is truly unique to
-that operation or when sharing it would make the data file unclear.
+Only create operation-specific `.ntd` keys for values used by exactly one
+operation; the moment a second operation needs the same value, move it to a
+shared `.ntd` file.
 
 ## Generate `.ntd` Files
 
@@ -238,7 +241,7 @@ ref ./data/auth.ntd
 url "@i(host)/files"
 type post
 
-header content-type, multipart/form-data
+header content-type, @i(content-type or "multipart/form-data")
 auth bearer @i(token)
 
 body {
@@ -385,20 +388,22 @@ Normalize names:
 - `GET /properties/{propertyId}` -> `get-property-by-property-id`
 
 Avoid duplicate file names. If two operations normalize to the same name, append
-a short path-derived suffix.
+the kebab-cased path segments that distinguish the routes (as in
+`get-property-by-property-id` above).
 
 ## Validation
 
 After generation:
 
-1. Run the project formatter if available.
-2. Compile at least one generated `.nts` file with the local `ntee-r1quest`
-   compiler when available.
-3. Check that every `ref` path exists.
-4. Check that every `@i(key)` is defined by one of the referenced `.ntd` files,
+1. If the user allows a live call, run one generated read-only request with
+   `r1q -r <project-dir> -p <request>`. Detect the CLI with `command -v r1q`
+   and fall back to `npx ntee-r1quest` when `r1q` is not installed. There is no
+   separate formatter or compile-only command.
+2. Check that every `ref` path exists.
+3. Check that every `@i(key)` is defined by one of the referenced `.ntd` files,
    or carries an `or` default (e.g. `@i(content-type or "application/json")`).
-5. Check that every `.nts` with a `body` declares a `content-type` header.
-6. Check that every `@f(path)` points to an existing example file, or clearly
+4. Check that every `.nts` with a `body` declares a `content-type` header.
+5. Check that every `@f(path)` points to an existing example file, or clearly
    mark the file as a placeholder that the user must provide.
 
 Report:

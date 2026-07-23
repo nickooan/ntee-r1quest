@@ -96,8 +96,10 @@ it `ref`s. For each request collect:
 - every `@env(KEY)` it needs that is not already satisfied (not in the
   environment, not going to be passed, and with no `or` default),
 - for each unsatisfied key, its source: a value the user gives, or a json path
-  into an earlier request's response body (match by name, e.g. a response
-  `propertyId` satisfies `@env(propertyId)`).
+  into an earlier request's response body. A response field satisfies
+  `@env(KEY)` only on an exact key match (e.g. a response `propertyId` for
+  `@env(propertyId)`); NEVER assume a fuzzy match such as `id` for
+  `@env(propertyId)` — propose it in the plan and let the user confirm it.
 
 Present a numbered execution plan: one line per request with its method, URL, the
 `@env` inputs it needs, and where each value comes from (literal / environment /
@@ -112,7 +114,9 @@ printed. Requirements — all steps must be `application/json` requests with JSO
 responses, every carried-forward value must be expressible as a rename plus a
 json path (`envKey: path.to[0].value`), and no step may itself be a joint file.
 
-Write the file at the collection root as `.r1q-task-<id>.joint.nts`:
+Generate the task id as `<YYYYMMDD-HHMMSS>` (so the trace id is
+`task-<YYYYMMDD-HHMMSS>`) and write the file at the collection root as
+`.r1q-task-<id>.joint.nts`:
 
 ```text
 @joint("task-<id>")
@@ -134,10 +138,13 @@ Rules:
 - User-provided values still go in via `-env` on the command line; picked values
   override them on duplicate keys.
 
-Run it once, then delete the temp file (also on failure):
+Run it once, then delete the temp file. Deletion is unconditional: remove the
+file whether the run succeeds, a step fails, or the run is interrupted — never
+leave `.r1q-task-*` files in the collection:
 
 ```bash
 r1q -r <root> -p .r1q-task-<id>.joint
+rm <root>/.r1q-task-<id>.joint.nts
 ```
 
 The output is the final step's response plus the trace id; every step (including
@@ -156,8 +163,8 @@ Use per-step one-shot commands instead of a joint file when:
 - choosing a later step's input requires reasoning about an earlier response
   rather than a fixed path.
 
-Generate one trace id for the whole task (for example `task-<timestamp>`), then
-for each request in sequence:
+Generate one trace id for the whole task in the form `task-<YYYYMMDD-HHMMSS>`
+(e.g. `task-20260723-141502`), then for each request in sequence:
 
 - Build `-env` from values gathered so far (user-provided plus fields extracted
   from earlier responses) and run with `-ti <traceId>`:
@@ -167,8 +174,9 @@ for each request in sequence:
   ```
 
 - After it returns, inspect the response for fields that satisfy a later
-  request's `@env` inputs and record them. State the mapping you chose
-  (response field → `@env(KEY)`).
+  request's `@env` inputs and record them. Apply the exact-key-match rule from
+  the planning step; state every mapping you use (response field →
+  `@env(KEY)`).
 - Report this step: method/URL, status, and the values passed forward.
 - If a request returns an API error (non-2xx) or a runtime/compile error,
   **stop immediately** — do not run the remaining requests. Present the failing
@@ -188,16 +196,16 @@ User: "get-property-by-name then get-property-setup".
 Plan presented for confirmation:
 
 ```text
-trace id: task-20260619-01
+trace id: task-20260619-141502
 1. get-property-by-name   GET  /properties?name=...   needs: @env(name) (you provide)
 2. get-property-setup     POST /properties/@i(propertyId)/setup
                                                        needs: @env(propertyId) (from step 1 response, json path "id")
 ```
 
-After confirmation, generate `<root>/.r1q-task-20260619-01.joint.nts`:
+After confirmation, generate `<root>/.r1q-task-20260619-141502.joint.nts`:
 
 ```text
-@joint("task-20260619-01")
+@joint("task-20260619-141502")
 
 -> @run(get-property-by-name)
 -> @pick(propertyId: id)
@@ -207,11 +215,12 @@ After confirmation, generate `<root>/.r1q-task-20260619-01.joint.nts`:
 Run it (user-provided values via `-env`), then delete the temp file:
 
 ```bash
-r1q -r <root> -p .r1q-task-20260619-01.joint -env '{"name":"Acme HQ"}'
+r1q -r <root> -p .r1q-task-20260619-141502.joint -env '{"name":"Acme HQ"}'
+rm <root>/.r1q-task-20260619-141502.joint.nts
 ```
 
 If step 1 fails, the chain stops on its own — report the failing step and the
-error. Inspect the full chain later with `@h task-20260619-01`.
+error. Inspect the full chain later with `@h task-20260619-141502`.
 
 ## Safety And Reporting
 
