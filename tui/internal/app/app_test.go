@@ -1072,15 +1072,15 @@ func TestAiInputMultilineEditing(t *testing.T) {
 		t.Fatal("ctrl+j must not submit")
 	}
 
-	// Shift+Down from the long line clamps the cursor to the shorter line's end.
+	// Down from the long line clamps the cursor to the shorter line's end.
 	m.aiInputCursor = 5
-	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyShiftDown})
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyDown})
 	if m.aiInputCursor != 8 {
-		t.Fatalf("shift+down should clamp to the shorter line end (8); got %d", m.aiInputCursor)
+		t.Fatalf("down should clamp to the shorter line end (8); got %d", m.aiInputCursor)
 	}
-	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyUp, Alt: true})
+	m, _ = apply(m, tea.KeyMsg{Type: tea.KeyUp})
 	if m.aiInputCursor != 2 {
-		t.Fatalf("opt+up should preserve column 2; got %d", m.aiInputCursor)
+		t.Fatalf("up should preserve column 2; got %d", m.aiInputCursor)
 	}
 
 	// Plain Enter submits the whole multi-line text.

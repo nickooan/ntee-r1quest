@@ -189,9 +189,13 @@ type Model struct {
 	searchInput    string
 	searchFocused  int
 
-	aiMessages     []view.ChatMessage
-	aiInput        string
-	aiInputCursor  int
+	aiMessages    []view.ChatMessage
+	aiInput       string
+	aiInputCursor int
+	// aiSel: progressive Ctrl+A selection over the input — first press selects
+	// the cursor's line, the second the whole text. The next backspace/delete
+	// removes it, typing replaces it, Esc or cursor movement deselects.
+	aiSel          *selRange
 	aiSuggestIndex int // selected entry in the `/command` suggestion popup
 	aiThinking     bool
 	aiOffline      bool
@@ -245,6 +249,21 @@ func New(client runtimeClient, config runtime.ConfigDTO) Model {
 func (m Model) Init() tea.Cmd { return nil }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Mouse capture is scoped to edit mode: toggling it here, at the single
+	// choke point every mode transition passes through, keeps native terminal
+	// text selection working in all the other modes.
+	wasEdit := m.mode == modeEdit
+	nm, cmd := m.update(msg)
+	if mm, ok := nm.(Model); ok && (mm.mode == modeEdit) != wasEdit {
+		if mm.mode == modeEdit {
+			return nm, tea.Batch(cmd, tea.EnableMouseCellMotion)
+		}
+		return nm, tea.Batch(cmd, tea.DisableMouse)
+	}
+	return nm, cmd
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -505,6 +524,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = m.refreshFileHighlights()
 		}
 		return m, nil
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
 
 	case tea.KeyMsg:
 		// Shift+Tab quick-switches between the primary modes from anywhere.
@@ -1388,6 +1410,9 @@ func (m Model) enterAI() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Notices on the hint row (e.g. @copy's "copied") are transient — any
+	// keystroke clears them; a handler that sets one below re-sets it.
+	m.notice = ""
 	// The session picker captures input until a choice is confirmed or cancelled.
 	if m.aiPicking {
 		switch msg.Type {
@@ -1439,19 +1464,66 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// An active Ctrl+A selection consumes the next key: backspace/delete
+	// removes the selected range, typing (and Ctrl+J) replaces it, Esc keeps
+	// the text and just deselects. Anything else deselects and proceeds
+	// normally. Ctrl+A itself is exempt so it can expand the selection below.
+	if m.aiSel != nil && msg.Type != tea.KeyCtrlA {
+		sel := *m.aiSel
+		m.aiSel = nil
+		switch {
+		case msg.Type == tea.KeyCtrlC:
+			return m, tea.Quit
+		case msg.Type == tea.KeyEsc:
+			return m, nil // keep the text, just deselect
+		case msg.Type == tea.KeyBackspace || msg.Type == tea.KeyDelete:
+			m.aiInput, m.aiInputCursor = input.RemoveRange(m.aiInput, sel.start, sel.end)
+			m.aiSuggestIndex = 0
+			if m.aiInput == "" {
+				m.clearAiRefs()
+			}
+			return m, nil
+		case msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace || msg.Type == tea.KeyCtrlJ:
+			// Replace: remove the selection, then fall through to the insert.
+			m.aiInput, m.aiInputCursor = input.RemoveRange(m.aiInput, sel.start, sel.end)
+			m.aiSuggestIndex = 0
+			if m.aiInput == "" {
+				m.clearAiRefs()
+			}
+		}
+	}
+
 	// Multi-line editing. Ctrl+J inserts a newline — it's the one combo every
-	// terminal delivers reliably (a distinct line-feed, no config needed). Cursor
-	// moves accept Shift or Option + Up/Down. Handled before the type switch since
-	// plain Up/Down (which scroll the transcript) ignore modifiers.
+	// terminal delivers reliably (a distinct line-feed, no config needed).
+	// Plain Up/Down move the input cursor (below), so transcript scrolling
+	// lives on Shift or Option + Up/Down (and the mouse wheel). Handled before
+	// the type switch since plain Up/Down ignore modifiers.
 	switch {
+	case msg.Type == tea.KeyCtrlA:
+		// Progressive select: first press takes the cursor's line, the next
+		// (or an empty line) takes the whole input.
+		if m.aiInput == "" {
+			return m, nil
+		}
+		ls, le := input.LineBounds(m.aiInput, m.aiInputCursor)
+		if m.aiSel == nil && le > ls {
+			m.aiSel = &selRange{ls, le}
+		} else {
+			m.aiSel = &selRange{0, len([]rune(m.aiInput))}
+		}
+		return m, nil
 	case msg.Type == tea.KeyCtrlJ:
 		m.aiInput, m.aiInputCursor = input.InsertAtCursor(m.aiInput, m.aiInputCursor, "\n")
 		return m, nil
 	case msg.Type == tea.KeyShiftUp || (msg.Type == tea.KeyUp && msg.Alt):
-		m.aiInputCursor = input.MoveCursorVertical(m.aiInput, m.aiInputCursor, -1)
+		m.aiScrollY++
+		m.aiHistoryAnchor = false
 		return m, nil
 	case msg.Type == tea.KeyShiftDown || (msg.Type == tea.KeyDown && msg.Alt):
-		m.aiInputCursor = input.MoveCursorVertical(m.aiInput, m.aiInputCursor, 1)
+		if m.aiScrollY > 0 {
+			m.aiScrollY--
+		}
+		m.aiHistoryAnchor = false
 		return m, nil
 	}
 
@@ -1554,6 +1626,13 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.aiRefSuggestIndex = 0
 		}
 		return m, nil
+	case tea.KeyDelete:
+		if next, ok := input.RemoveAtCursor(m.aiInput, m.aiInputCursor); ok {
+			m.aiInput = next
+			m.aiSuggestIndex = 0
+			m.aiRefSuggestIndex = 0
+		}
+		return m, nil
 	case tea.KeyLeft:
 		m.aiInputCursor = input.MoveCursor(m.aiInput, m.aiInputCursor, -1)
 		return m, nil
@@ -1561,8 +1640,8 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.aiInputCursor = input.MoveCursor(m.aiInput, m.aiInputCursor, 1)
 		return m, nil
 	case tea.KeyUp:
-		// Navigate the reference / `/command` popup when open, else scroll
-		// older messages.
+		// Navigate the reference / `/command` popup when open, else move the
+		// input cursor up one visual row (top row → start of the input).
 		if refOpen {
 			n := len(ref.matches)
 			m.aiRefSuggestIndex = (m.aiRefSuggestIndex - 1 + n) % n
@@ -1573,10 +1652,11 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.aiSuggestIndex = (m.aiSuggestIndex - 1 + n) % n
 			return m, nil
 		}
-		m.aiScrollY++
-		m.aiHistoryAnchor = false
+		m.aiInputCursor = input.MoveCursorVisual(m.aiInput, m.aiInputCursor, aiInputWrapWidth(m.width), -1)
 		return m, nil
 	case tea.KeyDown:
+		// Popup navigation when open, else move the input cursor down one
+		// visual row (bottom row → end of the input).
 		if refOpen {
 			m.aiRefSuggestIndex = (m.aiRefSuggestIndex + 1) % len(ref.matches)
 			return m, nil
@@ -1585,10 +1665,7 @@ func (m Model) handleAIKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.aiSuggestIndex = (m.aiSuggestIndex + 1) % len(slashMatches)
 			return m, nil
 		}
-		if m.aiScrollY > 0 {
-			m.aiScrollY--
-		}
-		m.aiHistoryAnchor = false
+		m.aiInputCursor = input.MoveCursorVisual(m.aiInput, m.aiInputCursor, aiInputWrapWidth(m.width), 1)
 		return m, nil
 	case tea.KeyRunes, tea.KeySpace:
 		text := string(msg.Runes)
