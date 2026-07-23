@@ -32,9 +32,7 @@ export type JsonRpcFailure = {
 export type JsonRpcResponse = JsonRpcSuccess | JsonRpcFailure
 
 export type JsonRpcMessage =
-  | JsonRpcRequest
-  | JsonRpcNotification
-  | JsonRpcResponse
+  JsonRpcRequest | JsonRpcNotification | JsonRpcResponse
 
 export type JsonRpcErrorObject = {
   code: number

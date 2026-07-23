@@ -233,7 +233,6 @@ describe("Cursor ACP adapter integration", () => {
 
     expect(promptMock).toHaveBeenCalledWith({
       sessionId: "session-1",
-      messageId: expect.any(String),
       prompt: [
         {
           type: "text",
@@ -274,7 +273,6 @@ describe("Cursor ACP adapter integration", () => {
     expect(promptMock).toHaveBeenCalledTimes(2)
     expect(promptMock).toHaveBeenNthCalledWith(1, {
       sessionId: "session-1",
-      messageId: expect.any(String),
       prompt: [
         {
           type: "text",
@@ -284,7 +282,6 @@ describe("Cursor ACP adapter integration", () => {
     })
     expect(promptMock).toHaveBeenNthCalledWith(2, {
       sessionId: "session-1",
-      messageId: expect.any(String),
       prompt: [
         {
           type: "text",
@@ -318,9 +315,13 @@ describe("Cursor ACP adapter integration", () => {
     const [conversation] = cursor.unfinishedPromptConversations
     const firstPromptRequest = promptMock.mock.calls[0]?.[0]
 
+    expect(firstPromptRequest).toEqual(
+      expect.objectContaining({
+        sessionId: "session-1",
+      }),
+    )
     expect(conversation).toEqual(
       expect.objectContaining({
-        id: firstPromptRequest?.messageId,
         sessionId: "session-1",
         prompt: "start a tunnel",
         status: "pending",
@@ -329,7 +330,7 @@ describe("Cursor ACP adapter integration", () => {
     )
     expect(onConversationUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: firstPromptRequest?.messageId,
+        id: conversation?.id,
         status: "pending",
       }),
     )
@@ -357,19 +358,16 @@ describe("Cursor ACP adapter integration", () => {
 
     firstPrompt.resolve({
       stopReason: "end_turn",
-      userMessageId: firstPromptRequest?.messageId,
     })
     await firstResult
 
     expect(cursor.unfinishedPromptConversations).toEqual([])
     expect(cursor.promptConversations[0]).toEqual(
       expect.objectContaining({
-        id: firstPromptRequest?.messageId,
-        acknowledgedMessageId: firstPromptRequest?.messageId,
+        id: conversation?.id,
         status: "completed",
         response: {
           stopReason: "end_turn",
-          userMessageId: firstPromptRequest?.messageId,
         },
       }),
     )

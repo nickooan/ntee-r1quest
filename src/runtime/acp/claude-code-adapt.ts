@@ -373,7 +373,6 @@ export class ClaudeCodeAcpAdapter {
     try {
       const response = await this.connection.prompt({
         sessionId: this.sessionId,
-        messageId: conversation.id,
         prompt,
       })
       logAcpDebug("prompt_resolved", {

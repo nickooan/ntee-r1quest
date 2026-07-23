@@ -24,8 +24,7 @@ export interface ScopeObject {
 // intermediate object at compile time, while a json path into the previous
 // step's response body can only be evaluated at run time.
 export type PickSource =
-  | { kind: "jsonPath"; path: string }
-  | { kind: "value"; value: ScopeValue }
+  { kind: "jsonPath"; path: string } | { kind: "value"; value: ScopeValue }
 
 export interface JointStepNode {
   pick?: Record<string, PickSource>

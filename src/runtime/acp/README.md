@@ -71,10 +71,11 @@ await adapter.write({
 ```
 
 For prompt input, the adapter trims the text, ensures the ACP session exists,
-creates a conversation record, then calls `connection.prompt()` with a generated
-ACP `messageId`. The prompt promise resolves when the agent finishes that ACP
-turn. Multiple prompts are allowed to be sent while an earlier prompt is still
-running; they are not serialized behind a local queue.
+creates a conversation record (correlated by a locally generated
+`conversation.id`), then calls `connection.prompt()`. The prompt promise
+resolves when the agent finishes that ACP turn. Multiple prompts are allowed to
+be sent while an earlier prompt is still running; they are not serialized behind
+a local queue.
 
 For permission input, the adapter resolves the currently pending ACP permission
 request. If no permission request is pending, `write()` rejects.
@@ -124,7 +125,6 @@ Conversation Manager
   v
 Adapter sends connection.prompt({
   sessionId,
-  messageId: conversation.id,
   prompt,
 })
 
@@ -149,8 +149,7 @@ Conversation Manager                    Conversation Manager
   |                                      |
   | set status: completed                | set status: failed
   | store response                       | store error
-  | store acknowledgedMessageId          | set completedAt
-  | set completedAt / updatedAt          | set updatedAt
+  | set completedAt / updatedAt          | set completedAt / updatedAt
   | choose next pending active id        | choose next pending active id
   | emit onConversationUpdate(snapshot)  | emit onConversationUpdate(snapshot)
 ```

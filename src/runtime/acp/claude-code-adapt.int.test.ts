@@ -238,7 +238,6 @@ describe("Claude Code ACP adapter integration", () => {
 
     expect(promptMock).toHaveBeenCalledWith({
       sessionId: "session-1",
-      messageId: expect.any(String),
       prompt: [
         {
           type: "text",
@@ -279,7 +278,6 @@ describe("Claude Code ACP adapter integration", () => {
     expect(promptMock).toHaveBeenCalledTimes(2)
     expect(promptMock).toHaveBeenNthCalledWith(1, {
       sessionId: "session-1",
-      messageId: expect.any(String),
       prompt: [
         {
           type: "text",
@@ -289,7 +287,6 @@ describe("Claude Code ACP adapter integration", () => {
     })
     expect(promptMock).toHaveBeenNthCalledWith(2, {
       sessionId: "session-1",
-      messageId: expect.any(String),
       prompt: [
         {
           type: "text",
@@ -323,9 +320,13 @@ describe("Claude Code ACP adapter integration", () => {
     const [conversation] = claude.unfinishedPromptConversations
     const firstPromptRequest = promptMock.mock.calls[0]?.[0]
 
+    expect(firstPromptRequest).toEqual(
+      expect.objectContaining({
+        sessionId: "session-1",
+      }),
+    )
     expect(conversation).toEqual(
       expect.objectContaining({
-        id: firstPromptRequest?.messageId,
         sessionId: "session-1",
         prompt: "start a tunnel",
         status: "pending",
@@ -334,7 +335,7 @@ describe("Claude Code ACP adapter integration", () => {
     )
     expect(onConversationUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: firstPromptRequest?.messageId,
+        id: conversation?.id,
         status: "pending",
       }),
     )
@@ -362,19 +363,16 @@ describe("Claude Code ACP adapter integration", () => {
 
     firstPrompt.resolve({
       stopReason: "end_turn",
-      userMessageId: firstPromptRequest?.messageId,
     })
     await firstResult
 
     expect(claude.unfinishedPromptConversations).toEqual([])
     expect(claude.promptConversations[0]).toEqual(
       expect.objectContaining({
-        id: firstPromptRequest?.messageId,
-        acknowledgedMessageId: firstPromptRequest?.messageId,
+        id: conversation?.id,
         status: "completed",
         response: {
           stopReason: "end_turn",
-          userMessageId: firstPromptRequest?.messageId,
         },
       }),
     )
@@ -444,10 +442,14 @@ describe("Claude Code ACP adapter integration", () => {
 
     promptMock.mockImplementation(async () => {
       // Two permission requests issued concurrently within the same turn.
-      const a = clientHandler?.requestPermission(requestA).then((response) => {
+      const a = Promise.resolve(
+        clientHandler?.requestPermission(requestA),
+      ).then((response) => {
         responseA = response
       })
-      const b = clientHandler?.requestPermission(requestB).then((response) => {
+      const b = Promise.resolve(
+        clientHandler?.requestPermission(requestB),
+      ).then((response) => {
         responseB = response
       })
 

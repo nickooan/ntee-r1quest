@@ -14,7 +14,6 @@ export type AcpConversation = {
   completedAt?: number
   response?: PromptResponse
   error?: unknown
-  acknowledgedMessageId?: string
 }
 
 export type AcpConversationUpdateHandler = (
@@ -96,7 +95,6 @@ export class AcpConversationManager {
     const now = Date.now()
     conversation.status = "completed"
     conversation.response = response
-    conversation.acknowledgedMessageId = response.userMessageId ?? undefined
     conversation.completedAt = now
     conversation.updatedAt = now
 

@@ -359,7 +359,6 @@ export class CursorAcpAdapter {
     try {
       const response = await this.connection.prompt({
         sessionId: this.sessionId,
-        messageId: conversation.id,
         prompt,
       })
       this.conversationManager.completeConversation(conversation.id, response)

@@ -93,8 +93,7 @@ export type AiSessionUpdate = {
 export type AiPermissionRequest = unknown
 
 export type AiPermissionDecision =
-  | { type: "selected"; optionId: string }
-  | { type: "cancelled" }
+  { type: "selected"; optionId: string } | { type: "cancelled" }
 
 // Conversation list entry, passed through opaquely.
 export type AiConversation = unknown

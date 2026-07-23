@@ -100,7 +100,6 @@ describe("AcpConversationManager", () => {
     const second = manager.createConversation("session-1", "second")
     const response: PromptResponse = {
       stopReason: "end_turn",
-      userMessageId: second.id,
     }
 
     manager.completeConversation(second.id, response)
@@ -116,7 +115,6 @@ describe("AcpConversationManager", () => {
         id: second.id,
         status: "completed",
         response,
-        acknowledgedMessageId: second.id,
         completedAt: expect.any(Number),
       }),
     ])
