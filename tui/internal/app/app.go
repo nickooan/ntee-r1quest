@@ -506,6 +506,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.MouseMsg:
+		// Mouse routes through the same highlight choke point as edit keys: a
+		// Ctrl+click jump switches buffers just like Ctrl+J.
+		wasEdit := m.mode == modeEdit
+		nm, cmd := m.handleMouse(msg)
+		if mm, ok := nm.(Model); ok && wasEdit && (mm.edit.rev != mm.hlRev || mm.mode != modeEdit) {
+			nm = mm.refreshFileHighlights()
+		}
+		return nm, cmd
+
 	case tea.KeyMsg:
 		// Shift+Tab quick-switches between the primary modes from anywhere.
 		if msg.Type == tea.KeyShiftTab {
