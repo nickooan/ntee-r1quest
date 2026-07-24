@@ -10,6 +10,7 @@ import (
 
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/command"
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/filetree"
+	"codeberg.org/nickoan/ntee-r1quest/tui/internal/fuzzy"
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/input"
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/view"
 )
@@ -71,7 +72,11 @@ func (m Model) View() string {
 	case modeView, modeEdit:
 		mainBody = m.renderFile(mainWidth-4, bodyHeight-2)
 	case modeHistory:
-		mainBody = m.renderHistory(mainWidth-4, bodyHeight-2)
+		if m.histFuzzyOpen {
+			mainBody = m.renderHistoryFuzzy(mainWidth-4, bodyHeight-2)
+		} else {
+			mainBody = m.renderHistory(mainWidth-4, bodyHeight-2)
+		}
 	case modeSearch:
 		mainBody = m.renderSearch(mainWidth-4, bodyHeight-2)
 	default:
@@ -117,7 +122,7 @@ func (m Model) renderStatusLine() string {
 		return line
 	case modeHistory:
 		count := fmt.Sprintf("%d/%d", min(m.historyIndex+1, len(m.history)), len(m.history))
-		return withNotice(promptStyle.Render("@history")+" "+count+"   ↑/↓/←/→ scroll · shift+↑/↓ select · s search · esc back   "+modeSwitchHint(m.mode), m.notice)
+		return withNotice(promptStyle.Render("@history")+" "+count+"   ↑/↓/←/→ scroll · shift+↑/↓ select · ctrl+p find · s search · c copy · esc back   "+modeSwitchHint(m.mode), m.notice)
 	case modeSearch:
 		matches := view.FindSearchMatches(m.searchContent, m.searchInput)
 		summary := fmt.Sprintf("%d matches", len(matches))
@@ -805,6 +810,72 @@ func (m Model) renderSessionPicker() string {
 	return aiModalStyle.Width(contentWidth).Render(b.String())
 }
 
+// renderHistoryFuzzy draws the Ctrl+P finder as a centered modal over the main
+// pane: a query row, a match-count hint, and a window of up to maxRows matches
+// following the selection. Matched-rune positions are computed only for the
+// visible rows, so filtering stays cheap however long the history gets.
+func (m Model) renderHistoryFuzzy(width, height int) string {
+	const maxRows = 12
+	boxWidth := input.Clamp(width*8/10, 24, max(24, width-2))
+	rowWidth := max(1, boxWidth-2)
+
+	var b strings.Builder
+	b.WriteString(promptStyle.Render("find ") + renderInputLine(m.histFuzzyQuery, len([]rune(m.histFuzzyQuery))) + "\n")
+	hint := fmt.Sprintf("%d/%d · ↑/↓ choose · enter select · esc cancel", len(m.histFuzzyMatches), len(m.histFuzzyCorpus))
+	b.WriteString(sessionHintStyle.Render(padTo(truncateRunes(hint, rowWidth), rowWidth)))
+
+	if len(m.histFuzzyMatches) == 0 {
+		b.WriteString("\n" + overlayHintStyle.Render("(no matches)"))
+	} else {
+		visible := min(len(m.histFuzzyMatches), maxRows)
+		selected := input.Clamp(m.histFuzzyIndex, 0, len(m.histFuzzyMatches)-1)
+		start := 0
+		if selected >= visible {
+			start = selected - visible + 1
+		}
+		for i := start; i < start+visible; i++ {
+			cand := m.histFuzzyCorpus[m.histFuzzyMatches[i].Index]
+			var positions []int
+			if i != selected { // the selected row highlights whole, not per-rune
+				positions = fuzzy.Positions(m.histFuzzyQuery, cand)
+			}
+			b.WriteString("\n" + renderFuzzyRow(cand.Text, positions, rowWidth, i == selected))
+		}
+	}
+
+	box := aiModalStyle.Width(rowWidth).Render(b.String())
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+// renderFuzzyRow renders one finder row: the selected row as a whole-row
+// highlight, the others with their matched runes bolded.
+func renderFuzzyRow(text string, positions []int, width int, selected bool) string {
+	if selected {
+		return selectedEntryStyle.Render(padTo(truncateRunes(text, width), width))
+	}
+	matched := make(map[int]bool, len(positions))
+	for _, p := range positions {
+		matched[p] = true
+	}
+	var b strings.Builder
+	n := 0
+	for i, r := range []rune(text) {
+		if n >= width {
+			break
+		}
+		if matched[i] {
+			b.WriteString(fuzzyBoldStyle.Render(string(r)))
+		} else {
+			b.WriteRune(r)
+		}
+		n++
+	}
+	for ; n < width; n++ {
+		b.WriteByte(' ')
+	}
+	return b.String()
+}
+
 // formatSessionTime renders an ISO timestamp as "YYYY-MM-DD HH:mm".
 func formatSessionTime(iso string) string {
 	if len(iso) >= 16 {
@@ -1039,6 +1110,8 @@ var (
 	dirStyle           = lipgloss.NewStyle().Foreground(colGruvAqua).Bold(true)
 	requestStyle       = lipgloss.NewStyle().Foreground(colGruvFg)
 	fileStyle          = lipgloss.NewStyle().Foreground(colGruvGray)
+
+	fuzzyBoldStyle = lipgloss.NewStyle().Bold(true).Foreground(colGruvOrange)
 
 	searchMatchStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#000000")).Background(colGruvYellow)
 	searchFocusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#000000")).Background(colGruvOrange).Bold(true)

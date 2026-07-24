@@ -939,6 +939,21 @@ func TestCopyShowsNoticeInQueryMode(t *testing.T) {
 	}
 }
 
+func TestCopyAliasCp(t *testing.T) {
+	if !isAppCommand("@cp") {
+		t.Fatal("@cp should be a recognized app command")
+	}
+	m := New(&fakeClient{}, runtime.ConfigDTO{})
+	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	next, cmd := m.handleAppCommand("@cp")
+	if cmd == nil {
+		t.Fatal("@cp should return a copy command like @copy")
+	}
+	if nm := next.(Model); nm.command != "" {
+		t.Fatalf("command input = %q after @cp, want cleared", nm.command)
+	}
+}
+
 func TestSearchFindsMatchesInResponse(t *testing.T) {
 	m := New(&fakeClient{}, runtime.ConfigDTO{})
 	m, _ = apply(m, tea.WindowSizeMsg{Width: 80, Height: 24})
