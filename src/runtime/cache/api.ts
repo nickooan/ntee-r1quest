@@ -108,9 +108,10 @@ export const recordApiCall = async (
 }
 
 /**
- * Returns the latest cached call per endpoint (one row each), in label order —
- * the History list. Derived by deduping the per-call records to the most recent
- * per endpoint.
+ * Returns the latest cached call per endpoint (one row each), newest call
+ * first and oldest last — the History list. Uses the endpoint index's grouped
+ * `-1` query, so the store hands back exactly the most-recent record per
+ * endpoint instead of scanning every `api:` record.
  */
 export const listApiEndpoints = async (): Promise<ApiCallRecord[]> => {
   const cache = openCache()
@@ -120,26 +121,26 @@ export const listApiEndpoints = async (): Promise<ApiCallRecord[]> => {
   }
 
   try {
-    // Records come back in key (cacheId / call) order, so the last seen per
-    // endpoint is the latest.
-    const latest = new Map<string, ApiCallRecord>()
+    // -1 → the single most-recent record of each endpoint (last of each
+    // group, descending), already deduped by the store; ordered by endpoint
+    // label.
+    const records: ApiCallRecord[] = []
 
-    for (const { value } of await cache.prefixScanRecords(NS.api)) {
+    for (const { value } of await cache.secIndexPrefixRecords(
+      ENDPOINT_INDEX,
+      "",
+      -1,
+    )) {
       // JSON store: value is the parsed record; skip corrupt/absent.
       if (value == null || Buffer.isBuffer(value)) {
         continue
       }
-      const record = value as ApiCallRecord
-      latest.set(record.endpoint, record)
+      records.push(value as ApiCallRecord)
     }
 
-    return [...latest.values()].sort((left, right) =>
-      left.endpoint < right.endpoint
-        ? -1
-        : left.endpoint > right.endpoint
-          ? 1
-          : 0,
-    )
+    // Groups arrive in label order; order across endpoints by call time,
+    // most recent first.
+    return records.sort((left, right) => right.cacheId - left.cacheId)
   } catch {
     return []
   }
