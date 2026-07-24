@@ -18,6 +18,7 @@ import (
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/clip"
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/command"
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/filetree"
+	"codeberg.org/nickoan/ntee-r1quest/tui/internal/fuzzy"
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/input"
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/runtime"
 	"codeberg.org/nickoan/ntee-r1quest/tui/internal/suggest"
@@ -184,6 +185,14 @@ type Model struct {
 	historyScrollX     int
 	historyTraceFilter string // set by `@h <traceId>`; empty = all endpoints
 
+	// History fuzzy finder (Ctrl+P): overlay matching the endpoint label plus
+	// request URL. Corpus is prepared on open and dropped on close.
+	histFuzzyOpen    bool
+	histFuzzyQuery   string
+	histFuzzyIndex   int
+	histFuzzyCorpus  []fuzzy.Prepared
+	histFuzzyMatches []fuzzy.Match
+
 	searchPrevMode mode
 	searchContent  string
 	searchInput    string
@@ -318,6 +327,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case historyLoadedMsg:
 		m.mode = modeHistory
+		m = m.closeHistoryFuzzy() // a reload must never leave a stale corpus
 		m.history = msg.records
 		m.historyIndex = 0
 		m.historyScrollY = 0
@@ -529,6 +539,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouse(msg)
 
 	case tea.KeyMsg:
+		// The history fuzzy finder captures every key while open (including
+		// Shift+Tab, which must not quick-switch modes under the overlay).
+		if m.mode == modeHistory && m.histFuzzyOpen {
+			return m.handleHistoryFuzzyKey(msg)
+		}
 		// Shift+Tab quick-switches between the primary modes from anywhere.
 		if msg.Type == tea.KeyShiftTab {
 			return m.quickSwitch()
@@ -833,7 +848,7 @@ var appCommandVerbs = map[string]bool{
 	"@e": true, "@edit": true,
 	"@h": true, "@history": true,
 	"@ai":   true,
-	"@copy": true, "@report": true,
+	"@copy": true, "@cp": true, "@report": true,
 	"@s": true, "@search": true,
 	"@exit": true, "@quit": true,
 	"@reload":      true,
@@ -880,7 +895,7 @@ func (m Model) handleAppCommand(command string) (tea.Model, tea.Cmd) {
 		return m, loadHistoryCmd(m.client, arg)
 	case "@ai":
 		return m.enterAI()
-	case "@copy", "@report":
+	case "@copy", "@cp", "@report":
 		return m, copyCmd(m.currentMainContent())
 	case "@reload":
 		return m, reloadCmd(m.client)
@@ -1161,12 +1176,15 @@ func (m Model) handleViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ── History mode ────────────────────────────────────────────────────────────
 
 func (m Model) handleHistoryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.notice = "" // transient notices (e.g. c's "copied") clear on any keystroke
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 	case tea.KeyEsc:
 		m.mode = modeQuery
 		return m, nil
+	case tea.KeyCtrlP:
+		return m.openHistoryFuzzy(), nil
 	// Shift+arrows: select an entry in the left history list (resets the
 	// right-pane scroll so each record opens at the top).
 	case tea.KeyShiftUp:
@@ -1199,6 +1217,13 @@ func (m Model) handleHistoryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch string(msg.Runes) {
 		case "s":
 			return m.enterSearch(modeHistory, m.currentMainContent()), nil
+		case "c":
+			// Copy the right pane: the selected record formatted the same way
+			// @copy formats it everywhere.
+			if len(m.history) == 0 {
+				return m, nil
+			}
+			return m, copyCmd(m.currentMainContent())
 		}
 		return m, nil
 	}
